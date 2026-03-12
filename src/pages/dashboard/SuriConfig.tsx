@@ -9,7 +9,7 @@ import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, A
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection } from '@/services/api';
+import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection, patchIntegration } from '@/services/api';
 import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
 import gsap from 'gsap';
 import { useGsapStagger } from '@/hooks/use-gsap';
@@ -76,7 +76,10 @@ const SuriConfig = () => {
             } catch { /* usa default */ }
           }
 
-          if (savedConfig.endpoint) setConnectionStatus('success');
+          // Restaura status de conexão persistido no banco
+          if (c.chatbot_connection_status && c.chatbot_connection_status !== 'idle') {
+            setConnectionStatus(c.chatbot_connection_status as 'success' | 'error');
+          }
         }
       })
       .finally(() => setLoading(false));
@@ -147,12 +150,14 @@ const SuriConfig = () => {
 
       if (result.success) {
         setConnectionStatus('success');
+        await patchIntegration({ chatbot_connection_status: 'success' }).catch(() => {});
         toast({
           title: '✅ Conexão bem-sucedida!',
           description: result.message || `HTTP ${result.httpStatus}`,
         });
       } else {
         setConnectionStatus('error');
+        await patchIntegration({ chatbot_connection_status: 'error' }).catch(() => {});
         toast({
           title: '❌ Falha na conexão',
           description: result.message || 'Verifique a URL e o Token de Integração.',
@@ -279,7 +284,7 @@ const SuriConfig = () => {
             <Label>Plataforma</Label>
             <Select
               value={platform}
-              onValueChange={(v) => { setPlatform(v as ChatbotPlatform); setConfig({}); setConnectionStatus('idle'); }}
+              onValueChange={(v) => { setPlatform(v as ChatbotPlatform); setConfig({}); setConnectionStatus('idle'); patchIntegration({ chatbot_connection_status: 'idle' }).catch(() => {}); }}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a plataforma de chatbot" />
@@ -323,12 +328,30 @@ const SuriConfig = () => {
           })}
 
           {platform && (
-            <div className="flex gap-3 pt-2">
-              <Button variant="outline" onClick={handleTest} disabled={testing}>
-                {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Testar Conexão
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={handleTest}
+                disabled={testing || saving}
+                className={
+                  connectionStatus === 'success'
+                    ? 'border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950'
+                    : connectionStatus === 'error'
+                    ? 'border-destructive text-destructive hover:bg-destructive/10'
+                    : ''
+                }
+              >
+                {testing ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Testando...</>
+                ) : connectionStatus === 'success' ? (
+                  <><CheckCircle2 className="mr-2 h-4 w-4 text-green-500" />Conexão OK</>
+                ) : connectionStatus === 'error' ? (
+                  <><XCircle className="mr-2 h-4 w-4" />Falha — Testar novamente</>
+                ) : (
+                  <>Testar Conexão</>
+                )}
               </Button>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button onClick={handleSave} disabled={saving || testing}>
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Salvar
               </Button>

@@ -1,0 +1,32 @@
+/* ============================================================
+   TOKENS — Sidebar
+   Cores exclusivas da barra lateral.
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* ── Sidebar — modo claro ─────────────────────────────── */
+    --sidebar-background:          227 44% 14%;
+    --sidebar-foreground:          220 25% 75%;
+    --sidebar-primary:             207 59% 65%;
+    --sidebar-primary-foreground:  0 0% 100%;
+    --sidebar-accent:              227 38% 20%;
+    --sidebar-accent-foreground:   220 25% 95%;
+    --sidebar-border:              227 32% 20%;
+    --sidebar-ring:                207 59% 55%;
+    --sidebar-muted:               220 12% 50%;
+  }
+
+  .dark {
+    /* ── Sidebar — modo escuro ────────────────────────────── */
+    --sidebar-background:          227 44% 7%;
+    --sidebar-foreground:          220 18% 68%;
+    --sidebar-primary:             207 59% 65%;
+    --sidebar-primary-foreground:  0 0% 100%;
+    --sidebar-accent:              227 36% 13%;
+    --sidebar-accent-foreground:   220 18% 92%;
+    --sidebar-border:              227 30% 14%;
+    --sidebar-ring:                207 59% 55%;
+    --sidebar-muted:               220 12% 46%;
+  }
+}

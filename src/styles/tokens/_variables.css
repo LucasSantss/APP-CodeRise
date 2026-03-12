@@ -1,0 +1,95 @@
+/* ============================================================
+   TOKENS — Variáveis CSS globais
+   Edite aqui para mudar cores, tipografia, bordas e espaçamentos
+   de toda a aplicação de uma só vez.
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* ── Paleta da marca ─────────────────────────────────────
+       Altere esses três valores para mudar toda a identidade
+       visual da plataforma (sidebar, botões, gradientes, etc.)
+    ──────────────────────────────────────────────────────── */
+    --brand-navy:   227 44% 28%;   /* #26316a — azul-marinho  */
+    --brand-purple: 267 43% 39%;   /* #56388e — roxo          */
+    --brand-blue:   207 59% 45%;   /* #2f7bb9 — azul claro    */
+
+    /* ── Modo claro ──────────────────────────────────────── */
+    --background:          220 30% 97%;
+    --foreground:          227 40% 14%;
+
+    --card:                0 0% 100%;
+    --card-foreground:     227 40% 14%;
+
+    --popover:             0 0% 100%;
+    --popover-foreground:  227 40% 14%;
+
+    --primary:             227 44% 28%;
+    --primary-foreground:  0 0% 100%;
+
+    --secondary:           267 43% 39%;
+    --secondary-foreground:0 0% 100%;
+
+    --muted:               220 20% 93%;
+    --muted-foreground:    220 15% 52%;
+
+    --accent:              207 59% 45%;
+    --accent-foreground:   0 0% 100%;
+
+    --destructive:         0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success:             152 60% 38%;
+    --success-foreground:  0 0% 100%;
+
+    --warning:             38 92% 50%;
+    --warning-foreground:  0 0% 100%;
+
+    --border:              220 18% 88%;
+    --input:               220 18% 88%;
+    --ring:                227 44% 28%;
+
+    /* ── Raio de borda ───────────────────────────────────────
+       Mude --radius para deixar os cards mais quadrados (0.4rem)
+       ou mais arredondados (1.2rem)
+    ──────────────────────────────────────────────────────── */
+    --radius: 0.9rem;
+  }
+
+  /* ── Modo escuro ────────────────────────────────────────── */
+  .dark {
+    --background:          227 42% 8%;
+    --foreground:          220 18% 91%;
+
+    --card:                227 38% 11%;
+    --card-foreground:     220 18% 91%;
+
+    --popover:             227 38% 11%;
+    --popover-foreground:  220 18% 91%;
+
+    --primary:             207 59% 60%;
+    --primary-foreground:  0 0% 100%;
+
+    --secondary:           267 43% 55%;
+    --secondary-foreground:0 0% 100%;
+
+    --muted:               227 28% 16%;
+    --muted-foreground:    220 14% 55%;
+
+    --accent:              227 33% 20%;
+    --accent-foreground:   220 18% 91%;
+
+    --destructive:         0 55% 35%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success:             152 60% 38%;
+    --success-foreground:  0 0% 100%;
+
+    --warning:             38 92% 50%;
+    --warning-foreground:  0 0% 100%;
+
+    --border:              227 28% 18%;
+    --input:               227 28% 18%;
+    --ring:                207 59% 60%;
+  }
+}

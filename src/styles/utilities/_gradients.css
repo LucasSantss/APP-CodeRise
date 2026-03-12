@@ -1,0 +1,49 @@
+/* ============================================================
+   GRADIENTES DA MARCA
+   Classes utilitárias para aplicar os gradientes CodeRise.
+
+   Uso rápido:
+     <div className="gradient-brand">          → fundo degradê
+     <span className="text-gradient-brand">   → texto degradê
+     <div className="gradient-brand-soft">    → fundo suave
+   ============================================================ */
+
+@layer utilities {
+
+  /* ── Fundo: navy → purple → blue ── */
+  .gradient-brand {
+    background: linear-gradient(135deg, #26316a 0%, #56388e 55%, #2f7bb9 100%);
+  }
+
+  /* ── Fundo reverso: blue → purple → navy ── */
+  .gradient-brand-r {
+    background: linear-gradient(135deg, #2f7bb9 0%, #56388e 55%, #26316a 100%);
+  }
+
+  /* ── Fundo translúcido para cards e seções ── */
+  .gradient-brand-soft {
+    background: linear-gradient(
+      135deg,
+      rgba(38,  49, 106, 0.10) 0%,
+      rgba(86,  56, 142, 0.08) 55%,
+      rgba(47, 123, 185, 0.10) 100%
+    );
+  }
+
+  /* ── Fundo da sidebar ── */
+  .gradient-sidebar-bg {
+    background: linear-gradient(
+      175deg,
+      hsl(227 44% 13%) 0%,
+      hsl(227 44% 9%)  100%
+    );
+  }
+
+  /* ── Texto com degradê ── */
+  .text-gradient-brand {
+    background: linear-gradient(135deg, #26316a, #56388e, #2f7bb9);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}

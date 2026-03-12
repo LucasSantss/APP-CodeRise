@@ -46,7 +46,14 @@ export const getIntegrations = (userId?: number) =>
   request<ApiResponse<UserIntegration | UserIntegration[]>>(userId ? `/integrations?user_id=${userId}` : '/integrations');
 export const updateIntegration = (data: Partial<UserIntegration>, userId?: number) =>
   request<ApiResponse<UserIntegration>>(`/integrations${userId ? `?user_id=${userId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) });
-export const patchIntegration = (data: { suri_active?: boolean; ecommerce_active?: boolean }, userId?: number) =>
+export const patchIntegration = (data: {
+  suri_active?: boolean;
+  ecommerce_active?: boolean;
+  chatbot_active?: boolean;
+  chatbot_connection_status?: 'idle' | 'success' | 'error';
+  ecommerce_connection_status?: 'idle' | 'success' | 'error';
+  ecommerce_connection_msg?: string | null;
+}, userId?: number) =>
   request<ApiResponse>(`/integrations${userId ? `?user_id=${userId}` : ''}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const clearIntegration = (userId?: number) =>
   request<ApiResponse>(`/integrations${userId ? `?user_id=${userId}` : ''}`, { method: 'DELETE' });
