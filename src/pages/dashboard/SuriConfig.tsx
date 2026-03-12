@@ -154,14 +154,23 @@ const SuriConfig = () => {
 
       if (result.success) {
         setConnectionStatus('success');
-        setConfig((prev) => ({ ...prev, _connection_status: 'success', _connection_msg: result.message || '' }));
+        setConfig((prev) => {
+          const updated = { ...prev, _connection_status: 'success', _connection_msg: result.message || '' };
+          // Auto-persist so status survives page reload without requiring manual Save
+          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'success' } }).catch(() => {});
+          return updated;
+        });
         toast({
           title: '✅ Conexão bem-sucedida!',
           description: result.message || `HTTP ${result.httpStatus}`,
         });
       } else {
         setConnectionStatus('error');
-        setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: result.message || '' }));
+        setConfig((prev) => {
+          const updated = { ...prev, _connection_status: 'error', _connection_msg: result.message || '' };
+          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => {});
+          return updated;
+        });
         toast({
           title: '❌ Falha na conexão',
           description: result.message || 'Verifique a URL e o Token de Integração.',
@@ -171,7 +180,11 @@ const SuriConfig = () => {
     } catch (err: unknown) {
       setConnectionStatus('error');
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
-      setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: msg }));
+      setConfig((prev) => {
+        const updated = { ...prev, _connection_status: 'error', _connection_msg: msg };
+        updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => {});
+        return updated;
+      });
       toast({
         title: '❌ Erro ao testar conexão',
         description: msg,

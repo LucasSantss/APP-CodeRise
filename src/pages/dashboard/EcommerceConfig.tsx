@@ -145,20 +145,33 @@ const EcommerceConfig = () => {
         const msg = result.message || 'Conexão estabelecida com sucesso!';
         setConnectionStatus('success');
         setConnectionMsg(msg);
-        setConfig((prev) => ({ ...prev, _connection_status: 'success', _connection_msg: msg }));
+        setConfig((prev) => {
+          const updated = { ...prev, _connection_status: 'success', _connection_msg: msg };
+          // Auto-persist so status survives page reload without requiring manual Save
+          updateIntegration({ ecommerce_platform: platform, ecommerce_config: updated }).catch(() => {});
+          return updated;
+        });
         toast({ title: '✅ Conexão bem-sucedida!', description: result.store ? `Loja: ${result.store}` : undefined });
       } else {
         const msg = result.message || 'Falha na conexão.';
         setConnectionStatus('error');
         setConnectionMsg(msg);
-        setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: msg }));
+        setConfig((prev) => {
+          const updated = { ...prev, _connection_status: 'error', _connection_msg: msg };
+          updateIntegration({ ecommerce_platform: platform, ecommerce_config: updated }).catch(() => {});
+          return updated;
+        });
         toast({ title: 'Falha na conexão', description: result.message, variant: 'destructive' });
       }
     } catch (err: unknown) {
       setConnectionStatus('error');
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
       setConnectionMsg(msg);
-      setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: msg }));
+      setConfig((prev) => {
+        const updated = { ...prev, _connection_status: 'error', _connection_msg: msg };
+        updateIntegration({ ecommerce_platform: platform, ecommerce_config: updated }).catch(() => {});
+        return updated;
+      });
       toast({ title: 'Erro ao testar', description: msg, variant: 'destructive' });
     } finally {
       setTesting(false);
@@ -229,6 +242,16 @@ const EcommerceConfig = () => {
                 {ecommerceActive && (
                   <Badge variant="outline" className="border-success text-success gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Ativo
+                  </Badge>
+                )}
+                {!ecommerceActive && connectionStatus === 'success' && (
+                  <Badge variant="outline" className="border-success text-success gap-1">
+                    <CheckCircle2 className="h-3 w-3" /> Conectado
+                  </Badge>
+                )}
+                {!ecommerceActive && connectionStatus === 'error' && (
+                  <Badge variant="destructive" className="gap-1">
+                    <XCircle className="h-3 w-3" /> Falha
                   </Badge>
                 )}
                 <Button variant={ecommerceActive ? 'default' : 'outline'} size="sm" onClick={handleToggle}>
