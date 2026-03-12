@@ -8,6 +8,7 @@ import {
   SidebarHeader, SidebarFooter, useSidebar,
 } from '@/components/ui/sidebar';
 import { useAuthStore } from '@/store/auth';
+import { usePlatformSettingsStore } from '@/store/platformSettings';
 
 const adminItems = [
   { title: 'Dashboard',     url: '/admin/dashboard',    icon: LayoutDashboard },
@@ -16,21 +17,23 @@ const adminItems = [
   { title: 'Configurações', url: '/admin/settings',     icon: Settings },
 ];
 
-const userItems = [
-  { title: 'Dashboard',  url: '/dashboard',                  icon: LayoutDashboard },
-  { title: 'Chatbot',    url: '/dashboard/suri-config',      icon: MessageSquare },
-  { title: 'E-commerce', url: '/dashboard/ecommerce-config', icon: ShoppingCart },
-  { title: 'Logs',       url: '/dashboard/logs',             icon: ScrollText },
-  { title: 'Webhooks',   url: '/dashboard/webhooks',         icon: Webhook },
-];
-
 const AppSidebar = () => {
   const { state }  = useSidebar();
   const collapsed  = state === 'collapsed';
   const location   = useLocation();
   const { user }   = useAuthStore();
+  const { chatbotEnabled, ecommerceEnabled } = usePlatformSettingsStore();
   const isAdmin    = user?.role === 'admin';
-  const items      = isAdmin ? adminItems : userItems;
+
+  const userItems = [
+    { title: 'Dashboard',  url: '/dashboard',                  icon: LayoutDashboard, always: true },
+    { title: 'Chatbot',    url: '/dashboard/suri-config',      icon: MessageSquare,   enabled: chatbotEnabled },
+    { title: 'E-commerce', url: '/dashboard/ecommerce-config', icon: ShoppingCart,    enabled: ecommerceEnabled },
+    { title: 'Logs',       url: '/dashboard/logs',             icon: ScrollText,      always: true },
+    { title: 'Webhooks',   url: '/dashboard/webhooks',         icon: Webhook,         always: true },
+  ].filter((item) => item.always || item.enabled);
+
+  const items = isAdmin ? adminItems : userItems;
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">

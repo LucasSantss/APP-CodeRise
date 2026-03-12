@@ -151,3 +151,13 @@ export const createSystemNotification = (data: {
     method: 'POST',
     body: JSON.stringify(data),
   });
+
+// Platform Settings (admin only)
+export const getPlatformSettings = () =>
+  request<{ success: boolean; settings: { chatbot_enabled: boolean; ecommerce_enabled: boolean } }>('/platform-settings');
+
+export const patchPlatformSettings = (data: { chatbot_enabled?: boolean; ecommerce_enabled?: boolean }) =>
+  request<{ success: boolean; settings: { chatbot_enabled: boolean; ecommerce_enabled: boolean } }>(
+    '/platform-settings',
+    { method: 'PATCH', body: JSON.stringify(data) }
+  );

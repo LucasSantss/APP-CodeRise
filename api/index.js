@@ -27,6 +27,7 @@ export default async function handler(req, res) {
   if (path === "/webhook" || path.startsWith("/webhook?")) return handleWebhook(req, res);
   if (path === "/register-webhook" || path.startsWith("/register-webhook?")) return handleRegisterWebhook(req, res);
   if (path === "/setup" || path.startsWith("/setup?")) return handleSetup(req, res);
+  if (path === "/platform-settings" || path.startsWith("/platform-settings?")) return handlePlatformSettings(req, res);
   if (path === "/test-suri"      || path.startsWith("/test-suri?"))      return handleTestSuri(req, res);
   if (path === "/test-ecommerce" || path.startsWith("/test-ecommerce?")) return handleTestEcommerce(req, res);
 
@@ -775,6 +776,7 @@ async function handleSetup(req, res) {
     await pool.query(`CREATE TABLE IF NOT EXISTS sync_rules (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, event VARCHAR(100) NOT NULL, active BOOLEAN NOT NULL DEFAULT true, message_template TEXT, delay_minutes INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW());`);
     await pool.query(`CREATE TABLE IF NOT EXISTS user_webhooks (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, event_type VARCHAR(100), payload JSONB, status VARCHAR(20) DEFAULT 'received', error_message TEXT, received_at TIMESTAMP NOT NULL DEFAULT NOW());`);
     await pool.query(`CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, type VARCHAR(30) NOT NULL, title VARCHAR(100) NOT NULL, message TEXT NOT NULL, image_url TEXT, target_role VARCHAR(20) DEFAULT 'all', target_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, scheduled_at TIMESTAMP, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW());`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT NOW());`);
     await pool.query(`CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, hidden BOOLEAN NOT NULL DEFAULT false, read_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (notification_id, user_id));`);
     const adminToken=crypto.randomBytes(32).toString("hex");
     await pool.query(`INSERT INTO users (name,email,password,role,token) VALUES ('Administrador','admin@plataforma.com','admin123','admin',$1) ON CONFLICT (email) DO NOTHING`,[adminToken]);
@@ -927,3 +929,44 @@ async function handleTestSuri(req, res) {
   return res.status(200).json({success:true,httpStatus,message:storeCount!==null?`Conexão bem-sucedida! ${storeCount} loja(s) encontrada(s).`:"Conexão com a Suri realizada com sucesso!"});
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// PLATFORM SETTINGS
+// ════════════════════════════════════════════════════════════════════════════
+async function handlePlatformSettings(req, res) {
+  const caller = await requireAuth(req, res); if (!caller) return;
+  if (caller.role !== "admin") return res.status(403).json({ success: false, message: "Acesso negado" });
+
+  // Ensure table exists (safe migration)
+  await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT NOW());`).catch(() => {});
+
+  if (req.method === "GET") {
+    const r = await pool.query("SELECT key, value FROM platform_settings WHERE key IN ('chatbot_enabled','ecommerce_enabled')");
+    const settings = { chatbot_enabled: true, ecommerce_enabled: true };
+    for (const row of r.rows) {
+      settings[row.key] = row.value === "true";
+    }
+    return res.status(200).json({ success: true, settings });
+  }
+
+  if (req.method === "PATCH") {
+    const { chatbot_enabled, ecommerce_enabled } = req.body || {};
+    const updates = [];
+    if (chatbot_enabled !== undefined) updates.push(["chatbot_enabled", String(chatbot_enabled)]);
+    if (ecommerce_enabled !== undefined) updates.push(["ecommerce_enabled", String(ecommerce_enabled)]);
+    if (!updates.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
+    for (const [k, v] of updates) {
+      await pool.query(
+        "INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()",
+        [k, v]
+      );
+    }
+    const r = await pool.query("SELECT key, value FROM platform_settings WHERE key IN ('chatbot_enabled','ecommerce_enabled')");
+    const settings = { chatbot_enabled: true, ecommerce_enabled: true };
+    for (const row of r.rows) settings[row.key] = row.value === "true";
+    return res.status(200).json({ success: true, message: "Configurações salvas", settings });
+  }
+
+  res.setHeader("Allow", ["GET", "PATCH"]);
+  return res.status(405).end();
+}
