@@ -70,9 +70,15 @@ const EcommerceConfig = () => {
         const i = (res as any).integration;
         if (i) {
           setPlatform(i.ecommerce_platform || '');
-          setConfig(i.ecommerce_config || {});
+          const savedConfig = i.ecommerce_config || {};
+          setConfig(savedConfig);
           setEcommerceActive(i.ecommerce_active || false);
           setWebhookToken(i.webhook_token || '');
+          // Restore last known connection status
+          if (savedConfig._connection_status) {
+            setConnectionStatus(savedConfig._connection_status as 'success' | 'error');
+            setConnectionMsg(savedConfig._connection_msg || '');
+          }
         }
       })
       .finally(() => setLoading(false));
@@ -90,7 +96,9 @@ const EcommerceConfig = () => {
     }
     setSaving(true);
     try {
-      await updateIntegration({ ecommerce_platform: platform, ecommerce_config: config });
+      // Strip internal UI-only fields before persisting
+      const { _connection_status, _connection_msg, ...configToSave } = config;
+      await updateIntegration({ ecommerce_platform: platform, ecommerce_config: { ...configToSave, _connection_status: connectionStatus !== 'idle' ? connectionStatus : undefined, _connection_msg: connectionMsg || undefined } });
       toast({ title: 'Configuração salva com sucesso!' });
     } catch (err: unknown) {
       toast({ title: 'Erro ao salvar', description: err instanceof Error ? err.message : '', variant: 'destructive' });
@@ -134,18 +142,23 @@ const EcommerceConfig = () => {
     try {
       const result = await testEcommerceConnection(platform, config);
       if (result.success) {
+        const msg = result.message || 'Conexão estabelecida com sucesso!';
         setConnectionStatus('success');
-        setConnectionMsg(result.message || 'Conexão estabelecida com sucesso!');
+        setConnectionMsg(msg);
+        setConfig((prev) => ({ ...prev, _connection_status: 'success', _connection_msg: msg }));
         toast({ title: '✅ Conexão bem-sucedida!', description: result.store ? `Loja: ${result.store}` : undefined });
       } else {
+        const msg = result.message || 'Falha na conexão.';
         setConnectionStatus('error');
-        setConnectionMsg(result.message || 'Falha na conexão.');
+        setConnectionMsg(msg);
+        setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: msg }));
         toast({ title: 'Falha na conexão', description: result.message, variant: 'destructive' });
       }
     } catch (err: unknown) {
       setConnectionStatus('error');
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
       setConnectionMsg(msg);
+      setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: msg }));
       toast({ title: 'Erro ao testar', description: msg, variant: 'destructive' });
     } finally {
       setTesting(false);
@@ -256,7 +269,6 @@ const EcommerceConfig = () => {
                 value={config[field.key] || ''}
                 onChange={(e) => {
                   setConfig({ ...config, [field.key]: e.target.value });
-                  setConnectionStatus('idle');
                 }}
               />
             </div>

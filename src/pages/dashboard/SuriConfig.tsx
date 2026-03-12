@@ -78,7 +78,12 @@ const SuriConfig = () => {
             } catch { /* usa default */ }
           }
 
-          if (savedConfig.endpoint) setConnectionStatus('success');
+          // Restore last known connection status from saved config
+          if (savedConfig._connection_status) {
+            setConnectionStatus(savedConfig._connection_status as 'success' | 'error');
+          } else if (savedConfig.endpoint) {
+            setConnectionStatus('success');
+          }
         }
       })
       .finally(() => setLoading(false));
@@ -149,12 +154,14 @@ const SuriConfig = () => {
 
       if (result.success) {
         setConnectionStatus('success');
+        setConfig((prev) => ({ ...prev, _connection_status: 'success', _connection_msg: result.message || '' }));
         toast({
           title: '✅ Conexão bem-sucedida!',
           description: result.message || `HTTP ${result.httpStatus}`,
         });
       } else {
         setConnectionStatus('error');
+        setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: result.message || '' }));
         toast({
           title: '❌ Falha na conexão',
           description: result.message || 'Verifique a URL e o Token de Integração.',
@@ -164,6 +171,7 @@ const SuriConfig = () => {
     } catch (err: unknown) {
       setConnectionStatus('error');
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      setConfig((prev) => ({ ...prev, _connection_status: 'error', _connection_msg: msg }));
       toast({
         title: '❌ Erro ao testar conexão',
         description: msg,
@@ -188,6 +196,8 @@ const SuriConfig = () => {
         finalConfig.suri_topics = JSON.stringify(selectedTopics);
       }
 
+      // Persist connection status alongside config so it survives page reload
+      finalConfig._connection_status = connectionStatus !== 'idle' ? connectionStatus : '';
       await updateChatbot({
         chatbot_platform: platform,
         chatbot_config:   finalConfig,
