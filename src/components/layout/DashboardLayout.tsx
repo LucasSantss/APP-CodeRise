@@ -5,21 +5,14 @@ import Header from './Header';
 import NotificationPopup from './NotificationPopup';
 import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
-import { usePlatformSettingsStore } from '@/store/platformSettings';
-import { getPlatformSettings } from '@/services/api';
+import { usePlatformSettingsPoll } from '@/hooks/use-platform-settings-poll';
 
 const DashboardLayout = () => {
   const location = useLocation();
-  const mainRef = useRef<HTMLElement>(null);
-  const { setSettings } = usePlatformSettingsStore();
+  const mainRef  = useRef<HTMLElement>(null);
 
-  // Always fetch on mount — ensures users see up-to-date platform settings
-  // (admin may have changed them; no caching with loaded guard here)
-  useEffect(() => {
-    getPlatformSettings()
-      .then((res) => setSettings(res.platforms || {}))
-      .catch(() => setSettings({})); // on error: treat all as enabled
-  }, [setSettings]);
+  // Real-time platform settings — polls every 10s, pauses when tab is hidden
+  usePlatformSettingsPoll();
 
   useEffect(() => {
     if (!mainRef.current) return;
