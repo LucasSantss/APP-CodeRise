@@ -182,7 +182,7 @@ const EcommerceConfig = () => {
             </div>
             {platform && (
               <div className="flex items-center gap-2">
-                {/* Badge de status de conexão */}
+                {/* Badge de conexão */}
                 {connectionStatus === 'success' && (
                   <Badge variant="outline" className="border-success text-success gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Conectado
@@ -193,13 +193,15 @@ const EcommerceConfig = () => {
                     <XCircle className="h-3 w-3" /> Falha
                   </Badge>
                 )}
-                {/* Toggle ativo/inativo */}
-                {ecommerceActive && (
-                  <Badge variant="outline" className="border-success text-success gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Ativo
-                  </Badge>
-                )}
-                <Button variant={ecommerceActive ? 'default' : 'outline'} size="sm" onClick={handleToggle}>
+                {/* Botão toggle único */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleToggle}
+                  className={ecommerceActive
+                    ? 'border-success text-success hover:bg-success/10'
+                    : 'text-muted-foreground'}
+                >
                   {ecommerceActive ? 'Ativado' : 'Desativado'}
                 </Button>
               </div>
