@@ -239,17 +239,12 @@ const EcommerceConfig = () => {
             </div>
             {platform && (
               <div className="flex items-center gap-2">
-                {ecommerceActive && (
-                  <Badge variant="outline" className="border-success text-success gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Ativo
-                  </Badge>
-                )}
-                {!ecommerceActive && connectionStatus === 'success' && (
+                {connectionStatus === 'success' && (
                   <Badge variant="outline" className="border-success text-success gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Conectado
                   </Badge>
                 )}
-                {!ecommerceActive && connectionStatus === 'error' && (
+                {connectionStatus === 'error' && (
                   <Badge variant="destructive" className="gap-1">
                     <XCircle className="h-3 w-3" /> Falha
                   </Badge>
