@@ -941,12 +941,12 @@ async function handleTestSuri(req, res) {
 // ════════════════════════════════════════════════════════════════════════════
 async function handlePlatformSettings(req, res) {
   const caller = await requireAuth(req, res); if (!caller) return;
-  if (caller.role !== "admin") return res.status(403).json({ success: false, message: "Acesso negado" });
 
   // Safe migration
   await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT NOW());`).catch(() => {});
 
   if (req.method === "GET") {
+    // Any authenticated user can read platform settings
     const r = await pool.query("SELECT key, value FROM platform_settings WHERE key LIKE 'platform:%'");
     // Build map: { suri: true/false, weni: true/false, ... }
     const platforms = {};
@@ -958,6 +958,7 @@ async function handlePlatformSettings(req, res) {
   }
 
   if (req.method === "PATCH") {
+    if (caller.role !== "admin") return res.status(403).json({ success: false, message: "Acesso negado" });
     // Body: { platforms: { suri: false, tray: true, ... } }
     const { platforms } = req.body || {};
     if (!platforms || typeof platforms !== "object" || !Object.keys(platforms).length) {

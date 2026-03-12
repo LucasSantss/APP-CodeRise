@@ -11,15 +11,15 @@ import { getPlatformSettings } from '@/services/api';
 const DashboardLayout = () => {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
-  const { setSettings, loaded } = usePlatformSettingsStore();
+  const { setSettings } = usePlatformSettingsStore();
 
+  // Always fetch on mount — ensures users see up-to-date platform settings
+  // (admin may have changed them; no caching with loaded guard here)
   useEffect(() => {
-    if (!loaded) {
-      getPlatformSettings()
-        .then((res) => setSettings(res.platforms || {}))
-        .catch(() => setSettings({})); // fallback: all enabled
-    }
-  }, [loaded, setSettings]);
+    getPlatformSettings()
+      .then((res) => setSettings(res.platforms || {}))
+      .catch(() => setSettings({})); // on error: treat all as enabled
+  }, [setSettings]);
 
   useEffect(() => {
     if (!mainRef.current) return;
