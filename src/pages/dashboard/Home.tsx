@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import {
   MessageSquare, ShoppingCart, Webhook, Loader2,
   CheckCircle2, Activity, TrendingUp, AlertCircle,
-  ArrowRight, Zap, Circle,
+  ArrowRight, Zap, Circle, XCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getIntegrations, getWebhooks } from '@/services/api';
+import { getIntegrations, getWebhooks, getChatbot } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import type { UserIntegration, WebhookEvent } from '@/types';
 import gsap from 'gsap';
@@ -21,18 +21,40 @@ const STATUS_COLORS: Record<string, string> = {
   received:   'text-amber-500',
 };
 
+type ConnStatus = 'success' | 'error' | 'idle';
+
 const UserHome = () => {
   const navigate              = useNavigate();
   const { user }              = useAuthStore();
   const [integration, setIntegration] = useState<UserIntegration | null>(null);
+  const [chatbotConnStatus, setChatbotConnStatus] = useState<ConnStatus>('idle');
+  const [ecommerceConnStatus, setEcommerceConnStatus] = useState<ConnStatus>('idle');
+  const [chatbotPlatformLabel, setChatbotPlatformLabel] = useState('');
   const [events, setEvents]   = useState<WebhookEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const [i, w] = await Promise.all([getIntegrations(), getWebhooks({})]);
-      setIntegration((i as any).integration || null);
-      const lista = (w as any).webhooks ?? [];
+      const [iRes, wRes, cRes] = await Promise.all([
+        getIntegrations(),
+        getWebhooks({}),
+        getChatbot(),
+      ]);
+
+      const i: UserIntegration | null = (iRes as any).integration || null;
+      setIntegration(i);
+
+      // E-commerce connection status from saved config
+      const ecomConfig = i?.ecommerce_config as Record<string, string> | null;
+      setEcommerceConnStatus((ecomConfig?._connection_status as ConnStatus) || 'idle');
+
+      // Chatbot connection status from chatbot config
+      const c = (cRes as any).chatbot;
+      const chatConfig = c?.chatbot_config as Record<string, string> | null;
+      setChatbotConnStatus((chatConfig?._connection_status as ConnStatus) || 'idle');
+      setChatbotPlatformLabel(c?.chatbot_platform || '');
+
+      const lista = (wRes as any).webhooks ?? [];
       setEvents(Array.isArray(lista) ? lista : []);
     } finally {
       setLoading(false);
@@ -40,6 +62,7 @@ const UserHome = () => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
   const [lastWebhookId, setLastWebhookId] = useState<number | null>(null);
   useLongPoll<WebhookEvent>(
     '/webhooks/poll',
@@ -48,8 +71,6 @@ const UserHome = () => {
     { enabled: !!user }
   );
 
-
-
   const today        = new Date().toDateString();
   const totalEvents  = events.length;
   const eventsToday  = events.filter((e) => new Date(e.received_at).toDateString() === today).length;
@@ -57,10 +78,71 @@ const UserHome = () => {
   const lastEvent    = events[0] || null;
   const firstName    = user?.name?.split(' ')[0] || 'usuário';
 
+  // ── Status card helpers ──────────────────────────────────────────────────
+  const getConnBadge = (
+    active: boolean,
+    connStatus: ConnStatus,
+    activeLabel: string,
+    errorLabel: string,
+    idleLabel: string,
+  ) => {
+    if (active)                   return { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: activeLabel, icon: <Circle className="h-1.5 w-1.5 fill-current mr-1" /> };
+    if (connStatus === 'error')   return { variant: 'destructive' as const, className: 'text-xs', label: errorLabel, icon: <XCircle className="h-3 w-3 mr-1" /> };
+    if (connStatus === 'success') return { variant: 'outline' as const, className: 'border-amber-400/40 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400', label: 'Configurado', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
+    return { variant: 'secondary' as const, className: '', label: idleLabel, icon: null };
+  };
+
+  const chatbotBadge = getConnBadge(
+    integration?.suri_active ?? false,
+    chatbotConnStatus,
+    chatbotPlatformLabel ? `${chatbotPlatformLabel} ativo` : 'Ativo',
+    'Falha na conexão',
+    chatbotPlatformLabel ? chatbotPlatformLabel : 'Não configurado',
+  );
+
+  const ecommerceBadge = getConnBadge(
+    integration?.ecommerce_active ?? false,
+    ecommerceConnStatus,
+    integration?.ecommerce_platform ? `${integration.ecommerce_platform} ativo` : 'Ativo',
+    'Falha na conexão',
+    integration?.ecommerce_platform || 'Não configurado',
+  );
+
   const statusCards = [
-    { title: 'Chatbot', icon: MessageSquare, active: integration?.suri_active ?? false, status: integration?.suri_active ? 'Ativo' : integration?.suri_endpoint ? 'Configurado' : 'Não configurado', link: '/dashboard/suri-config', gradient: 'from-[#26316a]/10 to-[#56388e]/10', iconBg: 'bg-[#56388e]/15', iconColor: 'text-[#56388e]' },
-    { title: 'E-commerce', icon: ShoppingCart, active: integration?.ecommerce_active ?? false, status: integration?.ecommerce_active ? `${integration.ecommerce_platform} ativo` : integration?.ecommerce_platform || 'Não configurado', link: '/dashboard/ecommerce-config', gradient: 'from-[#2f7bb9]/10 to-[#26316a]/10', iconBg: 'bg-[#2f7bb9]/15', iconColor: 'text-[#2f7bb9]' },
-    { title: 'Webhooks', icon: Webhook, active: !!(integration?.webhook_token && (integration as any)?.chatbot_token), status: integration?.webhook_token ? ((integration as any)?.chatbot_token ? 'Ambos ativos' : 'E-commerce ativo') : 'Pendente', link: '/dashboard/webhooks', gradient: 'from-[#56388e]/10 to-[#2f7bb9]/10', iconBg: 'bg-gradient-to-br from-[#56388e]/15 to-[#2f7bb9]/15', iconColor: 'text-[#2f7bb9]' },
+    {
+      title: 'Chatbot',
+      icon: MessageSquare,
+      badge: chatbotBadge,
+      link: '/dashboard/suri-config',
+      gradient: 'from-[#26316a]/10 to-[#56388e]/10',
+      iconBg: 'bg-[#56388e]/15',
+      iconColor: 'text-[#56388e]',
+    },
+    {
+      title: 'E-commerce',
+      icon: ShoppingCart,
+      badge: ecommerceBadge,
+      link: '/dashboard/ecommerce-config',
+      gradient: 'from-[#2f7bb9]/10 to-[#26316a]/10',
+      iconBg: 'bg-[#2f7bb9]/15',
+      iconColor: 'text-[#2f7bb9]',
+    },
+    {
+      title: 'Webhooks',
+      icon: Webhook,
+      badge: (() => {
+        const hasWebhook = !!(integration?.webhook_token && (integration as any)?.chatbot_token);
+        return hasWebhook
+          ? { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: 'Ambos ativos', icon: <Circle className="h-1.5 w-1.5 fill-current mr-1" /> }
+          : integration?.webhook_token
+            ? { variant: 'outline' as const, className: 'border-amber-400/40 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400', label: 'E-commerce ativo', icon: null }
+            : { variant: 'secondary' as const, className: '', label: 'Pendente', icon: null };
+      })(),
+      link: '/dashboard/webhooks',
+      gradient: 'from-[#56388e]/10 to-[#2f7bb9]/10',
+      iconBg: 'bg-gradient-to-br from-[#56388e]/15 to-[#2f7bb9]/15',
+      iconColor: 'text-[#2f7bb9]',
+    },
   ];
 
   const metrics = [
@@ -69,12 +151,18 @@ const UserHome = () => {
     { title: 'Erros', value: errorEvents, icon: AlertCircle, color: errorEvents > 0 ? 'text-rose-500' : 'text-muted-foreground', sub: 'aguardando ação' },
   ];
 
+  // ── Primeiros Passos ──────────────────────────────────────────────────────
+  // "done" = conexão testada com sucesso OU integração ativa
+  const chatbotDone    = chatbotConnStatus === 'success' || (integration?.suri_active ?? false);
+  const ecommerceDone  = ecommerceConnStatus === 'success' || (integration?.ecommerce_active ?? false);
+  const webhookDone    = totalEvents > 0;
+
   const steps = [
-    { step: 1, text: 'Configure a conexão com o chatbot', done: !!integration?.suri_endpoint, link: '/dashboard/suri-config' },
-    { step: 2, text: 'Configure sua plataforma de e-commerce', done: !!integration?.ecommerce_platform, link: '/dashboard/ecommerce-config' },
-    { step: 3, text: 'Registre o webhook na sua loja', done: totalEvents > 0, link: '/dashboard/webhooks' },
+    { step: 1, text: 'Configure a conexão com o chatbot',     done: chatbotDone,   link: '/dashboard/suri-config' },
+    { step: 2, text: 'Configure sua plataforma de e-commerce', done: ecommerceDone, link: '/dashboard/ecommerce-config' },
+    { step: 3, text: 'Registre o webhook na sua loja',          done: webhookDone,   link: '/dashboard/webhooks' },
   ];
-  const allDone = steps.every((s) => s.done);
+  const allDone   = steps.every((s) => s.done);
   const doneCount = steps.filter((s) => s.done).length;
 
   // ── GSAP ──────────────────────────────────────────────────────────────────
@@ -112,16 +200,26 @@ const UserHome = () => {
       {/* Status cards */}
       <div ref={statusGridRef} className="grid gap-4 sm:grid-cols-3">
         {statusCards.map((card) => (
-          <Card key={card.title} style={{ opacity: 0 }} className={`cursor-pointer border-border/60 bg-gradient-to-br ${card.gradient} relative overflow-hidden rounded-2xl`} onClick={() => navigate(card.link)} onMouseEnter={handleCardEnter} onMouseLeave={handleCardLeave}>
+          <Card
+            key={card.title}
+            style={{ opacity: 0 }}
+            className={`cursor-pointer border-border/60 bg-gradient-to-br ${card.gradient} relative overflow-hidden rounded-2xl`}
+            onClick={() => navigate(card.link)}
+            onMouseEnter={handleCardEnter}
+            onMouseLeave={handleCardLeave}
+          >
             <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 px-5">
               <CardTitle className="text-sm font-semibold text-muted-foreground">{card.title}</CardTitle>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : <div className={`h-8 w-8 rounded-xl ${card.iconBg} flex items-center justify-center`}><card.icon className={`h-4 w-4 ${card.iconColor}`} /></div>}
+              {loading
+                ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                : <div className={`h-8 w-8 rounded-xl ${card.iconBg} flex items-center justify-center`}><card.icon className={`h-4 w-4 ${card.iconColor}`} /></div>
+              }
             </CardHeader>
             <CardContent className="px-5 pb-4">
               {loading ? <div className="h-5 w-28 shimmer-load rounded-lg" /> : (
                 <div className="flex items-center justify-between">
-                  <Badge variant={card.active ? 'outline' : 'secondary'} className={`rounded-lg text-xs ${card.active ? 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400' : ''}`}>
-                    {card.active && <Circle className="h-1.5 w-1.5 fill-current mr-1" />}{card.status}
+                  <Badge variant={card.badge.variant} className={`rounded-lg text-xs flex items-center ${card.badge.className}`}>
+                    {card.badge.icon}{card.badge.label}
                   </Badge>
                   <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40" />
                 </div>
@@ -162,7 +260,9 @@ const UserHome = () => {
             <CardHeader className="pb-2 pt-4 px-5">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold">Último Evento</CardTitle>
-                <Button variant="ghost" size="sm" className="text-xs h-7 rounded-lg" onClick={() => navigate('/dashboard/logs')}>Ver logs <ArrowRight className="ml-1 h-3 w-3" /></Button>
+                <Button variant="ghost" size="sm" className="text-xs h-7 rounded-lg" onClick={() => navigate('/dashboard/logs')}>
+                  Ver logs <ArrowRight className="ml-1 h-3 w-3" />
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="px-5 pb-4">
