@@ -8,7 +8,7 @@ import {
   SidebarHeader, SidebarFooter, useSidebar,
 } from '@/components/ui/sidebar';
 import { useAuthStore } from '@/store/auth';
-import { usePlatformSettingsStore } from '@/store/platformSettings';
+import { usePlatformSettingsStore, CHATBOT_PLATFORMS, ECOMMERCE_PLATFORMS } from '@/store/platformSettings';
 
 const adminItems = [
   { title: 'Dashboard',     url: '/admin/dashboard',    icon: LayoutDashboard },
@@ -22,27 +22,29 @@ const AppSidebar = () => {
   const collapsed  = state === 'collapsed';
   const location   = useLocation();
   const { user }   = useAuthStore();
-  const { chatbotEnabled, ecommerceEnabled } = usePlatformSettingsStore();
-  const isAdmin    = user?.role === 'admin';
+  const { isPlatformEnabled } = usePlatformSettingsStore();
+  const isAdmin = user?.role === 'admin';
+
+  // Show Chatbot tab if at least one chatbot platform is enabled
+  const anyChatbotEnabled = CHATBOT_PLATFORMS.some((p) => isPlatformEnabled(p));
+  // Show E-commerce tab if at least one ecommerce platform is enabled
+  const anyEcommerceEnabled = ECOMMERCE_PLATFORMS.some((p) => isPlatformEnabled(p));
 
   const userItems = [
-    { title: 'Dashboard',  url: '/dashboard',                  icon: LayoutDashboard, always: true },
-    { title: 'Chatbot',    url: '/dashboard/suri-config',      icon: MessageSquare,   enabled: chatbotEnabled },
-    { title: 'E-commerce', url: '/dashboard/ecommerce-config', icon: ShoppingCart,    enabled: ecommerceEnabled },
-    { title: 'Logs',       url: '/dashboard/logs',             icon: ScrollText,      always: true },
-    { title: 'Webhooks',   url: '/dashboard/webhooks',         icon: Webhook,         always: true },
-  ].filter((item) => item.always || item.enabled);
+    { title: 'Dashboard',  url: '/dashboard',                  icon: LayoutDashboard, show: true },
+    { title: 'Chatbot',    url: '/dashboard/suri-config',      icon: MessageSquare,   show: anyChatbotEnabled },
+    { title: 'E-commerce', url: '/dashboard/ecommerce-config', icon: ShoppingCart,    show: anyEcommerceEnabled },
+    { title: 'Logs',       url: '/dashboard/logs',             icon: ScrollText,      show: true },
+    { title: 'Webhooks',   url: '/dashboard/webhooks',         icon: Webhook,         show: true },
+  ].filter((item) => item.show);
 
   const items = isAdmin ? adminItems : userItems;
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
-      {/* Fundo com gradiente da marca */}
       <div className="absolute inset-0 gradient-sidebar-bg pointer-events-none" />
-      {/* Orb decorativo */}
       <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-brand-blue opacity-10 blur-3xl pointer-events-none" />
 
-      {/* Header */}
       <SidebarHeader className="relative h-[60px] flex items-center border-b border-sidebar-border/40">
         {!collapsed ? (
           <div className="flex items-center gap-2.5">
@@ -61,7 +63,6 @@ const AppSidebar = () => {
         )}
       </SidebarHeader>
 
-      {/* Nav */}
       <SidebarContent className="relative px-2 py-3">
         <SidebarGroup>
           {!collapsed && (
@@ -78,11 +79,7 @@ const AppSidebar = () => {
                    location.pathname.startsWith(item.url));
 
                 return (
-                  <SidebarMenuItem
-                    key={item.title}
-                    className="stagger-1"
-                    style={{ animationDelay: `${i * 0.05}s` }}
-                  >
+                  <SidebarMenuItem key={item.title} className="stagger-1" style={{ animationDelay: `${i * 0.05}s` }}>
                     <SidebarMenuButton asChild>
                       <NavLink
                         to={item.url}
@@ -116,7 +113,6 @@ const AppSidebar = () => {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* Footer */}
       {!collapsed && (
         <SidebarFooter className="relative border-t border-sidebar-border/40 p-3px-4">
           <div className="rounded-xl bg-white/5 border border-white/8 px-3 py-2.5">

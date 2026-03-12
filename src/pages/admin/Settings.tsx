@@ -2,25 +2,43 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { Loader2, MessageSquare, ShoppingCart, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { getPlatformSettings, patchPlatformSettings } from '@/services/api';
+import { usePlatformSettingsStore, CHATBOT_PLATFORMS, ECOMMERCE_PLATFORMS } from '@/store/platformSettings';
+
+const CHATBOT_LABELS: Record<string, string> = {
+  suri:          'Suri',
+  evolution_api: 'Evolution API',
+  kommo:         'Kommo',
+  take_blip:     'Take Blip',
+  manychat:      'ManyChat',
+  weni:          'Weni',
+};
+
+const ECOMMERCE_LABELS: Record<string, string> = {
+  shopify:     'Shopify',
+  woocommerce: 'WooCommerce',
+  tray:        'Tray',
+  nuvemshop:   'Nuvemshop',
+  vtex:        'VTEX',
+  custom:      'Customizada',
+};
 
 const AdminSettings = () => {
-  const [chatbotEnabled, setChatbotEnabled] = useState(true);
-  const [ecommerceEnabled, setEcommerceEnabled] = useState(true);
+  const [platforms, setPlatforms] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
-  const [savingChatbot, setSavingChatbot] = useState(false);
-  const [savingEcommerce, setSavingEcommerce] = useState(false);
+  const [saving, setSaving] = useState<string | null>(null);
   const { toast } = useToast();
+  const { setSettings } = usePlatformSettingsStore();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getPlatformSettings();
-      setChatbotEnabled(res.settings.chatbot_enabled);
-      setEcommerceEnabled(res.settings.ecommerce_enabled);
+      setPlatforms(res.platforms || {});
     } catch (err: unknown) {
       toast({ title: 'Erro ao carregar configurações', description: err instanceof Error ? err.message : '', variant: 'destructive' });
     } finally {
@@ -30,44 +48,65 @@ const AdminSettings = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleToggleChatbot = async (value: boolean) => {
-    setSavingChatbot(true);
+  const isEnabled = (key: string) => platforms[key] !== false; // default true if not set
+
+  const handleToggle = async (key: string, value: boolean) => {
+    setSaving(key);
     try {
-      const res = await patchPlatformSettings({ chatbot_enabled: value });
-      setChatbotEnabled(res.settings.chatbot_enabled);
-      toast({ title: value ? 'Integração de Chatbot habilitada' : 'Integração de Chatbot desabilitada' });
+      const res = await patchPlatformSettings({ [key]: value });
+      const updated = res.platforms || {};
+      setPlatforms(updated);
+      setSettings(updated); // sync sidebar immediately
+      toast({ title: `${value ? '✅' : '🚫'} ${CHATBOT_LABELS[key] || ECOMMERCE_LABELS[key] || key} ${value ? 'habilitada' : 'desabilitada'}` });
     } catch (err: unknown) {
-      toast({ title: 'Erro ao atualizar', description: err instanceof Error ? err.message : '', variant: 'destructive' });
+      toast({ title: 'Erro ao salvar', description: err instanceof Error ? err.message : '', variant: 'destructive' });
     } finally {
-      setSavingChatbot(false);
+      setSaving(null);
     }
   };
 
-  const handleToggleEcommerce = async (value: boolean) => {
-    setSavingEcommerce(true);
-    try {
-      const res = await patchPlatformSettings({ ecommerce_enabled: value });
-      setEcommerceEnabled(res.settings.ecommerce_enabled);
-      toast({ title: value ? 'Integração de E-commerce habilitada' : 'Integração de E-commerce desabilitada' });
-    } catch (err: unknown) {
-      toast({ title: 'Erro ao atualizar', description: err instanceof Error ? err.message : '', variant: 'destructive' });
-    } finally {
-      setSavingEcommerce(false);
-    }
+  const PlatformRow = ({ platformKey, label }: { platformKey: string; label: string }) => {
+    const enabled = isEnabled(platformKey);
+    const isSaving = saving === platformKey;
+    return (
+      <div className="flex items-center justify-between py-3">
+        <div className="flex items-center gap-3">
+          <div className={`h-2 w-2 rounded-full flex-shrink-0 ${enabled ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`} />
+          <span className="text-sm font-medium">{label}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge
+            variant={enabled ? 'outline' : 'secondary'}
+            className={`text-xs ${enabled ? 'border-success text-success' : ''}`}
+          >
+            {enabled ? 'Habilitada' : 'Desabilitada'}
+          </Badge>
+          {isSaving ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <Switch
+              checked={enabled}
+              onCheckedChange={(v) => handleToggle(platformKey, v)}
+              disabled={saving !== null}
+            />
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold">Configurações</h1>
-        <p className="text-muted-foreground">Gerencie as integrações disponíveis na plataforma</p>
+        <p className="text-muted-foreground">Gerencie as plataformas de integração disponíveis</p>
       </div>
 
       <Alert>
         <Info className="h-4 w-4" />
         <AlertDescription>
-          Habilite ou desabilite cada integração de forma independente. Quando desabilitada,
-          a integração fica indisponível para todos os usuários da plataforma.
+          Desabilite plataformas individualmente. Plataformas desabilitadas não aparecem como opção
+          para nenhum usuário da plataforma.
         </AlertDescription>
       </Alert>
 
@@ -77,75 +116,55 @@ const AdminSettings = () => {
         </div>
       ) : (
         <div className="space-y-4">
+
+          {/* Chatbot */}
           <Card>
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-[#56388e]/10 border border-[#56388e]/20 flex items-center justify-center flex-shrink-0">
-                    <MessageSquare className="h-5 w-5 text-[#56388e]" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">Integração de Chatbot</CardTitle>
-                    <CardDescription className="text-sm mt-0.5">
-                      Plataformas de chatbot como Suri — configuração e webhooks de mensageria
-                    </CardDescription>
-                  </div>
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-[#56388e]/10 border border-[#56388e]/20 flex items-center justify-center flex-shrink-0">
+                  <MessageSquare className="h-4.5 w-4.5 text-[#56388e]" style={{ height: '1.05rem', width: '1.05rem' }} />
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <Badge variant={chatbotEnabled ? 'outline' : 'secondary'} className={chatbotEnabled ? 'border-success text-success' : ''}>
-                    {chatbotEnabled ? 'Habilitada' : 'Desabilitada'}
-                  </Badge>
-                  {savingChatbot ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  ) : (
-                    <Switch checked={chatbotEnabled} onCheckedChange={handleToggleChatbot} />
-                  )}
+                <div>
+                  <CardTitle className="text-base">Plataformas de Chatbot</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Controle quais chatbots os usuários podem configurar
+                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="pt-0">
-              <p className="text-xs text-muted-foreground">
-                {chatbotEnabled
-                  ? 'A seção "Chatbot" está visível e funcional para todos os usuários.'
-                  : 'A seção "Chatbot" está oculta e desativada para todos os usuários.'}
-              </p>
+              <div className="divide-y divide-border/50">
+                {CHATBOT_PLATFORMS.map((key, i) => (
+                  <PlatformRow key={key} platformKey={key} label={CHATBOT_LABELS[key]} />
+                ))}
+              </div>
             </CardContent>
           </Card>
 
+          {/* E-commerce */}
           <Card>
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-[#2f7bb9]/10 border border-[#2f7bb9]/20 flex items-center justify-center flex-shrink-0">
-                    <ShoppingCart className="h-5 w-5 text-[#2f7bb9]" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">Integração de E-commerce</CardTitle>
-                    <CardDescription className="text-sm mt-0.5">
-                      Shopify, WooCommerce, Nuvemshop, VTEX, Tray e plataformas customizadas
-                    </CardDescription>
-                  </div>
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-[#2f7bb9]/10 border border-[#2f7bb9]/20 flex items-center justify-center flex-shrink-0">
+                  <ShoppingCart className="h-4.5 w-4.5 text-[#2f7bb9]" style={{ height: '1.05rem', width: '1.05rem' }} />
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <Badge variant={ecommerceEnabled ? 'outline' : 'secondary'} className={ecommerceEnabled ? 'border-success text-success' : ''}>
-                    {ecommerceEnabled ? 'Habilitada' : 'Desabilitada'}
-                  </Badge>
-                  {savingEcommerce ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  ) : (
-                    <Switch checked={ecommerceEnabled} onCheckedChange={handleToggleEcommerce} />
-                  )}
+                <div>
+                  <CardTitle className="text-base">Plataformas de E-commerce</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Controle quais lojas os usuários podem conectar
+                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="pt-0">
-              <p className="text-xs text-muted-foreground">
-                {ecommerceEnabled
-                  ? 'A seção "E-commerce" está visível e funcional para todos os usuários.'
-                  : 'A seção "E-commerce" está oculta e desativada para todos os usuários.'}
-              </p>
+              <div className="divide-y divide-border/50">
+                {ECOMMERCE_PLATFORMS.map((key) => (
+                  <PlatformRow key={key} platformKey={key} label={ECOMMERCE_LABELS[key]} />
+                ))}
+              </div>
             </CardContent>
           </Card>
+
         </div>
       )}
     </div>

@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection } from '@/services/api';
 import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
+import { usePlatformSettingsStore } from '@/store/platformSettings';
 import gsap from 'gsap';
 import { useGsapStagger } from '@/hooks/use-gsap';
 
@@ -26,6 +27,7 @@ const SURI_TOPICS = [
 
 const SuriConfig = () => {
   const [platform, setPlatform]             = useState<ChatbotPlatform | ''>('');
+  const { isPlatformEnabled } = usePlatformSettingsStore();
   const [config, setConfig]                 = useState<Record<string, string>>({});
   const [chatbotActive, setChatbotActive]   = useState(false);
   const [loading, setLoading]               = useState(true);
@@ -285,11 +287,13 @@ const SuriConfig = () => {
                 <SelectValue placeholder="Selecione a plataforma de chatbot" />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(CHATBOT_FIELDS).map(([key, val]) => (
-                  <SelectItem key={key} value={key}>
-                    <span className="font-medium">{val.label}</span>
-                  </SelectItem>
-                ))}
+                {Object.entries(CHATBOT_FIELDS)
+                  .filter(([key]) => isPlatformEnabled(key))
+                  .map(([key, val]) => (
+                    <SelectItem key={key} value={key}>
+                      <span className="font-medium">{val.label}</span>
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

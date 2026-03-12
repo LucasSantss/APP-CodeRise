@@ -13,6 +13,7 @@ import {
   AlertTriangle, CheckCheck, Plug, XCircle,
 } from 'lucide-react';
 import { ECOMMERCE_FIELDS, type EcommercePlatform } from '@/types';
+import { usePlatformSettingsStore } from '@/store/platformSettings';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@/store/auth';
 import { getIntegrations, updateIntegration, patchIntegration, testEcommerceConnection } from '@/services/api';
@@ -45,6 +46,7 @@ interface RegisterResult {
 
 const EcommerceConfig = () => {
   const { token: authToken } = useAuthStore();
+  const { isPlatformEnabled } = usePlatformSettingsStore();
   const [platform, setPlatform]           = useState<EcommercePlatform | ''>('');
   const [config, setConfig]               = useState<Record<string, string>>({});
   const [ecommerceActive, setEcommerceActive] = useState(false);
@@ -237,9 +239,11 @@ const EcommerceConfig = () => {
             >
               <SelectTrigger><SelectValue placeholder="Selecione a plataforma" /></SelectTrigger>
               <SelectContent>
-                {Object.entries(ECOMMERCE_FIELDS).map(([key, val]) => (
-                  <SelectItem key={key} value={key}>{val.label}</SelectItem>
-                ))}
+                {Object.entries(ECOMMERCE_FIELDS)
+                  .filter(([key]) => isPlatformEnabled(key))
+                  .map(([key, val]) => (
+                    <SelectItem key={key} value={key}>{val.label}</SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

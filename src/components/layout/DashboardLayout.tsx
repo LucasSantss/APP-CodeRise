@@ -5,25 +5,19 @@ import Header from './Header';
 import NotificationPopup from './NotificationPopup';
 import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
-import { useAuthStore } from '@/store/auth';
 import { usePlatformSettingsStore } from '@/store/platformSettings';
 import { getPlatformSettings } from '@/services/api';
 
 const DashboardLayout = () => {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
-  const { user } = useAuthStore();
   const { setSettings, loaded } = usePlatformSettingsStore();
 
-  // Load platform settings once per session (all roles — used by sidebar)
   useEffect(() => {
     if (!loaded) {
       getPlatformSettings()
-        .then((res) => setSettings(res.settings))
-        .catch(() => {
-          // fallback: assume both enabled if request fails
-          setSettings({ chatbot_enabled: true, ecommerce_enabled: true });
-        });
+        .then((res) => setSettings(res.platforms || {}))
+        .catch(() => setSettings({})); // fallback: all enabled
     }
   }, [loaded, setSettings]);
 
@@ -49,8 +43,6 @@ const DashboardLayout = () => {
           </main>
         </div>
       </div>
-
-      {/* Popup global — aparece sobre tudo, em qualquer página */}
       <NotificationPopup />
     </SidebarProvider>
   );

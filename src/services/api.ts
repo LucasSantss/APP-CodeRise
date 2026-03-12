@@ -152,12 +152,12 @@ export const createSystemNotification = (data: {
     body: JSON.stringify(data),
   });
 
-// Platform Settings (admin only)
+// Platform Settings (admin only) — per individual platform
 export const getPlatformSettings = () =>
-  request<{ success: boolean; settings: { chatbot_enabled: boolean; ecommerce_enabled: boolean } }>('/platform-settings');
+  request<{ success: boolean; platforms: Record<string, boolean> }>('/platform-settings');
 
-export const patchPlatformSettings = (data: { chatbot_enabled?: boolean; ecommerce_enabled?: boolean }) =>
-  request<{ success: boolean; settings: { chatbot_enabled: boolean; ecommerce_enabled: boolean } }>(
+export const patchPlatformSettings = (platforms: Record<string, boolean>) =>
+  request<{ success: boolean; platforms: Record<string, boolean> }>(
     '/platform-settings',
-    { method: 'PATCH', body: JSON.stringify(data) }
+    { method: 'PATCH', body: JSON.stringify({ platforms }) }
   );

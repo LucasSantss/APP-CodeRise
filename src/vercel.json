@@ -90,6 +90,14 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/platform-settings",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/platform-settings(.*)",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

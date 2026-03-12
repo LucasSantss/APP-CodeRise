@@ -933,38 +933,46 @@ async function handleTestSuri(req, res) {
 // ════════════════════════════════════════════════════════════════════════════
 // PLATFORM SETTINGS
 // ════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════════
+// PLATFORM SETTINGS — habilita/desabilita plataformas individuais
+// Armazena no formato: key = "platform:<nome>", value = "true"/"false"
+// Ex: "platform:suri", "platform:weni", "platform:tray", "platform:shopify"
+// ════════════════════════════════════════════════════════════════════════════
 async function handlePlatformSettings(req, res) {
   const caller = await requireAuth(req, res); if (!caller) return;
   if (caller.role !== "admin") return res.status(403).json({ success: false, message: "Acesso negado" });
 
-  // Ensure table exists (safe migration)
+  // Safe migration
   await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT NOW());`).catch(() => {});
 
   if (req.method === "GET") {
-    const r = await pool.query("SELECT key, value FROM platform_settings WHERE key IN ('chatbot_enabled','ecommerce_enabled')");
-    const settings = { chatbot_enabled: true, ecommerce_enabled: true };
+    const r = await pool.query("SELECT key, value FROM platform_settings WHERE key LIKE 'platform:%'");
+    // Build map: { suri: true/false, weni: true/false, ... }
+    const platforms = {};
     for (const row of r.rows) {
-      settings[row.key] = row.value === "true";
+      const name = row.key.replace("platform:", "");
+      platforms[name] = row.value === "true";
     }
-    return res.status(200).json({ success: true, settings });
+    return res.status(200).json({ success: true, platforms });
   }
 
   if (req.method === "PATCH") {
-    const { chatbot_enabled, ecommerce_enabled } = req.body || {};
-    const updates = [];
-    if (chatbot_enabled !== undefined) updates.push(["chatbot_enabled", String(chatbot_enabled)]);
-    if (ecommerce_enabled !== undefined) updates.push(["ecommerce_enabled", String(ecommerce_enabled)]);
-    if (!updates.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
-    for (const [k, v] of updates) {
+    // Body: { platforms: { suri: false, tray: true, ... } }
+    const { platforms } = req.body || {};
+    if (!platforms || typeof platforms !== "object" || !Object.keys(platforms).length) {
+      return res.status(400).json({ success: false, message: "Informe o objeto 'platforms' com as plataformas a atualizar" });
+    }
+    for (const [name, enabled] of Object.entries(platforms)) {
       await pool.query(
         "INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()",
-        [k, v]
+        [`platform:${name}`, String(Boolean(enabled))]
       );
     }
-    const r = await pool.query("SELECT key, value FROM platform_settings WHERE key IN ('chatbot_enabled','ecommerce_enabled')");
-    const settings = { chatbot_enabled: true, ecommerce_enabled: true };
-    for (const row of r.rows) settings[row.key] = row.value === "true";
-    return res.status(200).json({ success: true, message: "Configurações salvas", settings });
+    const r = await pool.query("SELECT key, value FROM platform_settings WHERE key LIKE 'platform:%'");
+    const result = {};
+    for (const row of r.rows) result[row.key.replace("platform:", "")] = row.value === "true";
+    return res.status(200).json({ success: true, message: "Configurações salvas", platforms: result });
   }
 
   res.setHeader("Allow", ["GET", "PATCH"]);
