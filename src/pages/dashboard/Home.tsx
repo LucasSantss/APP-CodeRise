@@ -29,7 +29,6 @@ const UserHome = () => {
   const [integration, setIntegration] = useState<UserIntegration | null>(null);
   const [chatbotConnStatus, setChatbotConnStatus] = useState<ConnStatus>('idle');
   const [ecommerceConnStatus, setEcommerceConnStatus] = useState<ConnStatus>('idle');
-  const [connectionStatus, setConnectionStatus] = useState<ConnStatus>('idle');
   const [chatbotPlatformLabel, setChatbotPlatformLabel] = useState('');
   const [events, setEvents]   = useState<WebhookEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +79,8 @@ const UserHome = () => {
   const firstName    = user?.name?.split(' ')[0] || 'usuário';
 
   // ── Status card helpers ──────────────────────────────────────────────────
+  // Connection test result always takes priority over the active toggle.
+  // "active" only adds meaning when there's a confirmed successful connection.
   const getConnBadge = (
     active: boolean,
     connStatus: ConnStatus,
@@ -87,23 +88,27 @@ const UserHome = () => {
     errorLabel: string,
     idleLabel: string,
   ) => {
-    if (active)                   return { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: activeLabel, icon: <Circle className="h-1.5 w-1.5 fill-current mr-1" /> };
+    // Falha sempre prevalece — independente do toggle ativo
     if (connStatus === 'error')   return { variant: 'destructive' as const, className: 'text-xs', label: errorLabel, icon: <XCircle className="h-3 w-3 mr-1" /> };
+    // Conexão OK + toggle ativo = integração funcionando
+    if (connStatus === 'success' && active) return { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: activeLabel, icon: <Circle className="h-1.5 w-1.5 fill-current mr-1" /> };
+    // Conexão OK mas toggle inativo = configurado mas não ativado
     if (connStatus === 'success') return { variant: 'outline' as const, className: 'border-amber-400/40 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400', label: 'Configurado', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
+    // Sem teste ainda
     return { variant: 'secondary' as const, className: '', label: idleLabel, icon: null };
   };
 
   const chatbotBadge = getConnBadge(
     integration?.suri_active ?? false,
     chatbotConnStatus,
-    connectionStatus ? `${connectionStatus == 'success' ? 'Configurado' : 'Ativo'}` : 'Ativo',
+    chatbotPlatformLabel ? `${chatbotPlatformLabel} ativo` : 'Ativo',
     'Falha na conexão',
-    connectionStatus ? connectionStatus : 'Não configurado',
+    chatbotPlatformLabel ? chatbotPlatformLabel : 'Não configurado',
   );
 
   const ecommerceBadge = getConnBadge(
-    integration?._connection_status ?? false,
-    setConnectionStatus,
+    integration?.ecommerce_active ?? false,
+    ecommerceConnStatus,
     integration?.ecommerce_platform ? `${integration.ecommerce_platform} ativo` : 'Ativo',
     'Falha na conexão',
     integration?.ecommerce_platform || 'Não configurado',
