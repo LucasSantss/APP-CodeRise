@@ -25,7 +25,7 @@ const SURI_TOPICS = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SuriConfig = () => {
+const Chatbot = () => {
   const [platform, setPlatform]             = useState<ChatbotPlatform | ''>('');
   const { isPlatformEnabled } = usePlatformSettingsStore();
   const [config, setConfig]                 = useState<Record<string, string>>({});
@@ -578,4 +578,4 @@ const SuriConfig = () => {
   );
 };
 
-export default SuriConfig;
+export default Chatbot;
