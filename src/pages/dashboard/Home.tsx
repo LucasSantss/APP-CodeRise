@@ -29,6 +29,7 @@ const UserHome = () => {
   const [integration, setIntegration] = useState<UserIntegration | null>(null);
   const [chatbotConnStatus, setChatbotConnStatus] = useState<ConnStatus>('idle');
   const [ecommerceConnStatus, setEcommerceConnStatus] = useState<ConnStatus>('idle');
+  const [connectionStatus, setConnectionStatus] = useState<ConnStatus>('idle');
   const [chatbotPlatformLabel, setChatbotPlatformLabel] = useState('');
   const [events, setEvents]   = useState<WebhookEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +96,7 @@ const UserHome = () => {
   const chatbotBadge = getConnBadge(
     integration?.suri_active ?? false,
     chatbotConnStatus,
-    connectionStatus ? `${connectionStatus} ativo` : 'Ativo',
+    connectionStatus ? `${connectionStatus == 'success' ? 'Configurado' : 'Ativo'}` : 'Ativo',
     'Falha na conexão',
     connectionStatus ? connectionStatus : 'Não configurado',
   );
