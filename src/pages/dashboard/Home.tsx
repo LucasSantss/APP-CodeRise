@@ -160,7 +160,7 @@ const UserHome = () => {
   // ── Primeiros Passos ──────────────────────────────────────────────────────
   // "done" = conexão testada com sucesso OU integração ativa
   const chatbotDone    = chatbotConnStatus === 'success' || (integration?.suri_active ?? false);
-  const ecommerceDone  = ecommerceConnStatus === 'success' || (integration?.ecommerce_active ?? false);
+  const ecommerceDone  = ecommerceConnStatus == "success";
   const webhookDone    = totalEvents > 0;
 
   const steps = [
