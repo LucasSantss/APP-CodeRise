@@ -104,9 +104,9 @@ const UserHome = () => {
   const ecommerceBadge = getConnBadge(
     integration?.ecommerce_active ?? false,
     ecommerceConnStatus,
-    integration?.ecommerce_platform ? `${integration.ecommerce_platform} ativo` : 'Ativo',
+    integration?.ecommerce_active ? `${integration.ecommerce_active} ativo` : 'Ativo',
     'Falha na conexão',
-    integration?.ecommerce_platform || 'Não configurado',
+    integration?.ecommerce_active || 'Não configurado',
   );
 
   const statusCards = [
