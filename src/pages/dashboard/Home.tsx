@@ -119,7 +119,7 @@ const UserHome = () => {
       title: 'Chatbot',
       icon: MessageSquare,
       badge: chatbotBadge,
-      link: '/dashboard/suri-config',
+      link: '/dashboard/Chatbot',
       gradient: 'from-[#26316a]/10 to-[#56388e]/10',
       iconBg: 'bg-[#56388e]/15',
       iconColor: 'text-[#56388e]',
@@ -164,7 +164,7 @@ const UserHome = () => {
   const webhookDone    = totalEvents > 0;
 
   const steps = [
-    { step: 1, text: 'Configure a conexão com o chatbot',     done: chatbotDone,   link: '/dashboard/suri-config' },
+    { step: 1, text: 'Configure a conexão com o chatbot',     done: chatbotDone,   link: '/dashboard/Chatbot' },
     { step: 2, text: 'Configure sua plataforma de e-commerce', done: ecommerceDone, link: '/dashboard/ecommerce-config' },
     { step: 3, text: 'Registre o webhook na sua loja',          done: webhookDone,   link: '/dashboard/webhooks' },
   ];

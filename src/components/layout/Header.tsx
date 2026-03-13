@@ -11,7 +11,7 @@ import NotificationPanel from './NotificationPanel';
 
 const PAGE_TITLES: Record<string, { title: string; sub: string }> = {
   '/dashboard':                  { title: 'Dashboard',      sub: 'Visão geral da sua integração' },
-  '/dashboard/suri-config':      { title: 'Chatbot',        sub: 'Configure sua plataforma de mensagens' },
+  '/dashboard/Chatbot':      { title: 'Chatbot',        sub: 'Configure sua plataforma de mensagens' },
   '/dashboard/ecommerce-config': { title: 'E-commerce',     sub: 'Plataforma e registro de webhook' },
   '/dashboard/logs':             { title: 'Logs',           sub: 'Histórico de eventos em tempo real' },
   '/dashboard/webhooks':         { title: 'Webhooks',       sub: 'Eventos recebidos e status' },
