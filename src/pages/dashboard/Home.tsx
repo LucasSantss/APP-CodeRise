@@ -93,7 +93,7 @@ const UserHome = () => {
     // Conexão OK + toggle ativo = integração funcionando
     if (connStatus === 'success' && active) return { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: activeLabel, icon: <Circle className="h-1.5 w-1.5 fill-current mr-1" /> };
     // Conexão OK mas toggle inativo = configurado mas não ativado
-    if (connStatus === 'success') return { variant: 'outline' as const, className: 'border-amber-400/40 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400', label: 'Configurado', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
+    if (connStatus === 'success') return { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: 'Configurado', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
     // Sem teste ainda
     return { variant: 'secondary' as const, className: '', label: idleLabel, icon: null };
   };
