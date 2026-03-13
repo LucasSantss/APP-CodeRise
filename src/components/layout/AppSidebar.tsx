@@ -32,7 +32,7 @@ const AppSidebar = () => {
 
   const userItems = [
     { title: 'Dashboard',  url: '/dashboard',                  icon: LayoutDashboard, show: true },
-    { title: 'Chatbot',    url: '/dashboard/Chatbot',      icon: MessageSquare,   show: anyChatbotEnabled },
+    { title: 'Chatbot',    url: '/dashboard/chatbot',      icon: MessageSquare,   show: anyChatbotEnabled },
     { title: 'E-commerce', url: '/dashboard/ecommerce-config', icon: ShoppingCart,    show: anyEcommerceEnabled },
     { title: 'Logs',       url: '/dashboard/logs',             icon: ScrollText,      show: true },
     { title: 'Webhooks',   url: '/dashboard/webhooks',         icon: Webhook,         show: true },
