@@ -95,9 +95,9 @@ const UserHome = () => {
   const chatbotBadge = getConnBadge(
     integration?.suri_active ?? false,
     chatbotConnStatus,
-    chatbotPlatformLabel ? `${chatbotPlatformLabel} ativo` : 'Ativo',
+    connectionStatus ? `${connectionStatus} ativo` : 'Ativo',
     'Falha na conexão',
-    chatbotPlatformLabel ? chatbotPlatformLabel : 'Não configurado',
+    connectionStatus ? connectionStatus : 'Não configurado',
   );
 
   const ecommerceBadge = getConnBadge(
