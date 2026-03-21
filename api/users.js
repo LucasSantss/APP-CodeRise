@@ -2,6 +2,9 @@ import pool from "./db.js";
 import { setCors } from "./_cors.js";
 import { requireAuth, requireAdmin } from "./_auth.js";
 import crypto from "crypto";
+// MELHORIA 7: hash de senha com bcryptjs
+import bcrypt from "bcryptjs";
+const SALT_ROUNDS = 10;
 
 export default async function handler(req, res) {
   if (setCors(req, res)) return;
@@ -23,7 +26,9 @@ export default async function handler(req, res) {
         const { name, email, password, role = "user" } = req.body || {};
         if (!name || !email || !password) return res.status(400).json({ success: false, message: "name, email e password obrigatórios" });
         const token = crypto.randomBytes(32).toString("hex");
-        const r = await pool.query("INSERT INTO users (name, email, password, role, token) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, active, token, created_at", [name, email, password, role, token]);
+        // MELHORIA 7: armazena hash em vez de senha em texto puro
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+        const r = await pool.query("INSERT INTO users (name, email, password, role, token) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, active, token, created_at", [name, email, hashedPassword, role, token]);
         const webhookToken = crypto.randomBytes(32).toString("hex");
         await pool.query("INSERT INTO user_integrations (user_id, webhook_token) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING", [r.rows[0].id, webhookToken]);
         await pool.query(`DELETE FROM users WHERE role='user' AND id NOT IN (SELECT id FROM users WHERE role='user' ORDER BY created_at DESC LIMIT 100)`).catch(() => {});
@@ -37,7 +42,11 @@ export default async function handler(req, res) {
         const fields = [], values = []; let idx = 1;
         if (name)     { fields.push(`name = $${idx++}`);     values.push(name); }
         if (email)    { fields.push(`email = $${idx++}`);    values.push(email); }
-        if (password) { fields.push(`password = $${idx++}`); values.push(password); }
+        if (password) {
+          // MELHORIA 7: hash na atualização de senha
+          const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+          fields.push(`password = $${idx++}`); values.push(hashedPassword);
+        }
         if (!fields.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
         fields.push("updated_at = NOW()"); values.push(id);
         const r = await pool.query(`UPDATE users SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, name, email, role, active, updated_at`, values);

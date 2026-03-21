@@ -34,8 +34,6 @@ export const getUsers = () => request<ApiResponse<User[]>>('/users');
 export const getUser = (id: number) => request<ApiResponse<User>>(`/users?id=${id}`);
 export const createUser = (data: Partial<User> & { password: string }) =>
   request<ApiResponse<User>>('/users', { method: 'POST', body: JSON.stringify(data) });
-export const updateUser = (id: number, data: Partial<User> & { password?: string }) =>
-  request<ApiResponse<User>>(`/users?id=${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const patchUser = (id: number, data: { active?: boolean; role?: string }) =>
   request<ApiResponse>(`/users?id=${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const deleteUser = (id: number) =>
@@ -48,16 +46,12 @@ export const updateIntegration = (data: Partial<UserIntegration>, userId?: numbe
   request<ApiResponse<UserIntegration>>(`/integrations${userId ? `?user_id=${userId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) });
 export const patchIntegration = (data: { suri_active?: boolean; ecommerce_active?: boolean }, userId?: number) =>
   request<ApiResponse>(`/integrations${userId ? `?user_id=${userId}` : ''}`, { method: 'PATCH', body: JSON.stringify(data) });
-export const clearIntegration = (userId?: number) =>
-  request<ApiResponse>(`/integrations${userId ? `?user_id=${userId}` : ''}`, { method: 'DELETE' });
 
 // Sync Rules
 export const getSyncRules = (userId?: number) =>
   request<ApiResponse<SyncRule[]>>(`/sync-rules${userId ? `?user_id=${userId}` : ''}`);
 export const createSyncRule = (data: Partial<SyncRule>, userId?: number) =>
   request<ApiResponse<SyncRule>>(`/sync-rules${userId ? `?user_id=${userId}` : ''}`, { method: 'POST', body: JSON.stringify(data) });
-export const updateSyncRule = (id: number, data: Partial<SyncRule>) =>
-  request<ApiResponse<SyncRule>>(`/sync-rules?id=${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const patchSyncRule = (id: number, active: boolean) =>
   request<ApiResponse>(`/sync-rules?id=${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
 export const deleteSyncRule = (id: number) =>
@@ -70,8 +64,6 @@ export const getWebhooks = (params?: Record<string, string>) => {
   const qs = params ? '?' + new URLSearchParams(params).toString() : '';
   return request<ApiResponse<WebhookEvent[]>>(`/webhooks${qs}`);
 };
-export const patchWebhook = (id: number, data: { status: string; error_message?: string }) =>
-  request<ApiResponse>(`/webhooks?id=${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const deleteWebhooks = (params?: Record<string, string>) => {
   const qs = params ? '?' + new URLSearchParams(params).toString() : '';
   return request<ApiResponse>(`/webhooks${qs}`, { method: 'DELETE' });
@@ -90,8 +82,6 @@ export const patchChatbot = (chatbot_active: boolean, userId?: number) =>
 export const regenerateChatbotToken = (userId?: number) =>
   request<ApiResponse>(`/chatbot?action=regenerate-token${userId ? `&user_id=${userId}` : ''}`, { method: 'POST' });
 
-export const clearChatbot = (userId?: number) =>
-  request<ApiResponse>(`/chatbot${userId ? `?user_id=${userId}` : ''}`, { method: 'DELETE' });
 
 // Suri connection test (proxied through backend to avoid CORS)
 export const testSuriConnection = (endpoint: string, token: string) =>

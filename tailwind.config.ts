@@ -8,7 +8,8 @@ export default {
     container: { center: true, padding: "2rem", screens: { "2xl": "1400px" } },
     extend: {
       fontFamily: {
-        sans:    ["Plus Jakarta Sans", "system-ui", "sans-serif"],
+        sans:    ["DM Sans", "system-ui", "sans-serif"],
+        display: ["Syne", "system-ui", "sans-serif"],
         mono:    ["JetBrains Mono", "Fira Code", "monospace"],
       },
       colors: {
@@ -17,7 +18,7 @@ export default {
         ring:       "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        brand: { navy: "#26316a", purple: "#56388e", blue: "#2f7bb9" },
+        brand: { navy: "#26316a", purple: "#7c3aed", blue: "#6366f1", violet: "#8b5cf6" },
         primary:     { DEFAULT: "hsl(var(--primary))",     foreground: "hsl(var(--primary-foreground))" },
         secondary:   { DEFAULT: "hsl(var(--secondary))",   foreground: "hsl(var(--secondary-foreground))" },
         destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))" },
@@ -48,11 +49,11 @@ export default {
         "3xl":"calc(var(--radius) + 18px)",
       },
       boxShadow: {
-        "brand-sm": "0 2px 12px -2px rgba(38,49,106,0.14)",
-        "brand-md": "0 6px 28px -4px rgba(38,49,106,0.18), 0 2px 8px -2px rgba(47,123,185,0.10)",
-        "brand-lg": "0 14px 48px -8px rgba(38,49,106,0.22), 0 4px 16px -4px rgba(47,123,185,0.14)",
-        "glow-b":   "0 0 22px rgba(47,123,185,0.38)",
-        "glow-p":   "0 0 22px rgba(86,56,142,0.38)",
+        "brand-sm": "0 2px 12px -2px rgba(109,40,217,0.18)",
+        "brand-md": "0 8px 32px -4px rgba(109,40,217,0.28), 0 0 0 1px rgba(139,92,246,0.12)",
+        "brand-lg": "0 16px 56px -8px rgba(109,40,217,0.35), 0 0 0 1px rgba(139,92,246,0.18)",
+        "glow-v":   "0 0 28px rgba(139,92,246,0.45)",
+        "glow-i":   "0 0 28px rgba(99,102,241,0.45)",
       },
       keyframes: {
         "accordion-down": { from: { height: "0" }, to: { height: "var(--radix-accordion-content-height)" } },

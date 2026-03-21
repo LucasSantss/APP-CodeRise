@@ -11,15 +11,14 @@ const DashboardLayout = () => {
   const location = useLocation();
   const mainRef  = useRef<HTMLElement>(null);
 
-  // Real-time platform settings — polls every 10s, pauses when tab is hidden
   usePlatformSettingsPoll();
 
   useEffect(() => {
     if (!mainRef.current) return;
     gsap.fromTo(
       mainRef.current,
-      { opacity: 0, y: 10 },
-      { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }
+      { opacity: 0, y: 12, scale: 0.995 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.45, ease: 'power3.out' }
     );
   }, [location.pathname]);
 
@@ -29,9 +28,14 @@ const DashboardLayout = () => {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <Header />
-          <main ref={mainRef} className="flex-1 p-6 overflow-auto">
-            <div className="fixed top-20 right-8 w-96 h-96 rounded-full bg-brand-purple opacity-[0.04] blur-3xl pointer-events-none" />
-            <div className="fixed bottom-16 left-16 w-80 h-80 rounded-full bg-brand-blue opacity-[0.04] blur-3xl pointer-events-none" />
+          <main ref={mainRef} className="flex-1 p-6 overflow-auto relative">
+            {/* Aurora background orbs */}
+            <div className="fixed top-24 right-12 w-[500px] h-[500px] rounded-full pointer-events-none"
+              style={{ background: 'radial-gradient(circle, rgba(109,40,217,0.06) 0%, transparent 70%)', filter: 'blur(60px)' }} />
+            <div className="fixed bottom-20 left-20 w-[400px] h-[400px] rounded-full pointer-events-none"
+              style={{ background: 'radial-gradient(circle, rgba(79,70,229,0.05) 0%, transparent 70%)', filter: 'blur(50px)' }} />
+            <div className="fixed top-1/2 left-1/2 w-[600px] h-[600px] rounded-full pointer-events-none -translate-x-1/2 -translate-y-1/2"
+              style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.03) 0%, transparent 70%)', filter: 'blur(80px)' }} />
             <Outlet />
           </main>
         </div>

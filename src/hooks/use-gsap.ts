@@ -42,38 +42,6 @@ export function useGsapStagger<T extends HTMLElement>(
 }
 
 /**
- * Hook que faz fade+slide-up num único elemento.
- */
-export function useGsapFadeIn<T extends HTMLElement>(
-  deps: unknown[] = [],
-  options?: { y?: number; duration?: number; delay?: number; ease?: string }
-) {
-  const ref = useRef<T>(null);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    const ctx = gsap.context(() => {
-      gsap.fromTo(
-        ref.current!,
-        { opacity: 0, y: options?.y ?? 20 },
-        {
-          opacity: 1,
-          y: 0,
-          duration: options?.duration ?? 0.5,
-          delay: options?.delay ?? 0,
-          ease: options?.ease ?? 'power3.out',
-          clearProps: 'transform',
-        }
-      );
-    }, ref);
-    return () => ctx.revert();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-
-  return ref;
-}
-
-/**
  * Anima um número de 0 até o valor alvo (contador).
  */
 export function useGsapCounter(

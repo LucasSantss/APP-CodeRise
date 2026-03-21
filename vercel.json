@@ -50,14 +50,6 @@
       "destination": "/api/index.js"
     },
     {
-      "source": "/webhooks/poll",
-      "destination": "/api/index.js"
-    },
-    {
-      "source": "/webhooks/poll(.*)",
-      "destination": "/api/index.js"
-    },
-    {
       "source": "/webhooks",
       "destination": "/api/index.js"
     },
@@ -98,14 +90,6 @@
       "destination": "/api/index.js"
     },
     {
-      "source": "/test-ecommerce",
-      "destination": "/api/index.js"
-    },
-    {
-      "source": "/test-ecommerce(.*)",
-      "destination": "/api/index.js"
-    },
-    {
       "source": "/platform-settings",
       "destination": "/api/index.js"
     },
@@ -117,6 +101,5 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ],
-  "installCommand": "npm install"
+  ]
 }

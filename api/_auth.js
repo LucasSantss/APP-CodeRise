@@ -1,4 +1,12 @@
 import pool from "./db.js";
+// MELHORIA 7: verificação de hash com bcryptjs
+import bcrypt from "bcryptjs";
+
+export async function verifyPassword(plain, hash) {
+  // Suporte retrocompatível: se o hash não começa com $2b$, compara direto (legado)
+  if (!hash || !hash.startsWith("$2")) return plain === hash;
+  return bcrypt.compare(plain, hash);
+}
 
 export async function getUserByToken(req) {
   const authHeader = req.headers.authorization || "";
