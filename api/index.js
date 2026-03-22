@@ -15,17 +15,17 @@ import crypto from "crypto";
 import {
   normalizeWebhook    as normalizeNuvemshopWebhook,
   registerWebhooks    as registerNuvemshopWebhooks,
-} from "./ecommerce/nuvemshop/index.js";
+} from "../lib/ecommerce/nuvemshop/index.js";
 import {
   fulfillOrder   as nuvemshopFulfillOrder,
   cancelOrder    as nuvemshopCancelOrder,
   addOrderNote   as nuvemshopAddNote,
   deductStock    as nuvemshopDeductStock,
   updateStock    as nuvemshopUpdateStock,
-} from "./ecommerce/nuvemshop/orders.js";
+} from "../lib/ecommerce/nuvemshop/orders.js";
 
 // ─── Módulos chatbot / Suri ───────────────────────────────────────────────────
-import { processForwardEvent } from "./chatbot/suri/index.js";
+import { processForwardEvent } from "../lib/chatbot/suri/index.js";
 
 // ════════════════════════════════════════════════════════════════════════════
 // HELPERS
