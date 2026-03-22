@@ -89,7 +89,14 @@ export async function syncProduct(endpoint, token, product) {
     await client.updateProduct(endpoint, token, suriPayload);
     return { action: "product_updated", productId: product.id, storeId };
   } catch (err) {
-    if (err.message.includes("404") || err.message.includes("HTTP 404")) {
+    // A Suri retorna HTTP 400 com errorCode 1000 quando o produto não existe para atualizar
+    // Também trata HTTP 404 por compatibilidade
+    const notFound =
+      err.message.includes("HTTP 404") ||
+      err.message.includes("HTTP 400") && err.message.includes("not found") ||
+      err.message.includes("errorCode":1000") ||
+      err.message.includes("errorCode\":1000");
+    if (notFound) {
       await client.createProduct(endpoint, token, suriPayload);
       return { action: "product_created", productId: product.id, storeId };
     }
