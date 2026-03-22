@@ -361,9 +361,15 @@ async function handleChatbot(req, res) {
         const fields=[], values=[]; let idx=1;
         if (chatbot_platform!==undefined) { fields.push(`chatbot_platform=$${idx++}`); values.push(chatbot_platform); }
         if (chatbot_config!==undefined)   { fields.push(`chatbot_config=$${idx++}`);   values.push(JSON.stringify(chatbot_config)); }
+        // Quando plataforma for Suri, espelha endpoint e token nas colunas dedicadas
+        if (chatbot_platform==="suri" || (chatbot_config && chatbot_config.endpoint)) {
+          const cfg = chatbot_config || {};
+          if (cfg.endpoint) { fields.push(`suri_endpoint=$${idx++}`); values.push(cfg.endpoint); }
+          if (cfg.token)    { fields.push(`suri_token=$${idx++}`);    values.push(cfg.token); }
+        }
         if (!fields.length) return res.status(400).json({ success:false, message:"Nenhum campo informado" });
         fields.push("updated_at=NOW()"); values.push(tid);
-        const r = await pool.query(`UPDATE user_integrations SET ${fields.join(",")} WHERE user_id=$${idx} RETURNING chatbot_platform,chatbot_config,chatbot_active,chatbot_token,updated_at`, values);
+        const r = await pool.query(`UPDATE user_integrations SET ${fields.join(",")} WHERE user_id=$${idx} RETURNING chatbot_platform,chatbot_config,chatbot_active,chatbot_token,suri_endpoint,suri_token,suri_active,updated_at`, values);
         return res.status(200).json({ success:true, message:"Configuração de chatbot salva", chatbot:r.rows[0] });
       }
       case "PATCH": {
@@ -371,7 +377,11 @@ async function handleChatbot(req, res) {
         const tid = (caller.role==="admin"&&req.query.user_id)?req.query.user_id:caller.id;
         const { chatbot_active } = req.body||{};
         if (chatbot_active===undefined) return res.status(400).json({ success:false, message:"Informe chatbot_active" });
-        const r = await pool.query("UPDATE user_integrations SET chatbot_active=$1,updated_at=NOW() WHERE user_id=$2 RETURNING chatbot_platform,chatbot_active,chatbot_token,updated_at", [chatbot_active, tid]);
+        // Sincroniza chatbot_active com suri_active para que o webhook forward funcione
+        const r = await pool.query(
+          "UPDATE user_integrations SET chatbot_active=$1, suri_active=$1, updated_at=NOW() WHERE user_id=$2 RETURNING chatbot_platform,chatbot_active,chatbot_token,suri_active,updated_at",
+          [chatbot_active, tid]
+        );
         if (!r.rows[0]) return res.status(404).json({ success:false, message:"Integração não encontrada" });
         return res.status(200).json({ success:true, chatbot:r.rows[0] });
       }
