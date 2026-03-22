@@ -1,21 +1,10 @@
 /**
  * ecommerce/nuvemshop/index.js
  * Ponto de entrada do módulo Nuvemshop.
- * Exporta todas as operações e normaliza o payload do webhook.
  */
-
-export * from "./client.js";
-export * from "./products.js";
-export * from "./categories.js";
-export * from "./orders.js";
 
 import * as client from "./client.js";
 
-/**
- * Normaliza qualquer payload de webhook da Nuvemshop para o formato interno.
- * Para produtos: retorna { eventType, productId } para busca via API.
- * Para pedidos: retorna dados do pedido já normalizados do webhook.
- */
 export function normalizeWebhook(payload) {
   const topic = payload.topic || payload.event || "";
 
@@ -32,23 +21,16 @@ export function normalizeWebhook(payload) {
 
   const eventType = topicMap[topic] || topic;
 
-  // Produto deletado — só precisa do ID
   if (eventType === "product.deleted") {
     const p = payload.product || payload;
     return { eventType, productId: String(p.id), needsApiFetch: false };
   }
 
-  // Produto criado/atualizado — retorna ID para busca via API
   if (eventType === "product.sync") {
     const p = payload.product || payload;
-    return {
-      eventType,
-      productId: String(p.id),
-      needsApiFetch: true, // sinaliza que deve buscar dados completos via API
-    };
+    return { eventType, productId: String(p.id), needsApiFetch: true };
   }
 
-  // Pedidos — normaliza direto do webhook (payload já é completo)
   const order = payload.order || payload;
   return {
     eventType,
@@ -75,9 +57,6 @@ export function normalizeWebhook(payload) {
   };
 }
 
-/**
- * Registra todos os webhooks necessários na Nuvemshop.
- */
 export async function registerWebhooks(config, webhookUrl) {
   const { store_id, access_token } = config;
   const events = [
@@ -85,7 +64,6 @@ export async function registerWebhooks(config, webhookUrl) {
     "order/cancelled", "order/partially_fulfilled",
     "product/created", "product/updated", "product/deleted",
   ];
-
   const results = [];
   for (const event of events) {
     try {
@@ -95,7 +73,6 @@ export async function registerWebhooks(config, webhookUrl) {
       results.push({ event, status: "error", detail: err.message });
     }
   }
-
   return {
     success: true,
     message: `${results.filter(r => r.status === "created").length}/${events.length} webhooks registrados na Nuvemshop`,
