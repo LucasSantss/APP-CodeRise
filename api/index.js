@@ -419,9 +419,6 @@ async function getSuriStoreId(endpoint, token) {
 async function processProductSync(ep, tk, n) {
   const p = n.product;
 
-  // MELHORIA 1: busca o ID real do depósito da Suri para montar stocks corretamente
-  const suriStoreId = await getSuriStoreId(ep, tk) || "141301072";
-
   // MELHORIA 4: mapear todas as variantes como dimensões na Suri
   const dimensions = (p.variants && p.variants.length > 0)
     ? p.variants.map(v => ({
@@ -430,8 +427,8 @@ async function processProductSync(ep, tk, n) {
         image: { url: p.images?.[0]?.url || "" },
         price: v.price || p.price,
         priceTables: {},
-        // MELHORIA 1: stock populado por variante — usa ID real do depósito da Suri
-        stocks: v.stock != null ? { [suriStoreId]: { stock: v.stock } } : {},
+        // MELHORIA 1: stock populado por variante
+        stocks: v.stock != null ? { all: v.stock } : {},
         measurements: {
           weightInGrams: v.weightInGrams || p.weightInGrams || 0,
           heightInCm: v.dimensions?.heightInCm || p.dimensions?.heightInCm || 0,
@@ -447,8 +444,8 @@ async function processProductSync(ep, tk, n) {
         image: { url: p.images?.[0]?.url || "" },
         price: p.price,
         priceTables: {},
-        // MELHORIA 1: stock populado no produto simples — usa ID real do depósito da Suri
-        stocks: p.stock != null ? { [suriStoreId]: { stock: p.stock } } : {},
+        // MELHORIA 1: stock populado no produto simples
+        stocks: p.stock != null ? { all: p.stock } : {},
         measurements: {
           weightInGrams: p.weightInGrams || 0,
           heightInCm: p.dimensions?.heightInCm || 0,
@@ -998,7 +995,7 @@ async function registerWoocommerce(config, webhookUrl) {
   const base=`${site_url.replace(/\/+$/,"")}/wp-json/wc/v3`;
   const auth=Buffer.from(`${consumer_key}:${consumer_secret}`).toString("base64");
   const headers={"Content-Type":"application/json","Authorization":`Basic ${auth}`};
-  const topics=[{name:"Pedido Criado",topic:"order.created"},{name:"Pedido Atualizado",topic:"order.updated"},{name:"Pedido Deletado",topic:"order.deleted"},{name:"Produto Criado",topic:"product.created"},{name:"Produto Atualizado",topic:"product.updated"}];
+  const topics=[{name:"Pedido Criado",topic:"order.created"},{name:"Pedido Atualizado",topic:"order.updated"},{name:"Pedido Deletado",topic:"order.deleted"},{name:"Prodluto Criado",topic:"product.created"},{name:"Produto Atualizado",topic:"product.updated"}];
   const results=[];
   for (const {name,topic} of topics) { const r=await fetch(`${base}/webhooks`,{method:"POST",headers,body:JSON.stringify({name,status:"active",topic,delivery_url:webhookUrl})}); const data=await r.json(); results.push(r.ok?{topic,status:"created",id:data.id}:{topic,status:"error",detail:data.message||data}); }
   return { success:true, message:`${results.filter(r=>r.status==="created").length}/${topics.length} webhooks registrados no WooCommerce`, details:results };
