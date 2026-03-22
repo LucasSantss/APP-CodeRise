@@ -406,9 +406,21 @@ function mapLogisticStatus(status) {
   return map[status]??1;
 }
 
+// MELHORIA 1: busca o ID do primeiro depósito ativo da Suri para usar no stocks
+async function getSuriStoreId(endpoint, token) {
+  try {
+    const data = await suriRequest(endpoint, token, "GET", "/api/shop/stores");
+    const stores = Array.isArray(data) ? data : (data?.data || data?.stores || []);
+    return stores?.[0]?.id || null;
+  } catch { return null; }
+}
+
 // MELHORIA 1 + 8: processProductSync com stocks populado + MELHORIA 4: múltiplas variantes
 async function processProductSync(ep, tk, n) {
   const p = n.product;
+
+  // MELHORIA 1: busca o ID real do depósito da Suri para montar stocks corretamente
+  const suriStoreId = await getSuriStoreId(ep, tk) || "141301072";
 
   // MELHORIA 4: mapear todas as variantes como dimensões na Suri
   const dimensions = (p.variants && p.variants.length > 0)
@@ -418,8 +430,8 @@ async function processProductSync(ep, tk, n) {
         image: { url: p.images?.[0]?.url || "" },
         price: v.price || p.price,
         priceTables: {},
-        // MELHORIA 1: stock populado por variante
-        stocks: v.stock != null ? { all: v.stock } : {},
+        // MELHORIA 1: stock populado por variante — usa ID real do depósito da Suri
+        stocks: v.stock != null ? { [suriStoreId]: { stock: v.stock } } : {},
         measurements: {
           weightInGrams: v.weightInGrams || p.weightInGrams || 0,
           heightInCm: v.dimensions?.heightInCm || p.dimensions?.heightInCm || 0,
@@ -435,8 +447,8 @@ async function processProductSync(ep, tk, n) {
         image: { url: p.images?.[0]?.url || "" },
         price: p.price,
         priceTables: {},
-        // MELHORIA 1: stock populado no produto simples
-        stocks: p.stock != null ? { all: p.stock } : {},
+        // MELHORIA 1: stock populado no produto simples — usa ID real do depósito da Suri
+        stocks: p.stock != null ? { [suriStoreId]: { stock: p.stock } } : {},
         measurements: {
           weightInGrams: p.weightInGrams || 0,
           heightInCm: p.dimensions?.heightInCm || 0,
