@@ -1,13 +1,17 @@
 /**
  * ecommerce/nuvemshop/orders.js
- * Operações de pedidos na API da Nuvemshop.
- * Inclui fluxo reverso: eventos da Suri → atualização na Nuvemshop.
+ * Operações de pedidos na API da Nuvemshop — FLUXO REVERSO (Suri → Nuvemshop)
+ *
+ * Cenário 10 — order.created  → deductStock (deduz estoque das variantes)
+ * Cenário 11 — order.created  → deductStock (múltiplos itens)
+ * Cenário 12 — order.shipped  → fulfillOrder (marca enviado + rastreio)
+ * Cenário 13 — order.cancelled → cancelOrder (cancela pedido)
  */
 
 import * as client from "./client.js";
 
 /**
- * Normaliza um pedido do webhook da Nuvemshop para o formato interno.
+ * Normaliza pedido do webhook da Nuvemshop para formato interno.
  */
 export function normalizeOrder(payload) {
   const order = payload.order || payload;
@@ -35,8 +39,52 @@ export function normalizeOrder(payload) {
 }
 
 /**
- * FLUXO REVERSO: Marca pedido como enviado na Nuvemshop.
- * Chamado quando a Suri dispara um evento de order.shipped.
+ * Cenários 10 e 11: order.created (Suri → Nuvemshop)
+ * Deduz o estoque das variantes compradas na Suri, na Nuvemshop.
+ * Suporta múltiplos itens no mesmo pedido.
+ */
+export async function deductStock(config, items) {
+  const { store_id, access_token } = config;
+  const results = [];
+
+  for (const item of items) {
+    const productId = item.productId || item.product_id || item.ProductId;
+    const sku = item.sku || item.Sku;
+    const qty = parseInt(item.quantity || item.Quantity || 1);
+    if (!productId) continue;
+
+    try {
+      const varRes = await client.getProductVariants(store_id, access_token, productId);
+      const variants = Array.isArray(varRes) ? varRes : (varRes.variants || []);
+      const variant = sku ? variants.find(v => v.sku === sku) : variants[0];
+
+      if (!variant) {
+        results.push({ productId, sku, status: "variant_not_found" });
+        continue;
+      }
+
+      const newStock = Math.max(0, (variant.stock || 0) - qty);
+      await client.updateVariantStock(store_id, access_token, productId, variant.id, newStock);
+      results.push({
+        productId,
+        variantId: variant.id,
+        sku: variant.sku,
+        previousStock: variant.stock,
+        newStock,
+        deducted: qty,
+        status: "stock_reduced",
+      });
+    } catch (e) {
+      results.push({ productId, sku, status: "error", detail: e.message });
+    }
+  }
+
+  return { action: "stock_deducted", results };
+}
+
+/**
+ * Cenário 12: order.shipped (Suri → Nuvemshop)
+ * Marca pedido como enviado na Nuvemshop com código de rastreio.
  */
 export async function fulfillOrder(config, payload) {
   const { store_id, access_token } = config;
@@ -51,7 +99,7 @@ export async function fulfillOrder(config, payload) {
   const body = {
     notify_customer: payload.notify_customer ?? true,
     ...(payload.tracking_number ? { tracking_number: payload.tracking_number } : {}),
-    ...(payload.tracking_url ? { tracking_url: payload.tracking_url } : {}),
+    ...(payload.tracking_url   ? { tracking_url:    payload.tracking_url }    : {}),
   };
 
   await client.fulfillOrder(store_id, access_token, order.id, body);
@@ -59,7 +107,8 @@ export async function fulfillOrder(config, payload) {
 }
 
 /**
- * FLUXO REVERSO: Cancela pedido na Nuvemshop.
+ * Cenário 13: order.cancelled (Suri → Nuvemshop)
+ * Cancela pedido na Nuvemshop.
  */
 export async function cancelOrder(config, payload) {
   const { store_id, access_token } = config;
@@ -76,7 +125,7 @@ export async function cancelOrder(config, payload) {
 }
 
 /**
- * FLUXO REVERSO: Adiciona nota ao pedido na Nuvemshop.
+ * Adiciona nota/mensagem a um pedido na Nuvemshop.
  */
 export async function addOrderNote(config, payload) {
   const { store_id, access_token } = config;
@@ -94,37 +143,7 @@ export async function addOrderNote(config, payload) {
 }
 
 /**
- * FLUXO REVERSO: Subtrai estoque na Nuvemshop quando pedido é criado na Suri.
- */
-export async function deductStock(config, items) {
-  const { store_id, access_token } = config;
-  const results = [];
-
-  for (const item of items) {
-    const productId = item.productId || item.product_id || item.ProductId;
-    const sku = item.sku || item.Sku;
-    const qty = parseInt(item.quantity || item.Quantity || 1);
-    if (!productId) continue;
-
-    try {
-      const varRes = await client.getProductVariants(store_id, access_token, productId);
-      const variants = Array.isArray(varRes) ? varRes : (varRes.variants || []);
-      const variant = sku ? variants.find(v => v.sku === sku) : variants[0];
-      if (!variant) { results.push({ productId, status: "variant_not_found" }); continue; }
-
-      const newStock = Math.max(0, (variant.stock || 0) - qty);
-      await client.updateVariantStock(store_id, access_token, productId, variant.id, newStock);
-      results.push({ productId, variantId: variant.id, previousStock: variant.stock, newStock, status: "stock_reduced" });
-    } catch (e) {
-      results.push({ productId, status: "error", detail: e.message });
-    }
-  }
-
-  return { action: "stock_deducted", results };
-}
-
-/**
- * FLUXO REVERSO: Atualiza estoque de uma variante específica na Nuvemshop.
+ * Atualiza estoque de uma variante específica na Nuvemshop.
  */
 export async function updateStock(config, payload) {
   const { store_id, access_token } = config;

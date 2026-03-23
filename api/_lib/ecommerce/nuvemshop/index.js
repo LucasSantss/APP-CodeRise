@@ -1,6 +1,11 @@
 /**
  * ecommerce/nuvemshop/index.js
- * Ponto de entrada do módulo Nuvemshop.
+ * Normaliza webhooks da Nuvemshop para o formato interno do CodeRise.
+ *
+ * PRODUTOS: retorna dados completos se vierem no webhook (needsApiFetch: false)
+ *           ou sinaliza busca via API (needsApiFetch: true) se só o ID veio
+ *
+ * PEDIDOS: normaliza direto do webhook — payload já é completo
  */
 
 import * as client from "./client.js";
@@ -9,27 +14,27 @@ export function normalizeWebhook(payload) {
   const topic = payload.topic || payload.event || "";
 
   const topicMap = {
-    "orders/created": "order.created",
-    "orders/paid": "order.created",
-    "orders/fulfilled": "order.shipped",
-    "orders/cancelled": "order.cancelled",
+    "orders/created":             "order.created",
+    "orders/paid":                "order.created",
+    "orders/fulfilled":           "order.shipped",
+    "orders/cancelled":           "order.cancelled",
     "orders/partially_fulfilled": "order.partially_shipped",
-    "products/created": "product.sync",
-    "products/updated": "product.sync",
-    "products/deleted": "product.deleted",
+    "products/created":           "product.sync",
+    "products/updated":           "product.sync",
+    "products/deleted":           "product.deleted",
   };
 
   const eventType = topicMap[topic] || topic;
 
+  // ── Produto deletado ──────────────────────────────────────────────────────
   if (eventType === "product.deleted") {
     const p = payload.product || payload;
     return { eventType, productId: String(p.id), needsApiFetch: false };
   }
 
+  // ── Produto criado/atualizado ─────────────────────────────────────────────
   if (eventType === "product.sync") {
     const p = payload.product || payload;
-    // Se o webhook já trouxe os dados completos do produto (tem variants e name),
-    // normaliza direto sem precisar buscar na API da Nuvemshop
     const hasFullData = p.variants && p.variants.length > 0 && p.name;
     if (hasFullData) {
       const variants = (p.variants || []).map(v => ({
@@ -43,7 +48,9 @@ export function normalizeWebhook(payload) {
           lengthInCm: parseFloat(v.depth  || 0),
         },
         stock: parseInt(v.stock || 0),
-        attributes: Object.entries(v.values || {}).map(([name, value]) => ({ name, value: String(value) })),
+        attributes: Object.entries(v.values || {}).map(([name, value]) => ({
+          name, value: String(value),
+        })),
         imageUrl: v.image?.src || null,
       }));
       const v0 = variants[0] || {};
@@ -69,36 +76,40 @@ export function normalizeWebhook(payload) {
         },
       };
     }
-    // Sem dados completos — sinaliza para buscar via API da Nuvemshop pelo ID
+    // Sem dados completos — busca via API
     return { eventType, productId: String(p.id), needsApiFetch: true };
   }
 
+  // ── Pedidos ───────────────────────────────────────────────────────────────
   const order = payload.order || payload;
   return {
     eventType,
-    orderId: String(order.id || order.number || ""),
+    needsApiFetch: false,
+    orderId:         String(order.id || order.number || ""),
     paymentTracking: order.payment_details?.method || "",
-    logisticStatus: order.shipping_status || order.status || "shipped",
-    totalAmount: parseFloat(order.total || 0),
+    logisticStatus:  order.shipping_status || order.status || "shipped",
+    totalAmount:     parseFloat(order.total || 0),
     items: (order.products || []).map(i => ({
-      productId: String(i.product_id || i.id),
-      sku: String(i.sku || i.variant_id),
-      name: i.name,
-      quantity: i.quantity,
-      unitPrice: parseFloat(i.price || 0),
-      discount: parseFloat(i.discount || 0),
-      sellerId: "all",
+      productId:  String(i.product_id || i.id),
+      sku:        String(i.sku || i.variant_id || ""),
+      name:       i.name || "Produto",
+      quantity:   parseInt(i.quantity || 1),
+      unitPrice:  parseFloat(i.price || 0),
+      discount:   parseFloat(i.discount || 0),
+      sellerId:   "all",
     })),
     shipping: {
-      provider: order.shipping_pickup_type || "Entrega",
-      type: 1,
-      price: parseFloat(order.shipping_cost_owner || 0),
+      provider:  order.shipping_pickup_type || "Entrega",
+      type:      1,
+      price:     parseFloat(order.shipping_cost_owner || 0),
       estimative: "5 dias úteis",
     },
-    needsApiFetch: false,
   };
 }
 
+/**
+ * Registra todos os webhooks necessários na Nuvemshop.
+ */
 export async function registerWebhooks(config, webhookUrl) {
   const { store_id, access_token } = config;
   const events = [

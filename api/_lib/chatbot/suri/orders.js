@@ -1,14 +1,20 @@
 /**
  * chatbot/suri/orders.js
- * Operações de pedidos na Suri.
+ * Operações de pedidos na Suri — FLUXO DIRETO (Nuvemshop → Suri)
+ *
+ * Cenário 5  — orders/created  → createOrder (cria orçamento + paga)
+ * Cenário 6  — orders/paid     → createOrder (mesmo fluxo)
+ * Cenário 7  — orders/fulfilled         → shipOrder (logística 3)
+ * Cenário 8  — orders/partially_fulfilled → partiallyShipOrder (logística 3)
+ * Cenário 9  — orders/cancelled         → cancelOrder
  */
 
 import * as client from "./client.js";
 
 const STATUS_MAP = {
-  "ready-for-handling": 1, "processing": 1, "order_paid": 1,
+  "ready-for-handling": 1, "processing": 1, "order_paid": 1, "unpacked": 1,
   "handling": 2, "preparing": 2,
-  "invoiced": 3, "shipped": 3, "fulfilled": 3, "order_shipped": 3,
+  "invoiced": 3, "shipped": 3, "fulfilled": 3, "order_shipped": 3, "partially_shipped": 3,
   "delivered": 4, "order_delivered": 4, "completed": 4,
   "canceled": 5, "cancelled": 5, "refunded": 5,
 };
@@ -18,26 +24,32 @@ function mapLogisticStatus(status) {
 }
 
 /**
- * Busca um pedido na Suri pelo ID do pedido no ecommerce.
+ * Busca pedido na Suri pelo ProviderOrderId (ID da Nuvemshop).
+ * Tenta múltiplos campos de resposta para compatibilidade.
  */
 export async function findOrder(endpoint, token, orderId) {
+  if (!orderId) return null;
   try {
     const data = await client.searchOrders(endpoint, token, orderId);
-    const list = data?.orders || data?.data || data?.items || data || [];
-    return Array.isArray(list) ? (list[0] || null) : null;
+    const list = data?.orders || data?.data || data?.items || [];
+    const arr = Array.isArray(list) ? list : Array.isArray(data) ? data : [];
+    return arr[0] || null;
   } catch {
     return null;
   }
 }
 
 /**
- * Cria um pedido na Suri e o marca como pago.
+ * Cenários 5 e 6: orders/created e orders/paid
+ * Cria orçamento na Suri e marca como pago.
+ * Se o pedido já existe, apenas marca como pago.
  */
 export async function createOrder(endpoint, token, normalized) {
   const existing = await findOrder(endpoint, token, normalized.orderId);
   if (existing) {
-    await client.markOrderPaid(endpoint, token, existing.id || existing.orderId, normalized.paymentTracking);
-    return { action: "marked_paid", suriOrderId: existing.id };
+    const suriId = existing.id || existing.orderId;
+    await client.markOrderPaid(endpoint, token, suriId, normalized.paymentTracking || "");
+    return { action: "marked_paid", suriOrderId: suriId };
   }
 
   const budget = {
@@ -55,9 +67,9 @@ export async function createOrder(endpoint, token, normalized) {
       fromSellerId: i.sellerId || "all",
       ProductId: String(i.productId || i.id),
       Sku: String(i.sku || i.productId),
-      Name: i.name,
-      quantity: i.quantity,
-      unitPrice: i.unitPrice,
+      Name: i.name || "Produto",
+      quantity: i.quantity || 1,
+      unitPrice: i.unitPrice || 0,
       discountAmount: i.discount || 0,
     })),
     errorMessages: [],
@@ -67,14 +79,12 @@ export async function createOrder(endpoint, token, normalized) {
   const suriOrderId = created?.id || created?.orderId;
 
   if (suriOrderId) {
-    await client.markOrderPaid(endpoint, token, suriOrderId, normalized.paymentTracking);
-    // Tenta baixa de estoque (endpoint pode não existir em todas as versões da Suri)
-    if (normalized.items?.length) {
-      for (const item of normalized.items) {
-        try {
-          await client.deductStock(endpoint, token, item.productId, item.sku, item.quantity);
-        } catch {} // silencioso — Suri pode gerenciar internamente
-      }
+    await client.markOrderPaid(endpoint, token, suriOrderId, normalized.paymentTracking || "");
+    // Baixa de estoque na Suri (silencioso se endpoint não disponível)
+    for (const item of (normalized.items || [])) {
+      try {
+        await client.deductStock(endpoint, token, item.productId, item.sku, item.quantity);
+      } catch {}
     }
   }
 
@@ -82,32 +92,38 @@ export async function createOrder(endpoint, token, normalized) {
 }
 
 /**
- * Atualiza o status logístico de um pedido na Suri.
+ * Cenário 7: orders/fulfilled
+ * Atualiza logística para enviado (status 3).
  */
 export async function shipOrder(endpoint, token, normalized) {
   const order = await findOrder(endpoint, token, normalized.orderId);
   if (!order) throw new Error(`Pedido ${normalized.orderId} não encontrado na Suri`);
-  const status = mapLogisticStatus(normalized.logisticStatus);
-  await client.updateOrderLogistic(endpoint, token, order.id || order.orderId, status);
-  return { action: "logistic_updated", suriOrderId: order.id, status };
+  const suriId = order.id || order.orderId;
+  const status = mapLogisticStatus(normalized.logisticStatus || "shipped");
+  await client.updateOrderLogistic(endpoint, token, suriId, status);
+  return { action: "logistic_updated", suriOrderId: suriId, status };
 }
 
 /**
- * Atualiza status logístico parcial (orders/partially_fulfilled).
+ * Cenário 8: orders/partially_fulfilled
+ * Atualiza logística para parcialmente enviado (status 3).
  */
 export async function partiallyShipOrder(endpoint, token, normalized) {
   const order = await findOrder(endpoint, token, normalized.orderId);
   if (!order) throw new Error(`Pedido ${normalized.orderId} não encontrado na Suri`);
-  await client.updateOrderLogistic(endpoint, token, order.id || order.orderId, 3);
-  return { action: "logistic_partial_updated", suriOrderId: order.id };
+  const suriId = order.id || order.orderId;
+  await client.updateOrderLogistic(endpoint, token, suriId, 3);
+  return { action: "logistic_partial_updated", suriOrderId: suriId, status: 3 };
 }
 
 /**
- * Cancela um pedido na Suri.
+ * Cenário 9: orders/cancelled
+ * Cancela pedido na Suri.
  */
 export async function cancelOrder(endpoint, token, normalized) {
   const order = await findOrder(endpoint, token, normalized.orderId);
   if (!order) throw new Error(`Pedido ${normalized.orderId} não encontrado na Suri`);
-  await client.cancelOrder(endpoint, token, order.id || order.orderId);
-  return { action: "cancelled", suriOrderId: order.id };
+  const suriId = order.id || order.orderId;
+  await client.cancelOrder(endpoint, token, suriId);
+  return { action: "cancelled", suriOrderId: suriId };
 }
