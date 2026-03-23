@@ -79,7 +79,7 @@ function extractEventId(platform, payload, req) {
     case "nuvemshop": {
       const topic = payload.topic || payload.event || "";
       // products/updated é sempre livre — nunca deduplica atualizações
-      if (topic === "products/updated") return null;
+      if (topic === "products/updated" || topic === "product/updated") return null;
       const id = String(payload.product?.id || payload.order?.id || payload.id || "");
       if (!id) return null;
       return `${topic}:${id}`;
