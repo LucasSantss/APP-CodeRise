@@ -77,8 +77,9 @@ function extractEventId(platform, payload, req) {
       // Shopify envia header único por entrega — deduplicação perfeita
       return req.headers["x-shopify-webhook-id"] || null;
     case "nuvemshop": {
-      // Inclui topic + id para diferenciar created/updated/deleted do mesmo produto/pedido
       const topic = payload.topic || payload.event || "";
+      // products/updated é sempre livre — nunca deduplica atualizações
+      if (topic === "products/updated") return null;
       const id = String(payload.product?.id || payload.order?.id || payload.id || "");
       if (!id) return null;
       return `${topic}:${id}`;
