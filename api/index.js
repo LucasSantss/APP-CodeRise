@@ -73,10 +73,21 @@ function validateWoocommerceSignature(req, secret) {
 // ─── Deduplicação ─────────────────────────────────────────────────────────────
 function extractEventId(platform, payload, req) {
   switch (platform) {
-    case "shopify":     return req.headers["x-shopify-webhook-id"] || null;
-    case "nuvemshop":   return String(payload.id || payload.order?.id || payload.product?.id || "");
-    case "woocommerce": return req.headers["x-wc-webhook-delivery-id"] || String(payload.id || "");
-    default:            return String(payload.id || payload.order_id || "");
+    case "shopify":
+      // Shopify envia header único por entrega — deduplicação perfeita
+      return req.headers["x-shopify-webhook-id"] || null;
+    case "nuvemshop": {
+      // Inclui topic + id para diferenciar created/updated/deleted do mesmo produto/pedido
+      const topic = payload.topic || payload.event || "";
+      const id = String(payload.product?.id || payload.order?.id || payload.id || "");
+      if (!id) return null;
+      return `${topic}:${id}`;
+    }
+    case "woocommerce":
+      // WooCommerce envia header único por entrega
+      return req.headers["x-wc-webhook-delivery-id"] || String(payload.id || "");
+    default:
+      return String(payload.id || payload.order_id || "");
   }
 }
 async function isDuplicateEvent(userId, platform, eventId) {
