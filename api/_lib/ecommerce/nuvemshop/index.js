@@ -14,6 +14,7 @@ export function normalizeWebhook(payload) {
   const topic = payload.topic || payload.event || "";
 
   const topicMap = {
+    // Formato plural (usado em testes e webhooks registrados via API)
     "orders/created":             "order.created",
     "orders/paid":                "order.created",
     "orders/fulfilled":           "order.shipped",
@@ -22,6 +23,15 @@ export function normalizeWebhook(payload) {
     "products/created":           "product.sync",
     "products/updated":           "product.sync",
     "products/deleted":           "product.deleted",
+    // Formato singular (usado nos webhooks reais disparados pela Nuvemshop)
+    "order/created":              "order.created",
+    "order/paid":                 "order.created",
+    "order/fulfilled":            "order.shipped",
+    "order/cancelled":            "order.cancelled",
+    "order/partially_fulfilled":  "order.partially_shipped",
+    "product/created":            "product.sync",
+    "product/updated":            "product.sync",
+    "product/deleted":            "product.deleted",
   };
 
   const eventType = topicMap[topic] || topic;
@@ -35,7 +45,7 @@ export function normalizeWebhook(payload) {
   // ── Produto criado/atualizado ─────────────────────────────────────────────
   if (eventType === "product.sync") {
     const p = payload.product || payload;
-    const hasFullData = p.variants && p.variants.length > 0 && p.name;
+    const hasFullData = p.variants && p.variants.length > 0 && (p.name || p.sku);
     if (hasFullData) {
       const variants = (p.variants || []).map(v => ({
         sku: String(v.sku || p.id),
