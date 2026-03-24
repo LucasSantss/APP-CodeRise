@@ -15,9 +15,11 @@ function sanitizeConnectionString(url) {
 const pool = new Pool({
   connectionString: sanitizeConnectionString(process.env.DATABASE_URL),
   ssl: { rejectUnauthorized: false },
-  max: 5,
+  max: 15,                    // aumentado de 5 → 15 para suportar picos
+  min: 2,                     // mantém conexões mínimas aquecidas
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 8000,
+  allowExitOnIdle: true,      // libera conexões quando ocioso
 });
 
 pool.on("error", (err) => {

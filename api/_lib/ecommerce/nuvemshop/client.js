@@ -15,17 +15,35 @@ function headers(accessToken) {
   };
 }
 
+// Retry com backoff exponencial para falhas transientes
+async function withRetry(fn, maxAttempts = 3, baseDelayMs = 600) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try { return await fn(); } catch (err) {
+      lastErr = err;
+      const msg = err.message || "";
+      const isClientError = msg.includes("HTTP 4") && !msg.includes("HTTP 429") && !msg.includes("HTTP 408");
+      if (isClientError || attempt === maxAttempts) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 300;
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
 async function request(storeId, accessToken, method, path, body) {
   const url = `${BASE_URL}/${storeId}${path}`;
-  const res = await fetch(url, {
-    method,
-    headers: headers(accessToken),
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(10000),
+  return withRetry(async () => {
+    const res = await fetch(url, {
+      method,
+      headers: headers(accessToken),
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`Nuvemshop ${method} ${path} → HTTP ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+    return data;
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Nuvemshop ${method} ${path} → HTTP ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
-  return data;
 }
 
 // ─── Produtos ─────────────────────────────────────────────────────────────────

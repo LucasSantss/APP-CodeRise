@@ -13,6 +13,24 @@
 
 import * as client from "./client.js";
 
+// ── Mutex por produto: serializa deduções simultâneas do mesmo item ───────────
+// Evita race condition quando múltiplos pedidos chegam ao mesmo tempo
+// para o mesmo produto — garante que o estoque seja lido e atualizado atomicamente
+const _stockLocks = new Map();
+
+async function withStockLock(productId, fn) {
+  const key = String(productId);
+  while (_stockLocks.get(key)) {
+    await new Promise(r => setTimeout(r, 50));
+  }
+  _stockLocks.set(key, true);
+  try {
+    return await fn();
+  } finally {
+    _stockLocks.delete(key);
+  }
+}
+
 export function normalizeOrder(payload) {
   const order = payload.order || payload;
   return {
@@ -62,37 +80,38 @@ export async function deductStock(config, items) {
     }
 
     try {
-      // PASSO 1 — Consulta estoque atual na Nuvemshop
-      const varRes  = await client.getProductVariants(store_id, access_token, productId);
-      const variants = Array.isArray(varRes) ? varRes : (varRes.variants || []);
+      // Mutex por produto: serializa deduções simultâneas do mesmo item
+      const result = await withStockLock(productId, async () => {
+        // PASSO 1 — Consulta estoque atual na Nuvemshop
+        const varRes  = await client.getProductVariants(store_id, access_token, productId);
+        const variants = Array.isArray(varRes) ? varRes : (varRes.variants || []);
 
-      // PASSO 2 — Localiza a variante pelo SKU (ou pega a primeira se não informado)
-      const variant = sku
-        ? variants.find(v => String(v.sku) === String(sku))
-        : variants[0];
+        // PASSO 2 — Localiza a variante pelo SKU (ou pega a primeira se não informado)
+        const variant = sku
+          ? variants.find(v => String(v.sku) === String(sku))
+          : variants[0];
 
-      if (!variant) {
-        results.push({ productId, sku, status: "variant_not_found" });
-        continue;
-      }
+        if (!variant) return { productId, sku, status: "variant_not_found" };
 
-      const currentStock = variant.stock ?? 0;
+        const currentStock = variant.stock ?? 0;
 
-      // PASSO 3 — Calcula novo estoque (nunca negativo)
-      const newStock = Math.max(0, currentStock - qty);
+        // PASSO 3 — Calcula novo estoque (nunca negativo)
+        const newStock = Math.max(0, currentStock - qty);
 
-      // PASSO 4 — Atualiza estoque na Nuvemshop
-      await client.updateVariantStock(store_id, access_token, productId, variant.id, newStock);
+        // PASSO 4 — Atualiza estoque na Nuvemshop
+        await client.updateVariantStock(store_id, access_token, productId, variant.id, newStock);
 
-      results.push({
-        productId,
-        variantId:     variant.id,
-        sku:           variant.sku,
-        currentStock,          // estoque antes da dedução
-        deducted:      qty,    // quantidade comprada na Suri
-        newStock,              // estoque após dedução
-        status:        "stock_reduced",
+        return {
+          productId,
+          variantId:    variant.id,
+          sku:          variant.sku,
+          currentStock,       // estoque antes da dedução
+          deducted:     qty,  // quantidade comprada na Suri
+          newStock,           // estoque após dedução
+          status:       "stock_reduced",
+        };
       });
+      results.push(result);
 
     } catch (e) {
       results.push({ productId, sku, status: "error", detail: e.message });

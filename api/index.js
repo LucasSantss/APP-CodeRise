@@ -288,6 +288,34 @@ async function getActiveSyncRules(userId, eventType) {
   } catch { return []; }
 }
 
+
+// ── Rate limiting em memória por token (máx 60 req/min por token) ────────────
+const _rateLimitMap = new Map();
+function checkRateLimit(token, maxPerMinute = 60) {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  if (!_rateLimitMap.has(token)) {
+    _rateLimitMap.set(token, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  const entry = _rateLimitMap.get(token);
+  if (now > entry.resetAt) {
+    entry.count = 1;
+    entry.resetAt = now + windowMs;
+    return true;
+  }
+  entry.count++;
+  if (entry.count > maxPerMinute) return false;
+  return true;
+}
+// Limpa entradas expiradas a cada 5 minutos
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of _rateLimitMap.entries()) {
+    if (now > val.resetAt) _rateLimitMap.delete(key);
+  }
+}, 5 * 60 * 1000);
+
 // ════════════════════════════════════════════════════════════════════════════
 // HANDLER PRINCIPAL
 // ════════════════════════════════════════════════════════════════════════════
@@ -317,6 +345,11 @@ async function handleAuth(req, res) {
     if (action === "login") {
       const { email, password } = req.body || {};
       if (!email || !password) return res.status(400).json({ success:false, message:"email e password obrigatórios" });
+      // Rate limit de login: máx 10 tentativas/min por IP
+      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "unknown";
+      if (!checkRateLimit(`login:${ip}`, 10)) {
+        return res.status(429).json({ success:false, message:"Muitas tentativas de login. Tente novamente em 1 minuto.", retry_after:60 });
+      }
       const r = await pool.query("SELECT id,name,email,role,active,password,token FROM users WHERE email=$1", [email]);
       const user = r.rows[0];
       if (!user || !(await verifyPassword(password, user.password))) return res.status(401).json({ success:false, message:"Credenciais inválidas" });
@@ -477,9 +510,20 @@ async function handleWebhooks(req, res) {
 // ════════════════════════════════════════════════════════════════════════════
 async function handleWebhook(req, res) {
   if (req.method==="GET") return res.status(200).json({ success:true, message:"Webhook endpoint ativo" });
+
+  // Validação de tamanho de payload (máx 1MB)
+  const contentLength = parseInt(req.headers["content-length"] || "0", 10);
+  if (contentLength > 1_048_576) {
+    return res.status(413).json({ success:false, message:"Payload muito grande. Máximo permitido: 1MB." });
+  }
   if (req.method!=="POST") { res.setHeader("Allow",["GET","POST"]); return res.status(405).end(); }
   const { token } = req.query;
   if (!token) return res.status(400).json({ success:false, message:"token obrigatório" });
+
+  // Rate limiting: máx 60 requisições/min por token
+  if (!checkRateLimit(token, 60)) {
+    return res.status(429).json({ success:false, message:"Muitas requisições. Tente novamente em 1 minuto.", retry_after:60 });
+  }
 
   let integration;
   try {
@@ -723,7 +767,14 @@ async function handleSetup(req, res) {
     await pool.query(`CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, type VARCHAR(30) NOT NULL, title VARCHAR(100) NOT NULL, message TEXT NOT NULL, image_url TEXT, target_role VARCHAR(20) DEFAULT 'all', target_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, scheduled_at TIMESTAMP, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW())`);
     await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT NOW())`);
     await pool.query(`CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, hidden BOOLEAN NOT NULL DEFAULT false, read_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (notification_id, user_id))`);
+    // Índices de performance
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_webhooks_event_id ON user_webhooks ((payload->>'_event_id')) WHERE payload->>'_event_id' IS NOT NULL`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_webhooks_user_status ON user_webhooks (user_id, status, received_at DESC)`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_webhooks_user_event ON user_webhooks (user_id, event_type)`).catch(()=>{});
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_integrations_webhook_token ON user_integrations (webhook_token) WHERE webhook_token IS NOT NULL`).catch(()=>{});
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_integrations_chatbot_token ON user_integrations (chatbot_token) WHERE chatbot_token IS NOT NULL`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_token ON users (token) WHERE token IS NOT NULL`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)`).catch(()=>{});
     const adminToken=crypto.randomBytes(32).toString("hex");
     await pool.query(`INSERT INTO users (name,email,password,role,token) VALUES ('Administrador','admin@plataforma.com','admin123','admin',$1) ON CONFLICT (email) DO NOTHING`,[adminToken]);
     const userToken=crypto.randomBytes(32).toString("hex");

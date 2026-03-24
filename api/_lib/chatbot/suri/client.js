@@ -4,22 +4,41 @@
  * Todas as chamadas à Suri passam por aqui.
  */
 
+// Retry com backoff exponencial para falhas transientes
+async function withRetry(fn, maxAttempts = 3, baseDelayMs = 600) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try { return await fn(); } catch (err) {
+      lastErr = err;
+      const msg = err.message || "";
+      // Não faz retry em erros de cliente (4xx), exceto 429 (rate limit) e 408 (timeout)
+      const isClientError = msg.includes("HTTP 4") && !msg.includes("HTTP 429") && !msg.includes("HTTP 408");
+      if (isClientError || attempt === maxAttempts) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 300;
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
 export async function request(endpoint, token, method, path, body) {
   const base = endpoint.replace(/\/+$/, "");
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(15000),
+  return withRetry(async () => {
+    const res = await fetch(`${base}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
+    });
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if (!res.ok) throw new Error(`Suri ${method} ${path} → HTTP ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+    return data;
   });
-  let data = null;
-  try { data = await res.json(); } catch {}
-  if (!res.ok) throw new Error(`Suri ${method} ${path} → HTTP ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
-  return data;
 }
 
 // ─── Lojas / Depósitos ────────────────────────────────────────────────────────
