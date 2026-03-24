@@ -2,17 +2,17 @@
  * ecommerce/nuvemshop/orders.js
  * Operações de pedidos na API da Nuvemshop — FLUXO REVERSO (Suri → Nuvemshop)
  *
- * Cenário 10 — order.created  → deductStock (deduz estoque das variantes)
- * Cenário 11 — order.created  → deductStock (múltiplos itens)
- * Cenário 12 — order.shipped  → fulfillOrder (marca enviado + rastreio)
- * Cenário 13 — order.cancelled → cancelOrder (cancela pedido)
+ * Cenário 10/11 — order.created  → deductStock
+ *   1. Consulta estoque atual da variante na Nuvemshop
+ *   2. Calcula novo estoque (atual - quantidade comprada)
+ *   3. Atualiza estoque na Nuvemshop
+ *
+ * Cenário 12 — order.shipped    → fulfillOrder (marca enviado + rastreio)
+ * Cenário 13 — order.cancelled  → cancelOrder  (cancela pedido)
  */
 
 import * as client from "./client.js";
 
-/**
- * Normaliza pedido do webhook da Nuvemshop para formato interno.
- */
 export function normalizeOrder(payload) {
   const order = payload.order || payload;
   return {
@@ -40,8 +40,12 @@ export function normalizeOrder(payload) {
 
 /**
  * Cenários 10 e 11: order.created (Suri → Nuvemshop)
- * Deduz o estoque das variantes compradas na Suri, na Nuvemshop.
- * Suporta múltiplos itens no mesmo pedido.
+ *
+ * Fluxo por item:
+ *  1. GET /products/{productId}/variants  → consulta estoque atual
+ *  2. Localiza a variante pelo SKU
+ *  3. Calcula: novoEstoque = Max(0, estoqueAtual - quantidade)
+ *  4. PUT /products/{productId}/variants/{variantId} → atualiza
  */
 export async function deductStock(config, items) {
   const { store_id, access_token } = config;
@@ -49,31 +53,47 @@ export async function deductStock(config, items) {
 
   for (const item of items) {
     const productId = item.productId || item.product_id || item.ProductId;
-    const sku = item.sku || item.Sku;
-    const qty = parseInt(item.quantity || item.Quantity || 1);
-    if (!productId) continue;
+    const sku       = item.sku || item.Sku;
+    const qty       = parseInt(item.quantity || item.Quantity || 1);
+
+    if (!productId) {
+      results.push({ status: "skipped", reason: "productId ausente" });
+      continue;
+    }
 
     try {
-      const varRes = await client.getProductVariants(store_id, access_token, productId);
+      // PASSO 1 — Consulta estoque atual na Nuvemshop
+      const varRes  = await client.getProductVariants(store_id, access_token, productId);
       const variants = Array.isArray(varRes) ? varRes : (varRes.variants || []);
-      const variant = sku ? variants.find(v => v.sku === sku) : variants[0];
+
+      // PASSO 2 — Localiza a variante pelo SKU (ou pega a primeira se não informado)
+      const variant = sku
+        ? variants.find(v => String(v.sku) === String(sku))
+        : variants[0];
 
       if (!variant) {
         results.push({ productId, sku, status: "variant_not_found" });
         continue;
       }
 
-      const newStock = Math.max(0, (variant.stock || 0) - qty);
+      const currentStock = variant.stock ?? 0;
+
+      // PASSO 3 — Calcula novo estoque (nunca negativo)
+      const newStock = Math.max(0, currentStock - qty);
+
+      // PASSO 4 — Atualiza estoque na Nuvemshop
       await client.updateVariantStock(store_id, access_token, productId, variant.id, newStock);
+
       results.push({
         productId,
-        variantId: variant.id,
-        sku: variant.sku,
-        previousStock: variant.stock,
-        newStock,
-        deducted: qty,
-        status: "stock_reduced",
+        variantId:     variant.id,
+        sku:           variant.sku,
+        currentStock,          // estoque antes da dedução
+        deducted:      qty,    // quantidade comprada na Suri
+        newStock,              // estoque após dedução
+        status:        "stock_reduced",
       });
+
     } catch (e) {
       results.push({ productId, sku, status: "error", detail: e.message });
     }
@@ -93,7 +113,7 @@ export async function fulfillOrder(config, payload) {
 
   const searchData = await client.searchOrders(store_id, access_token, orderId);
   const orders = Array.isArray(searchData) ? searchData : (searchData.orders || []);
-  const order = orders[0];
+  const order  = orders[0];
   if (!order) throw new Error(`Pedido ${orderId} não encontrado na Nuvemshop`);
 
   const body = {
@@ -117,7 +137,7 @@ export async function cancelOrder(config, payload) {
 
   const searchData = await client.searchOrders(store_id, access_token, orderId);
   const orders = Array.isArray(searchData) ? searchData : (searchData.orders || []);
-  const order = orders[0];
+  const order  = orders[0];
   if (!order) throw new Error(`Pedido ${orderId} não encontrado na Nuvemshop`);
 
   await client.cancelOrder(store_id, access_token, order.id);
@@ -125,17 +145,17 @@ export async function cancelOrder(config, payload) {
 }
 
 /**
- * Adiciona nota/mensagem a um pedido na Nuvemshop.
+ * Adiciona nota a um pedido na Nuvemshop.
  */
 export async function addOrderNote(config, payload) {
   const { store_id, access_token } = config;
   const orderId = payload.orderId || payload.order_id;
-  const note = payload.note || payload.message || "";
+  const note    = payload.note || payload.message || "";
   if (!orderId || !note) throw new Error("orderId e note são obrigatórios");
 
   const searchData = await client.searchOrders(store_id, access_token, orderId);
   const orders = Array.isArray(searchData) ? searchData : (searchData.orders || []);
-  const order = orders[0];
+  const order  = orders[0];
   if (!order) throw new Error(`Pedido ${orderId} não encontrado na Nuvemshop`);
 
   await client.updateOrder(store_id, access_token, order.id, { note });
@@ -150,9 +170,9 @@ export async function updateStock(config, payload) {
   const { productId, sku, stock } = payload;
   if (!productId || stock === undefined) throw new Error("productId e stock são obrigatórios");
 
-  const varRes = await client.getProductVariants(store_id, access_token, productId);
+  const varRes   = await client.getProductVariants(store_id, access_token, productId);
   const variants = Array.isArray(varRes) ? varRes : (varRes.variants || []);
-  const variant = sku ? variants.find(v => v.sku === sku) : variants[0];
+  const variant  = sku ? variants.find(v => String(v.sku) === String(sku)) : variants[0];
   if (!variant) throw new Error("Variante não encontrada");
 
   await client.updateVariantStock(store_id, access_token, productId, variant.id, stock);
