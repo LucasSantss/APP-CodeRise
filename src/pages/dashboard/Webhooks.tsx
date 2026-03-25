@@ -88,15 +88,7 @@ const UserWebhooks = () => {
   const [lastWebhookId, setLastWebhookId] = useState<number | null>(null);
   useLongPoll<WebhookEvent>(
     '/webhooks/poll',
-    (items) => {
-      // Prepend apenas os novos eventos sem refazer o fetch completo
-      setLastWebhookId(items[0].id);
-      setWebhooks(prev => {
-        const ids = new Set(prev.map(e => e.id));
-        const novos = items.filter(e => !ids.has(e.id));
-        return novos.length > 0 ? [...novos, ...prev] : prev;
-      });
-    },
+    (items) => { setLastWebhookId(items[0].id); load(); },
     lastWebhookId,
     { enabled: !!user }
   );
