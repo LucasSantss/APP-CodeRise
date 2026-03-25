@@ -11,7 +11,7 @@ import { useAuthStore } from '@/store/auth';
 import { usePlatformSettingsStore } from '@/store/platformSettings';
 import { getPlatformSettings } from '@/services/api';
 
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = 60_000; // 60s — dado raramente muda, 10s era agressivo
 
 export function usePlatformSettingsPoll() {
   const { token } = useAuthStore();

@@ -22,7 +22,16 @@ import UserWebhooks from "./pages/dashboard/Webhooks";
 
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime:            30_000,     // 30s sem refetch automático
+      gcTime:               5 * 60_000, // 5min no cache após desmontagem
+      retry:                1,          // 1 retry em falha (não 3)
+      refetchOnWindowFocus: false,      // não refetch ao voltar à aba
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

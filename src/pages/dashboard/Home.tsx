@@ -66,7 +66,15 @@ const UserHome = () => {
   const [lastWebhookId, setLastWebhookId] = useState<number | null>(null);
   useLongPoll<WebhookEvent>(
     '/webhooks/poll',
-    (items) => { setLastWebhookId(items[0].id); load(); },
+    (items) => {
+      // Atualiza apenas a lista de eventos sem refazer os 3 fetches completos
+      setLastWebhookId(items[0].id);
+      setEvents(prev => {
+        const ids = new Set(prev.map(e => e.id));
+        const novos = items.filter(e => !ids.has(e.id));
+        return novos.length > 0 ? [...novos, ...prev] : prev;
+      });
+    },
     lastWebhookId,
     { enabled: !!user }
   );
@@ -188,10 +196,9 @@ const UserHome = () => {
     return () => ctx.revert();
   }, []);
 
-  const handleCardEnter = (e: React.MouseEvent<HTMLDivElement>) =>
-    gsap.to(e.currentTarget, { y: -5, scale: 1.015, duration: 0.28, ease: 'power2.out' });
-  const handleCardLeave = (e: React.MouseEvent<HTMLDivElement>) =>
-    gsap.to(e.currentTarget, { y: 0, scale: 1, duration: 0.32, ease: 'power2.inOut' });
+  // Hover via CSS transition — zero custo de JS no thread principal
+  const handleCardEnter = undefined;
+  const handleCardLeave = undefined;
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -209,10 +216,9 @@ const UserHome = () => {
           <Card
             key={card.title}
             style={{ opacity: 0 }}
-            className={`cursor-pointer border-border/60 bg-gradient-to-br ${card.gradient} relative overflow-hidden rounded-2xl`}
+            className={`cursor-pointer border-border/60 bg-gradient-to-br ${card.gradient} relative overflow-hidden rounded-2xl transition-transform duration-[280ms] ease-out hover:-translate-y-1 hover:scale-[1.015]`}
             onClick={() => navigate(card.link)}
-            onMouseEnter={handleCardEnter}
-            onMouseLeave={handleCardLeave}
+
           >
             <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 px-5">
               <CardTitle className="text-sm font-semibold text-muted-foreground">{card.title}</CardTitle>
