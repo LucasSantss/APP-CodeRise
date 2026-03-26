@@ -140,7 +140,7 @@ const UserLogs = () => {
             </div>
           </div>
         </CardHeader>
-        {/* Altura fixa de 10 linhas (~520px) com scroll vertical */}
+        {/* Altura modular me 50% com scroll vertical */}
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -154,7 +154,7 @@ const UserLogs = () => {
               </TableRow>
             </TableHeader>
           </Table>
-          <div className="overflow-y-auto h-[50vh]">
+          <div className="overflow-y-auto h-[50vh] no-scrollbar">
             <Table>
               <TableBody>
                 {loading ? (

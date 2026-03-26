@@ -281,7 +281,7 @@ const UserWebhooks = () => {
             </TableHeader>
           </Table>
           {/* Body com scroll — altura equivale a ~10 linhas */}
-          <div className="overflow-y-auto max-h-[520px]">
+          <div className="overflow-y-auto h-[50vh]">
             <Table>
               <TableBody>
                 {loading ? (
@@ -319,11 +319,6 @@ const UserWebhooks = () => {
               </TableBody>
             </Table>
           </div>
-          {!loading && webhooks.length >= 10 && (
-            <p className="text-xs text-muted-foreground text-center py-2 border-t border-border/40">
-              Exibindo os 10 eventos mais recentes — role para ver todos
-            </p>
-          )}
         </CardContent>
       </Card>
 
