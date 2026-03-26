@@ -281,49 +281,50 @@ const UserWebhooks = () => {
             </TableHeader>
           </Table>
           {/* Body com scroll 50vh */}
-          <div className="overflow-auto h-[50vh] scrollbar-y-hidden">
-            <div className="min-w-max">
-              <Table>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">
-                        <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
-                      </TableCell>
-                    </TableRow>
-                  ) : webhooks.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
-                    </TableRow>
-                  ) : webhooks.map((w) => (
-                    <TableRow
-                      key={w.id}
-                      className="webhook-row cursor-pointer hover:bg-accent"
-                      onClick={() => setSelectedWebhook(w)}
-                    >
-                      <TableCell className="text-xs font-mono w-[60px]">{w.id}</TableCell>
-                      <TableCell className="w-[60px]">
-                        <Badge variant="outline" className="text-xs">{w.event_type?.toString() || 'desconhecido'}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(w.status)} className={w.status === 'received' ? 'border-success text-success' : ''}>
-                          {w.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs">{w.error_message || '—'}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{new Date(w.received_at).toLocaleString('pt-BR')}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground font-mono truncate max-w-[200px]">
-                        {w.payload ? JSON.stringify(w.payload) : '—'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          <div className="flex flex-col h-[50vh]">
+            <div className="flex-1 overflow-y-auto scrollbar-y-hidden">
+              <div className="min-w-max">
+                <Table>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8">
+                          <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
+                    ) : webhooks.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
+                      </TableRow>
+                    ) : webhooks.map((w) => (
+                      <TableRow
+                        key={w.id}
+                        className="webhook-row cursor-pointer hover:bg-accent"
+                        onClick={() => setSelectedWebhook(w)}
+                      >
+                        <TableCell className="text-xs font-mono w-[60px]">{w.id}</TableCell>
+                        <TableCell className="w-[60px]">
+                          <Badge variant="outline" className="text-xs">{w.event_type?.toString() || 'desconhecido'}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusVariant(w.status)} className={w.status === 'received' ? 'border-success text-success' : ''}>
+                            {w.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">{w.error_message || '—'}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{new Date(w.received_at).toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground font-mono truncate max-w-[200px]">
+                          {w.payload ? JSON.stringify(w.payload) : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
             <div className="overflow-x-auto scrollbar-x-dark">
               <div className="min-w-max h-[1px]" />
             </div>
-          </div>
         </CardContent>
       </Card>
 
