@@ -322,6 +322,7 @@ const UserWebhooks = () => {
                 </Table>
               </div>
             </div>
+          </div>
             <div className="overflow-x-auto scrollbar-x-dark">
               <div className="min-w-max h-[1px]" />
             </div>
