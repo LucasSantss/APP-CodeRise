@@ -216,7 +216,6 @@ const UserWebhooks = () => {
             </p>
           </CardContent>
         </Card>
-      </div>
 
       {/* Dados da Integração */}
       <Card style={{ opacity: 0 }}>
