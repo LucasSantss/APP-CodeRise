@@ -145,7 +145,7 @@ const UserLogs = () => {
               As barras de scroll ficam na borda inferior/direita do container. */}
           <div
             className="table-scroll-body"
-            style={{ height: '49vh' }}
+            style={{ height: '48vh' }}
           >
             <Table className="min-w-[50vh]">
               <TableHeader className="sticky top-0 z-10 bg-card">
@@ -221,7 +221,7 @@ const UserLogs = () => {
 
       {/* Modal de payload */}
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
-        <DialogContent className="max-w-2xl h-[70vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Payload do Evento

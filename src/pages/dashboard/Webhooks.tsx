@@ -248,7 +248,7 @@ const UserWebhooks = () => {
       <Card style={{ opacity: 0 }}>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <CardTitle>Eventos Recebidos <span className="text-sm text-muted-foreground">(últimos 10)</span></CardTitle>
+            <CardTitle>Eventos Recebidos <span className="text-sm text-muted-foreground"></span></CardTitle>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -316,7 +316,6 @@ const UserWebhooks = () => {
           </div>
           {!loading && webhooks.length >= 10 && (
             <p className="text-xs text-muted-foreground text-center py-2 border-t border-border/40">
-              Exibindo os 10 eventos mais recentes — role para ver todos
             </p>
           )}
         </CardContent>
