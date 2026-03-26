@@ -265,7 +265,6 @@ const UserWebhooks = () => {
               TableHeader sticky no topo — barras de scroll ficam na borda inferior/direita. */}
           <div
             className="table-scroll-body"
-            style={{ height: '520px' }}
           >
             <Table className="min-w-[50vh]">
               <TableHeader className="sticky top-0 z-10 bg-card">
