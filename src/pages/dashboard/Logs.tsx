@@ -154,7 +154,7 @@ const UserLogs = () => {
               </TableRow>
             </TableHeader>
           </Table>
-          <div className="overflow-y-auto h-[50vh] no-scrollbar">
+          <div className="overflow-y-auto h-[50vh] scrollbar-y-hidden scrollbar-x-dark">
             <Table>
               <TableBody>
                 {loading ? (
