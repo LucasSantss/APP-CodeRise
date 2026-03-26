@@ -145,6 +145,7 @@ const UserLogs = () => {
               As barras de scroll ficam na borda inferior/direita do container. */}
           <div
             className="table-scroll-body"
+            style={{ height: '49vh' }}
           >
             <Table className="min-w-[50vh]">
               <TableHeader className="sticky top-0 z-10 bg-card">
