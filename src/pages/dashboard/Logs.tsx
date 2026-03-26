@@ -221,7 +221,7 @@ const UserLogs = () => {
 
       {/* Modal de payload */}
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
-        <DialogContent className="max-w-2xl h-[50vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl h-[70vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Payload do Evento
