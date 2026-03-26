@@ -49,7 +49,7 @@ const AppSidebar = () => {
         style={{ background: 'radial-gradient(circle, rgba(79,70,229,0.20) 0%, transparent 70%)', filter: 'blur(30px)' }} />
 
       {/* Header */}
-      <SidebarHeader className="relative h-[64px] flex items-center border-b border-white/[0.06] px-2">
+      <SidebarHeader className="relative h-[58px] flex items-center border-b border-white/[0.06] px-2">
         {!collapsed ? (
           <div className="flex items-center gap-3 stagger-1">
             <div className="h-8 w-8 rounded-xl gradient-brand flex items-center justify-center shadow-[0_0_20px_rgba(139,92,246,0.5)] flex-shrink-0">

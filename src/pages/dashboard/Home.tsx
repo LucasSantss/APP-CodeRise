@@ -201,7 +201,7 @@ const UserHome = () => {
   const handleCardLeave = undefined;
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-auto">
       {/* Saudação */}
       <div ref={headerRef} style={{ opacity: 0 }}>
         <h1 className="text-2xl font-bold tracking-tight">

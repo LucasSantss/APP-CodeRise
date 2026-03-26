@@ -81,7 +81,7 @@ const UserLogs = () => {
   const filtered = filterByDate(webhooks, dateFilter);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 table-scroll-body" >
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Logs</h1>
@@ -221,7 +221,7 @@ const UserLogs = () => {
 
       {/* Modal de payload */}
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
-        <DialogContent className="max-w-2xl h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl h-[85vh] overflow-y-auto table-scroll-body">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Payload do Evento

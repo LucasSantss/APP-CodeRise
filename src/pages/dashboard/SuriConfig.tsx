@@ -259,7 +259,7 @@ const Chatbot = () => {
   }
 
   return (
-    <div ref={containerRef} className="space-y-6 max-w-3xl">
+    <div ref={containerRef} className="space-y-6 w-auto">
 
       {/* Header */}
       <div style={{ opacity: 0 }}>

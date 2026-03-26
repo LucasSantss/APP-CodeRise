@@ -28,7 +28,7 @@ const DashboardLayout = () => {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <Header />
-          <main ref={mainRef} className="flex-1 p-6 overflow-auto relative">
+          <main ref={mainRef} className="flex-1 p-6 relative">
             {/* Aurora background orbs */}
             <div className="fixed top-24 right-12 w-[500px] h-[500px] rounded-full pointer-events-none"
               style={{ background: 'radial-gradient(circle, rgba(109,40,217,0.06) 0%, transparent 70%)', filter: 'blur(60px)' }} />
