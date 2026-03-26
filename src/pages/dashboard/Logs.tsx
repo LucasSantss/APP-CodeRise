@@ -140,6 +140,7 @@ const UserLogs = () => {
             </div>
           </div>
         </CardHeader>
+        {/* Altura fixa de 10 linhas (~520px) com scroll vertical */}
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -152,48 +153,57 @@ const UserLogs = () => {
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
-                    <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
-                  </TableCell>
-                </TableRow>
-              ) : filtered.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    Nenhum evento no período selecionado
-                  </TableCell>
-                </TableRow>
-              ) : filtered.map((w) => (
-                <TableRow key={w.id} className="cursor-pointer hover:bg-accent" onClick={() => setSelected(w)}>
-                  <TableCell className="text-xs text-muted-foreground font-mono">#{w.id}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs">{w.event_type || 'desconhecido'}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={statusVariant(w.status)}
-                      className={w.status === 'processed' ? 'border-success text-success' : ''}
-                    >
-                      {w.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
-                    {w.error_message || '—'}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                    {new Date(w.received_at).toLocaleString('pt-BR')}
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setSelected(w); }}>
-                      <Eye className="h-3 w-3" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
           </Table>
+          <div className="overflow-y-auto max-h-[520px]">
+            <Table>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      Nenhum evento no período selecionado
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.map((w) => (
+                  <TableRow key={w.id} className="cursor-pointer hover:bg-accent" onClick={() => setSelected(w)}>
+                    <TableCell className="text-xs text-muted-foreground font-mono w-12">#{w.id}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{w.event_type || 'desconhecido'}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={statusVariant(w.status)}
+                        className={w.status === 'processed' ? 'border-success text-success' : ''}
+                      >
+                        {w.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
+                      {w.error_message || '—'}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                      {new Date(w.received_at).toLocaleString('pt-BR')}
+                    </TableCell>
+                    <TableCell className="w-12">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setSelected(w); }}>
+                        <Eye className="h-3 w-3" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {!loading && filtered.length > 10 && (
+            <p className="text-xs text-muted-foreground text-center py-2 border-t border-border/40">
+              {filtered.length} eventos — role para ver todos
+            </p>
+          )}
         </CardContent>
       </Card>
 
