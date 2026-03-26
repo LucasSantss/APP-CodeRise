@@ -280,8 +280,8 @@ const UserWebhooks = () => {
               </TableRow>
             </TableHeader>
           </Table>
-          {/* Body com scroll — altura equivale a ~10 linhas */}
-          <div className="overflow-x-auto h-[50vh] scrollbar-y-hidden scrollbar-x-dark">
+          {/* Body com scroll 50vh */}
+          <div className="overflow-auto h-[50vh] scrollbar-y-hidden scrollbar-x-dark">
             <div className="min-w-max flex gap-4">
               <Table>
                 <TableBody>
