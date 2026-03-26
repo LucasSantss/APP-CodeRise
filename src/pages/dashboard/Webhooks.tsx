@@ -281,8 +281,8 @@ const UserWebhooks = () => {
             </TableHeader>
           </Table>
           {/* Body com scroll 50vh */}
-          <div className="overflow-auto h-[50vh] scrollbar-y-hidden scrollbar-x-dark">
-            <div className="min-w-max flex gap-4">
+          <div className="overflow-auto h-[50vh] scrollbar-y-hidden">
+            <div className="min-w-max">
               <Table>
                 <TableBody>
                   {loading ? (
@@ -320,6 +320,9 @@ const UserWebhooks = () => {
                 </TableBody>
               </Table>
             </div>
+          </div>
+          <div className="overflow-x-auto scrollbar-x-dark">
+            <div className="min-w-max h-[1px]" />
           </div>
         </CardContent>
       </Card>
