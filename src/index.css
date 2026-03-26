@@ -309,3 +309,76 @@
     opacity: 0.4;
   }
 }
+
+/* ── Scrollbar customizada — tema da plataforma ─────────────────────────────
+   .scrollbar-x  → apenas scroll horizontal, barra visível no tema
+   .no-scrollbar-y → esconde scroll vertical
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Esconde scrollbar vertical */
+.no-scrollbar-y {
+  overflow-y: hidden !important;
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar-y::-webkit-scrollbar:vertical {
+  display: none; /* Chrome/Safari */
+}
+
+/* Scrollbar horizontal com tema da plataforma */
+.scrollbar-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: hsl(var(--border)) transparent; /* Firefox */
+}
+.scrollbar-x::-webkit-scrollbar {
+  height: 6px;
+  width: 0px;
+}
+.scrollbar-x::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+.scrollbar-x::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+.scrollbar-x::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.5);
+}
+
+/* Dark mode — scrollbar mais sutil */
+.dark .scrollbar-x::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+}
+.dark .scrollbar-x::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.6);
+}
+
+/* Wrapper de tabela com scroll X fixo no final */
+.table-scroll-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+.table-scroll-body {
+  overflow-y: auto;
+  overflow-x: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+.table-scroll-body::-webkit-scrollbar {
+  height: 6px;
+  width: 0px; /* esconde vertical */
+}
+.table-scroll-body::-webkit-scrollbar-track {
+  background: hsl(var(--muted) / 0.3);
+  border-radius: 0 0 8px 8px;
+}
+.table-scroll-body::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+}
+.table-scroll-body::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.5);
+}

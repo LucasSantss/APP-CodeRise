@@ -262,66 +262,72 @@ const UserWebhooks = () => {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {/* Header fixo */}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[60px]">ID</TableHead>
-                <TableHead className="w-[60px]">Usuário</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Erro</TableHead>
-                <TableHead>Recebido em</TableHead>
-                <TableHead>Payload</TableHead>
-              </TableRow>
-            </TableHeader>
-          </Table>
-          {/* Body com scroll 50vh */}
-          <div className="flex flex-col h-[50vh]">
-            <div className="flex-1 overflow-y-auto scrollbar-y-hidden">
-              <div className="min-w-max">
-                <Table>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8">
-                          <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
-                        </TableCell>
-                      </TableRow>
-                    ) : webhooks.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
-                      </TableRow>
-                    ) : webhooks.map((w) => (
-                      <TableRow
-                        key={w.id}
-                        className="webhook-row cursor-pointer hover:bg-accent"
-                        onClick={() => setSelectedWebhook(w)}
-                      >
-                        <TableCell className="text-xs font-mono w-[60px]">{w.id}</TableCell>
-                        <TableCell className="w-[60px]">
-                          <Badge variant="outline" className="text-xs">{w.event_type?.toString() || 'desconhecido'}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={statusVariant(w.status)} className={w.status === 'received' ? 'border-success text-success' : ''}>
-                            {w.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">{w.error_message || '—'}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{new Date(w.received_at).toLocaleString('pt-BR')}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground font-mono truncate max-w-[200px]">
-                          {w.payload ? JSON.stringify(w.payload) : '—'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
+          {/* Header fixo — scroll X sincronizado com body */}
+          <div
+            id="webhooks-header-scroll"
+            className="overflow-x-hidden"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            <Table className="min-w-[800px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[60px]">ID</TableHead>
+                  <TableHead className="min-w-[160px]">Tipo</TableHead>
+                  <TableHead className="min-w-[100px]">Status</TableHead>
+                  <TableHead className="min-w-[160px]">Erro</TableHead>
+                  <TableHead className="min-w-[160px]">Recebido em</TableHead>
+                  <TableHead className="min-w-[220px]">Payload</TableHead>
+                </TableRow>
+              </TableHeader>
+            </Table>
           </div>
-            <div className="overflow-x-auto scrollbar-x-dark">
-              <div className="min-w-max h-[1px]" />
-            </div>
+          {/* Body — scroll Y oculto, scroll X com tema fixo no final */}
+          <div
+            id="webhooks-body-scroll"
+            className="table-scroll-body"
+            style={{ height: '50vh' }}
+            onScroll={(e) => {
+              const header = document.getElementById('webhooks-header-scroll');
+              if (header) header.scrollLeft = (e.target as HTMLElement).scrollLeft;
+            }}
+          >
+            <Table className="min-w-[800px]">
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                    </TableCell>
+                  </TableRow>
+                ) : webhooks.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
+                  </TableRow>
+                ) : webhooks.map((w) => (
+                  <TableRow
+                    key={w.id}
+                    className="webhook-row cursor-pointer hover:bg-accent"
+                    onClick={() => setSelectedWebhook(w)}
+                  >
+                    <TableCell className="text-xs font-mono w-[60px]">{w.id}</TableCell>
+                    <TableCell className="min-w-[160px]">
+                      <Badge variant="outline" className="text-xs">{w.event_type?.toString() || 'desconhecido'}</Badge>
+                    </TableCell>
+                    <TableCell className="min-w-[100px]">
+                      <Badge variant={statusVariant(w.status)} className={w.status === 'received' ? 'border-success text-success' : ''}>
+                        {w.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground min-w-[160px] truncate max-w-xs">{w.error_message || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap min-w-[160px]">{new Date(w.received_at).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground font-mono truncate min-w-[220px] max-w-[220px]">
+                      {w.payload ? JSON.stringify(w.payload).slice(0, 80) + '...' : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

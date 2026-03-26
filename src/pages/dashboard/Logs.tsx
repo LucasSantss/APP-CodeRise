@@ -1,6 +1,6 @@
 import { useLongPoll } from '@/hooks/use-polling';
 import { useAuthStore } from '@/store/auth';
-import { useEffect, useState, useCallback, useRef} from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -40,11 +40,32 @@ const filterByDate = (events: WebhookEvent[], period: string) => {
 
 const UserLogs = () => {
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]   = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('all');
+  const [typeFilter, setTypeFilter]     = useState('all');
+  const [dateFilter, setDateFilter]     = useState('all');
   const [selected, setSelected] = useState<WebhookEvent | null>(null);
+
+  // Ref para sincronizar scroll X do header com o body
+  const headerScrollRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef   = useRef<HTMLDivElement>(null);
+
+  // Sincroniza scroll horizontal entre header e body
+  useEffect(() => {
+    const header = headerScrollRef.current;
+    const body   = bodyScrollRef.current;
+    if (!header || !body) return;
+
+    const onBodyScroll  = () => { header.scrollLeft = body.scrollLeft; };
+    const onHeaderScroll = () => { body.scrollLeft  = header.scrollLeft; };
+
+    body.addEventListener('scroll',   onBodyScroll);
+    header.addEventListener('scroll', onHeaderScroll);
+    return () => {
+      body.removeEventListener('scroll',   onBodyScroll);
+      header.removeEventListener('scroll', onHeaderScroll);
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,15 +81,15 @@ const UserLogs = () => {
   }, [statusFilter, typeFilter]);
 
   useEffect(() => { load(); }, [load]);
+
   const { user } = useAuthStore();
   const [lastWebhookId, setLastWebhookId] = useState<number | null>(null);
   useLongPoll<WebhookEvent>(
     '/webhooks/poll',
     (items) => {
-      // Prepend apenas os novos eventos sem refazer o fetch completo
       setLastWebhookId(items[0].id);
       setWebhooks(prev => {
-        const ids = new Set(prev.map(e => e.id));
+        const ids  = new Set(prev.map(e => e.id));
         const novos = items.filter(e => !ids.has(e.id));
         return novos.length > 0 ? [...novos, ...prev] : prev;
       });
@@ -76,36 +97,6 @@ const UserLogs = () => {
     lastWebhookId,
     { enabled: !!user }
   );
-
-  // Sincronização de scroll entre header e body da tabela
-  export default function ScrollFix() {
-  const topRef = useRef(null);
-  const bottomRef = useRef(null);
-
-  useEffect(() => {
-    const top = topRef.current;
-    const bottom = bottomRef.current;
-
-    if (!top || !bottom) return;
-
-    const syncTop = () => {
-      bottom.scrollLeft = top.scrollLeft;
-    };
-
-    const syncBottom = () => {
-      top.scrollLeft = bottom.scrollLeft;
-    };
-
-    top.addEventListener("scroll", syncTop);
-    bottom.addEventListener("scroll", syncBottom);
-
-    return () => {
-      top.removeEventListener("scroll", syncTop);
-      bottom.removeEventListener("scroll", syncBottom);
-    };
-  }, []);
-
-
 
   const filtered = filterByDate(webhooks, dateFilter);
 
@@ -133,7 +124,6 @@ const UserLogs = () => {
               )}
             </CardTitle>
             <div className="flex flex-wrap gap-2">
-              {/* Filtro de período */}
               <Select value={dateFilter} onValueChange={setDateFilter}>
                 <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -143,20 +133,19 @@ const UserLogs = () => {
                 </SelectContent>
               </Select>
 
-              {/* Filtro de tipo */}
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger className="w-[180px]"><SelectValue placeholder="Tipo" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos Tipos</SelectItem>
+                  <SelectItem value="product.sync">Produto Criado/Atualizado</SelectItem>
+                  <SelectItem value="product.deleted">Produto Deletado</SelectItem>
                   <SelectItem value="order.created">Pedido Criado</SelectItem>
                   <SelectItem value="order.shipped">Pedido Enviado</SelectItem>
                   <SelectItem value="order.cancelled">Pedido Cancelado</SelectItem>
-                  <SelectItem value="cart.abandoned">Carrinho Abandonado</SelectItem>
-                  <SelectItem value="customer.created">Cliente Criado</SelectItem>
+                  <SelectItem value="order.partially_shipped">Pedido Parcial</SelectItem>
                 </SelectContent>
               </Select>
 
-              {/* Filtro de status */}
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -169,70 +158,88 @@ const UserLogs = () => {
             </div>
           </div>
         </CardHeader>
-        {/* Altura modular me 50% com scroll vertical */}
+
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">#</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Erro</TableHead>
-                <TableHead>Data</TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-          </Table>
-          <div className="h-[50vh] flex flex-col border">
-            <div ref={topRef} className="flex-1 overflow-y-auto overflow-x-auto scrollbar-y-hidden">
-              <Table>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
-                      </TableCell>
-                    </TableRow>
-                  ) : filtered.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                        Nenhum evento no período selecionado
-                      </TableCell>
-                    </TableRow>
-                  ) : filtered.map((w) => (
-                    <TableRow key={w.id} className="cursor-pointer hover:bg-accent" onClick={() => setSelected(w)}>
-                      <TableCell className="text-xs text-muted-foreground font-mono w-12">#{w.id}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{w.event_type || 'desconhecido'}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={statusVariant(w.status)}
-                          className={w.status === 'processed' ? 'border-success text-success' : ''}
-                        >
-                          {w.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
-                        {w.error_message || '—'}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                        {new Date(w.received_at).toLocaleString('pt-BR')}
-                      </TableCell>
-                      <TableCell className="w-12">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setSelected(w); }}>
-                          <Eye className="h-3 w-3" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <div ref={bottomRef} className="overflow-x-auto scrollbar-x-dark">
-                <div className="min-w-[800px] h-[1px]"/>
-              </div>
-            </div>
+          {/* Header da tabela — sincroniza scroll X com o body */}
+          <div
+            ref={headerScrollRef}
+            className="overflow-x-hidden"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            <Table className="min-w-[700px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead className="min-w-[160px]">Tipo</TableHead>
+                  <TableHead className="min-w-[100px]">Status</TableHead>
+                  <TableHead className="min-w-[200px]">Erro</TableHead>
+                  <TableHead className="min-w-[160px]">Data</TableHead>
+                  <TableHead className="w-12"></TableHead>
+                </TableRow>
+              </TableHeader>
+            </Table>
           </div>
+
+          {/* Body — scroll Y oculto, scroll X visível e fixo no final */}
+          <div
+            ref={bodyScrollRef}
+            className="table-scroll-body"
+            style={{ height: '50vh' }}
+          >
+            <Table className="min-w-[700px]">
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      Nenhum evento no período selecionado
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.map((w) => (
+                  <TableRow
+                    key={w.id}
+                    className="cursor-pointer hover:bg-accent"
+                    onClick={() => setSelected(w)}
+                  >
+                    <TableCell className="text-xs text-muted-foreground font-mono w-12">#{w.id}</TableCell>
+                    <TableCell className="min-w-[160px]">
+                      <Badge variant="outline" className="text-xs">{w.event_type || 'desconhecido'}</Badge>
+                    </TableCell>
+                    <TableCell className="min-w-[100px]">
+                      <Badge
+                        variant={statusVariant(w.status)}
+                        className={w.status === 'processed' ? 'border-success text-success' : ''}
+                      >
+                        {w.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground min-w-[200px] truncate max-w-xs">
+                      {w.error_message || '—'}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap min-w-[160px]">
+                      {new Date(w.received_at).toLocaleString('pt-BR')}
+                    </TableCell>
+                    <TableCell className="w-12">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={(e) => { e.stopPropagation(); setSelected(w); }}
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
           {!loading && filtered.length > 10 && (
             <p className="text-xs text-muted-foreground text-center py-2 border-t border-border/40">
               {filtered.length} eventos — role para ver todos
@@ -256,12 +263,17 @@ const UserLogs = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-muted-foreground">ID:</span> <span className="font-mono">#{selected.id}</span></div>
-                <div><span className="text-muted-foreground">Status:</span>{' '}
-                  <Badge variant={statusVariant(selected.status)} className={selected.status === 'processed' ? 'border-success text-success' : ''}>
+                <div>
+                  <span className="text-muted-foreground">Status:</span>{' '}
+                  <Badge
+                    variant={statusVariant(selected.status)}
+                    className={selected.status === 'processed' ? 'border-success text-success' : ''}
+                  >
                     {selected.status}
                   </Badge>
                 </div>
-                <div className="col-span-2"><span className="text-muted-foreground">Recebido em:</span>{' '}
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Recebido em:</span>{' '}
                   <span>{new Date(selected.received_at).toLocaleString('pt-BR')}</span>
                 </div>
                 {selected.error_message && (
