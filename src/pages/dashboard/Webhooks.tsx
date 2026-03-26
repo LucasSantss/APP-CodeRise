@@ -102,7 +102,6 @@ const UserWebhooks = () => {
   );
 
 
-
   // ── GSAP ─────────────────────────────────────────────────────────────────
   const containerRef = useGsapStagger<HTMLDivElement>([loading], { stagger: 0.1, y: 20, delay: 0.05 });
 
@@ -143,9 +142,6 @@ const UserWebhooks = () => {
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
-
-      {/* URLs dos Webhooks — E-commerce e Chatbot separados */}
-      <div style={{ opacity: 0 }} className="grid gap-4 sm:grid-cols-2">
 
         {/* E-commerce token */}
         <Card className="border-[#2f7bb9]/25 bg-gradient-to-br from-[#2f7bb9]/5 to-[#26316a]/5">
