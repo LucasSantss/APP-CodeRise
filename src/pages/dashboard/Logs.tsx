@@ -255,7 +255,7 @@ const UserLogs = () => {
               </div>
               <div>
                 <p className="text-sm font-medium mb-2 text-muted-foreground">Payload JSON</p>
-                <pre className="bg-muted rounded-lg p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                <pre className="bg-muted rounded-lg p-4 text-xs font-mono overflow-visible whitespace-pre-wrap break-all">
                   {selected.payload
                     ? JSON.stringify(selected.payload, null, 2)
                     : '— sem payload —'}
