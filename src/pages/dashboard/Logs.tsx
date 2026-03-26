@@ -1,6 +1,6 @@
 import { useLongPoll } from '@/hooks/use-polling';
 import { useAuthStore } from '@/store/auth';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -46,26 +46,6 @@ const UserLogs = () => {
   const [dateFilter, setDateFilter]     = useState('all');
   const [selected, setSelected] = useState<WebhookEvent | null>(null);
 
-  // Ref para sincronizar scroll X do header com o body
-  const headerScrollRef = useRef<HTMLDivElement>(null);
-  const bodyScrollRef   = useRef<HTMLDivElement>(null);
-
-  // Sincroniza scroll horizontal entre header e body
-  useEffect(() => {
-    const header = headerScrollRef.current;
-    const body   = bodyScrollRef.current;
-    if (!header || !body) return;
-
-    const onBodyScroll  = () => { header.scrollLeft = body.scrollLeft; };
-    const onHeaderScroll = () => { body.scrollLeft  = header.scrollLeft; };
-
-    body.addEventListener('scroll',   onBodyScroll);
-    header.addEventListener('scroll', onHeaderScroll);
-    return () => {
-      body.removeEventListener('scroll',   onBodyScroll);
-      header.removeEventListener('scroll', onHeaderScroll);
-    };
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -160,14 +140,15 @@ const UserLogs = () => {
         </CardHeader>
 
         <CardContent className="p-0">
-          {/* Header da tabela — sincroniza scroll X com o body */}
+          {/* Container único com scroll vertical + horizontal.
+              O TableHeader tem position:sticky top:0 para ficar fixo.
+              As barras de scroll ficam na borda inferior/direita do container. */}
           <div
-            ref={headerScrollRef}
-            className="overflow-x-hidden"
-            style={{ scrollbarWidth: 'none' }}
+            className="table-scroll-body"
+            style={{ height: '520px' }}
           >
             <Table className="min-w-[700px]">
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
                   <TableHead className="min-w-[160px]">Tipo</TableHead>
@@ -177,16 +158,6 @@ const UserLogs = () => {
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
-            </Table>
-          </div>
-
-          {/* Body — scroll Y oculto, scroll X visível e fixo no final */}
-          <div
-            ref={bodyScrollRef}
-            className="table-scroll-body"
-            style={{ height: '50vh' }}
-          >
-            <Table className="min-w-[700px]">
               <TableBody>
                 {loading ? (
                   <TableRow>

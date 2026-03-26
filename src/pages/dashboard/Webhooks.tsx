@@ -216,6 +216,7 @@ const UserWebhooks = () => {
             </p>
           </CardContent>
         </Card>
+      </div>
 
       {/* Dados da Integração */}
       <Card style={{ opacity: 0 }}>
@@ -261,14 +262,14 @@ const UserWebhooks = () => {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {/* Header fixo — scroll X sincronizado com body */}
+          {/* Container único com scroll vertical + horizontal.
+              TableHeader sticky no topo — barras de scroll ficam na borda inferior/direita. */}
           <div
-            id="webhooks-header-scroll"
-            className="overflow-x-hidden"
-            style={{ scrollbarWidth: 'none' }}
+            className="table-scroll-body"
+            style={{ height: '520px' }}
           >
             <Table className="min-w-[800px]">
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-[60px]">ID</TableHead>
                   <TableHead className="min-w-[160px]">Tipo</TableHead>
@@ -278,19 +279,6 @@ const UserWebhooks = () => {
                   <TableHead className="min-w-[220px]">Payload</TableHead>
                 </TableRow>
               </TableHeader>
-            </Table>
-          </div>
-          {/* Body — scroll Y oculto, scroll X com tema fixo no final */}
-          <div
-            id="webhooks-body-scroll"
-            className="table-scroll-body"
-            style={{ height: '50vh' }}
-            onScroll={(e) => {
-              const header = document.getElementById('webhooks-header-scroll');
-              if (header) header.scrollLeft = (e.target as HTMLElement).scrollLeft;
-            }}
-          >
-            <Table className="min-w-[800px]">
               <TableBody>
                 {loading ? (
                   <TableRow>
@@ -327,6 +315,11 @@ const UserWebhooks = () => {
               </TableBody>
             </Table>
           </div>
+          {!loading && webhooks.length >= 10 && (
+            <p className="text-xs text-muted-foreground text-center py-2 border-t border-border/40">
+              Exibindo os 10 eventos mais recentes — role para ver todos
+            </p>
+          )}
         </CardContent>
       </Card>
 

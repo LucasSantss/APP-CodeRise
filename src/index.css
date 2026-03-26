@@ -363,13 +363,14 @@
 }
 .table-scroll-body {
   overflow-y: auto;
-  overflow-x: scroll;
+  overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--border)) transparent;
 }
+/* Scrollbar vertical + horizontal visíveis */
 .table-scroll-body::-webkit-scrollbar {
-  height: 6px;
-  width: 0px; /* esconde vertical */
+  height: 6px; /* barra horizontal */
+  width: 6px;  /* barra vertical */
 }
 .table-scroll-body::-webkit-scrollbar-track {
   background: hsl(var(--muted) / 0.3);
@@ -381,4 +382,8 @@
 }
 .table-scroll-body::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--primary) / 0.5);
+}
+/* Corner entre as duas barras */
+.table-scroll-body::-webkit-scrollbar-corner {
+  background: transparent;
 }

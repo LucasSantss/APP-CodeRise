@@ -124,22 +124,21 @@ const AdminLogs = () => {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {/* Header fixo */}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">#</TableHead>
-                <TableHead>Usuário</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Recebido em</TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-          </Table>
-          {/* Body com scroll — altura equivale a ~10 linhas */}
-          <div className="overflow-y-auto max-h-[520px]">
+          <div
+            className="table-scroll-body"
+            style={{ height: '520px' }}
+          >
             <Table>
+              <TableHeader className="sticky top-0 z-10 bg-card">
+                <TableRow>
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead>Usuário</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Recebido em</TableHead>
+                  <TableHead className="w-12"></TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
