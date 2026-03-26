@@ -154,7 +154,7 @@ const UserLogs = () => {
               </TableRow>
             </TableHeader>
           </Table>
-          <div className="overflow-y-auto max-h-[520px]">
+          <div className="overflow-y-auto max-h-[40vh]">
             <Table>
               <TableBody>
                 {loading ? (
