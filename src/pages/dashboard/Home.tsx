@@ -205,9 +205,8 @@ const UserHome = () => {
       {/* Saudação */}
       <div ref={headerRef} style={{ opacity: 0 }}>
         <h1 className="text-2xl font-bold tracking-tight">
-          Olá, <span className="text-gradient-brand">{firstName}</span> 👋
+          Olá, <span className="text-gradient-brand">{firstName}</span> 
         </h1>
-        <p className="text-muted-foreground text-sm mt-1">Aqui está a visão geral da sua integração em tempo real.</p>
       </div>
 
       {/* Status cards */}
