@@ -269,16 +269,7 @@
   .glow-cyan   { box-shadow: 0 0 24px rgba(103, 232, 249, 0.35); }
 
   /* ── Active nav bar ── */
-  .nav-bar::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 18%;
-    bottom: 18%;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
-    background: linear-gradient(to bottom, #a78bfa, #6366f1);
-  }
+  
 
   /* ── Neon border ── */
   .border-neon {
