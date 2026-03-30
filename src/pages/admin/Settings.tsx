@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, MessageSquare, ShoppingCart, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -76,7 +77,7 @@ const AdminSettings = () => {
         </div>
         <div className="flex items-center gap-3">
           <Badge
-            variant={enabled ? 'outline' : 'secondary'}
+            variant={((enabled ? 'outline' : 'secondary') as 'outline' | 'secondary') as BadgeVariant}
             className={`text-xs ${enabled ? 'border-success text-success' : ''}`}
           >
             {enabled ? 'Habilitada' : 'Desabilitada'}

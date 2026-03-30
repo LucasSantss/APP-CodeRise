@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -11,7 +12,7 @@ import { Loader2, RefreshCw, Eye } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
 
-const statusVariant = (status: string) => {
+const statusVariant = (status: string): "outline" | "destructive" | "secondary" | "default" => {
   if (status === 'processed') return 'outline';
   if (status === 'error') return 'destructive';
   return 'secondary';
@@ -183,7 +184,7 @@ const UserLogs = () => {
                     </TableCell>
                     <TableCell className="min-w-[100px]">
                       <Badge
-                        variant={statusVariant(w.status)}
+                        variant={(statusVariant(w.status)) as BadgeVariant}
                         className={w.status === 'processed' ? 'border-success text-success' : ''}
                       >
                         {w.status}
@@ -237,7 +238,7 @@ const UserLogs = () => {
                 <div>
                   <span className="text-muted-foreground">Status:</span>{' '}
                   <Badge
-                    variant={statusVariant(selected.status)}
+                    variant={(statusVariant(selected.status)) as BadgeVariant}
                     className={selected.status === 'processed' ? 'border-success text-success' : ''}
                   >
                     {selected.status}

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -92,12 +93,12 @@ const AdminIntegrations = () => {
                     <div className="text-xs text-muted-foreground">{i.user_email}</div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={i.suri_active ? 'outline' : 'secondary'} className={i.suri_active ? 'border-success text-success' : ''}>
+                    <Badge variant={((i.suri_active ? 'outline' : 'secondary') as 'outline' | 'secondary') as BadgeVariant} className={i.suri_active ? 'border-success text-success' : ''}>
                       {i.suri_active ? 'Ativa' : 'Inativa'}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={i.ecommerce_active ? 'outline' : 'secondary'} className={i.ecommerce_active ? 'border-success text-success' : ''}>
+                    <Badge variant={((i.ecommerce_active ? 'outline' : 'secondary') as 'outline' | 'secondary') as BadgeVariant} className={i.ecommerce_active ? 'border-success text-success' : ''}>
                       {i.ecommerce_active ? 'Ativo' : 'Inativo'}
                     </Badge>
                   </TableCell>

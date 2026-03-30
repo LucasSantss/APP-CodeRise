@@ -56,8 +56,8 @@ export const useNotificationsStore = create<NotificationsState>()((set) => ({
       notifications: s.notifications.filter((n) => n.id !== id),
     })),
 
-  addLocal: (n) =>
-    set((s) => ({ notifications: [n, ...s.notifications] })),
+  addLocal: (n: Notification) =>
+    set((s: NotificationsState) => ({ notifications: [n, ...s.notifications] })),
 
   openPopupFor: (id) => set({ popupTriggerId: id }),
   clearPopupTrigger: () => set({ popupTriggerId: null }),

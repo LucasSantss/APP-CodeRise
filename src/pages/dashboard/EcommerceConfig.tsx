@@ -240,16 +240,16 @@ const EcommerceConfig = () => {
             {platform && (
               <div className="flex items-center gap-2">
                 {connectionStatus === 'success' && (
-                  <Badge variant="outline" className="border-success text-success gap-1">
+                  <Badge variant={"outline" as const} className="border-success text-success gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Conectado
                   </Badge>
                 )}
                 {connectionStatus === 'error' && (
-                  <Badge variant="destructive" className="gap-1">
+                  <Badge variant={"destructive" as const} className="gap-1">
                     <XCircle className="h-3 w-3" /> Falha
                   </Badge>
                 )}
-                <Button variant={ecommerceActive ? 'default' : 'outline'} size="sm" onClick={handleToggle}>
+                <Button variant={((ecommerceActive ? 'default' : 'outline') as import("@/components/ui/badge").BadgeVariant) as BadgeVariant} size="sm" onClick={handleToggle}>
                   {ecommerceActive ? 'Ativado' : 'Desativado'}
                 </Button>
               </div>
@@ -437,7 +437,7 @@ const EcommerceConfig = () => {
                         <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
                           <span className="font-mono text-xs">{label}</span>
                           <Badge
-                            variant={isOk ? 'outline' : 'destructive'}
+                            variant={((isOk ? 'outline' : 'destructive') as import("@/components/ui/badge").BadgeVariant) as BadgeVariant}
                             className={isOk ? 'border-success text-success text-xs' : 'text-xs'}
                           >
                             {d.status === 'already_exists' ? 'já existe' : d.status}

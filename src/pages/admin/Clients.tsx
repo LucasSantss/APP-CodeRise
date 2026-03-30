@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Plus, Search, MoreHorizontal, UserCheck, UserX, Loader2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -184,12 +185,12 @@ const Clients = () => {
                   <TableCell className="font-medium">{user.name}</TableCell>
                   <TableCell className="text-muted-foreground">{user.email}</TableCell>
                   <TableCell>
-                    <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                    <Badge variant={((user.role === 'admin' ? 'default' : 'secondary') as 'default' | 'secondary') as BadgeVariant}>
                       {user.role === 'admin' ? 'Admin' : 'Usuário'}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={user.active ? 'outline' : 'destructive'} className={user.active ? 'border-success text-success' : ''}>
+                    <Badge variant={((user.active ? 'outline' : 'destructive') as 'outline' | 'destructive') as BadgeVariant} className={user.active ? 'border-success text-success' : ''}>
                       {user.active ? 'Ativo' : 'Inativo'}
                     </Badge>
                   </TableCell>

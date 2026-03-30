@@ -24,7 +24,7 @@ function applyTheme(dark: boolean) {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set: (partial: Partial<AuthState>) => void, get: () => AuthState) => ({
       token: null,
       user: null,
       darkMode: false,
@@ -51,13 +51,13 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'suri-auth',
       // Persiste token, user e darkMode
-      partialize: (state) => ({
+      partialize: (state: AuthState) => ({
         token: state.token,
         user: state.user,
         darkMode: state.darkMode,
       }),
       // Ao reidratar (ex: F5 ou nova aba), aplica o tema salvo
-      onRehydrateStorage: () => (state) => {
+      onRehydrateStorage: () => (state: AuthState | undefined) => {
         if (state) {
           applyTheme(state.darkMode);
         }

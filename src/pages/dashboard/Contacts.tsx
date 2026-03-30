@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Search, RefreshCw, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getIntegrations } from '@/services/api';
@@ -76,7 +77,7 @@ const Contacts = () => {
         <Card>
           <CardContent className="py-10 text-center space-y-2">
             <p className="text-muted-foreground">Configure a conexão com a Suri para ver os contatos.</p>
-            <Badge variant="secondary">Suri não configurada</Badge>
+            <Badge variant={"secondary" as const}>Suri não configurada</Badge>
           </CardContent>
         </Card>
       )}

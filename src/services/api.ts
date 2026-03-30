@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useAuthStore } from '@/store/auth';
 import type {
   User, UserIntegration, SyncRule, WebhookEvent,

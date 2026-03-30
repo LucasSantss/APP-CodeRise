@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState, useRef } from 'react';
 import { Megaphone, Image, Clock, Send, X, Users, ShieldCheck, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';

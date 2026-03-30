@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * useLongPoll — atualização em tempo real via long polling
  *

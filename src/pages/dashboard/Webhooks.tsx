@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Copy, RefreshCw, ExternalLink, Loader2, ShoppingCart, MessageSquare, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,7 +15,7 @@ import type { UserIntegration, WebhookEvent } from '@/types';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import gsap from 'gsap';
 
-const statusVariant = (status: string) => {
+const statusVariant = (status: string): "outline" | "destructive" | "secondary" | "default" => {
   if (status === 'received') return 'outline';
   if (status === 'error') return 'destructive';
   return 'secondary';
@@ -300,7 +301,7 @@ const UserWebhooks = () => {
                       <Badge variant="outline" className="text-xs">{w.event_type?.toString() || 'desconhecido'}</Badge>
                     </TableCell>
                     <TableCell className="min-w-[100px]">
-                      <Badge variant={statusVariant(w.status)} className={w.status === 'received' ? 'border-success text-success' : ''}>
+                      <Badge variant={(statusVariant(w.status)) as BadgeVariant} className={w.status === 'received' ? 'border-success text-success' : ''}>
                         {w.status}
                       </Badge>
                     </TableCell>

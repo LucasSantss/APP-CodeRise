@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
@@ -156,8 +157,8 @@ const SyncRules = () => {
               <CardContent className="flex items-center justify-between py-4">
                 <div className="space-y-1 flex-1 mr-4">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{SYNC_EVENTS.find((e) => e.value === rule.event)?.label || rule.event}</Badge>
-                    {rule.delay_minutes > 0 && <Badge variant="secondary">{rule.delay_minutes}min delay</Badge>}
+                    <Badge variant={"outline" as const}>{SYNC_EVENTS.find((e) => e.value === rule.event)?.label || rule.event}</Badge>
+                    {rule.delay_minutes > 0 && <Badge variant={"secondary" as const}>{rule.delay_minutes}min delay</Badge>}
                   </div>
                   {rule.message_template && (
                     <p className="text-sm text-muted-foreground line-clamp-1">{rule.message_template}</p>

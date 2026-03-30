@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -282,16 +283,16 @@ const Chatbot = () => {
             {platform && (
               <div className="flex items-center gap-2">
                 {connectionStatus === 'success' && (
-                  <Badge variant="outline" className="border-success text-success gap-1">
+                  <Badge variant={"outline" as const} className="border-success text-success gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Conectado
                   </Badge>
                 )}
                 {connectionStatus === 'error' && (
-                  <Badge variant="destructive" className="gap-1">
+                  <Badge variant={"destructive" as const} className="gap-1">
                     <XCircle className="h-3 w-3" /> Falha
                   </Badge>
                 )}
-                <Button variant={chatbotActive ? 'default' : 'outline'} size="sm" onClick={handleToggle}>
+                <Button variant={(chatbotActive ? 'default' : 'outline') as BadgeVariant} size="sm" onClick={handleToggle}>
                   {chatbotActive ? 'Ativo' : 'Inativo'}
                 </Button>
               </div>

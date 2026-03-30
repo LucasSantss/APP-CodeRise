@@ -13,7 +13,7 @@ interface PlatformSettingsState {
   reset: () => void;
 }
 
-export const usePlatformSettingsStore = create<PlatformSettingsState>((set, get) => ({
+export const usePlatformSettingsStore = create<PlatformSettingsState>()((set: (partial: Partial<PlatformSettingsState>) => void, get: () => PlatformSettingsState) => ({
   platforms: {},
   loaded: false,
   isPlatformEnabled: (key: string) => {

@@ -1,7 +1,9 @@
+import React from 'react';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useLongPoll } from '@/hooks/use-polling';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import type { BadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   MessageSquare, ShoppingCart, Webhook, Loader2,
@@ -97,13 +99,13 @@ const UserHome = () => {
     idleLabel: string,
   ) => {
     // Falha sempre prevalece — independente do toggle ativo
-    if (connStatus === 'error')   return { variant: 'destructive' as const, className: 'text-xs', label: errorLabel, icon: <XCircle className="h-3 w-3 mr-1" /> };
+    if (connStatus === 'error')   return { variant: 'destructive' as BadgeVariant, className: 'text-xs', label: errorLabel, icon: <XCircle className="h-3 w-3 mr-1" /> };
     // Conexão OK + toggle ativo = integração funcionando
-    if (connStatus === 'success' && active) return { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: activeLabel, icon: <Circle className="h-1.5 w-1.5 fill-current mr-1" /> };
+    if (connStatus === 'success' && active) return { variant: 'outline' as BadgeVariant, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: activeLabel, icon: <Circle className="h-1.5 w-1.5 fill-current mr-1" /> };
     // Conexão OK mas toggle inativo = configurado mas não ativado
-    if (connStatus === 'success') return { variant: 'outline' as const, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: 'Configurado', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
+    if (connStatus === 'success') return { variant: 'outline' as BadgeVariant, className: 'border-emerald-400/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400', label: 'Configurado', icon: <CheckCircle2 className="h-3 w-3 mr-1" /> };
     // Sem teste ainda
-    return { variant: 'secondary' as const, className: '', label: idleLabel, icon: null };
+    return { variant: 'secondary' as BadgeVariant, className: '', label: idleLabel, icon: null };
   };
 
   const chatbotBadge = getConnBadge(
@@ -229,7 +231,7 @@ const UserHome = () => {
             <CardContent className="px-5 pb-4">
               {loading ? <div className="h-5 w-28 shimmer-load rounded-lg" /> : (
                 <div className="flex items-center justify-between">
-                  <Badge variant={card.badge.variant} className={`rounded-lg text-xs flex items-center ${card.badge.className}`}>
+                  <Badge variant={card.badge.variant as BadgeVariant} className={`rounded-lg text-xs flex items-center ${card.badge.className}`}>
                     {card.badge.icon}{card.badge.label}
                   </Badge>
                   <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40" />
@@ -279,7 +281,7 @@ const UserHome = () => {
             <CardContent className="px-5 pb-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <Badge variant="outline" className="rounded-lg text-xs font-mono flex-shrink-0">{lastEvent.event_type || 'desconhecido'}</Badge>
+                  <Badge variant={"outline" as const} className="rounded-lg text-xs font-mono flex-shrink-0">{lastEvent.event_type || 'desconhecido'}</Badge>
                   <span className={`text-xs font-medium flex-shrink-0 ${STATUS_COLORS[lastEvent.status] || ''}`}>{lastEvent.status}</span>
                 </div>
                 <span className="text-xs text-muted-foreground flex-shrink-0">{new Date(lastEvent.received_at).toLocaleString('pt-BR')}</span>
