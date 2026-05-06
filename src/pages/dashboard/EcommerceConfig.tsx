@@ -16,7 +16,7 @@ import { ECOMMERCE_FIELDS, type EcommercePlatform } from '@/types';
 import { usePlatformSettingsStore } from '@/store/platformSettings';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@/store/auth';
-import { getIntegrations, updateIntegration, patchIntegration, testEcommerceConnection } from '@/services/api';
+import { getIntegrations, updateIntegration, patchIntegration, testEcommerceConnection, type StoreItem } from '@/services/api';
 
 // Plataformas que suportam registro automático de webhook
 const AUTO_REGISTER_SUPPORT: Record<string, boolean> = {
@@ -61,6 +61,8 @@ const EcommerceConfig = () => {
   const [testing, setTesting]             = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [connectionMsg, setConnectionMsg] = useState('');
+
+  const [ecommerceStores, setEcommerceStores] = useState<StoreItem[]>([]);
 
   const { toast } = useToast();
 
@@ -140,7 +142,8 @@ const EcommerceConfig = () => {
     setConnectionMsg('');
 
     try {
-      const result = await testEcommerceConnection(platform, config);
+      const { _connection_status: _s, _connection_msg: _m, ...configToTest } = config;
+      const result = await testEcommerceConnection(platform, configToTest);
       if (result.success) {
         const msg = result.message || 'Conexão estabelecida com sucesso!';
         setConnectionStatus('success');
@@ -151,6 +154,7 @@ const EcommerceConfig = () => {
           updateIntegration({ ecommerce_platform: platform, ecommerce_config: updated }).catch(() => {});
           return updated;
         });
+        if (result.stores && result.stores.length > 0) setEcommerceStores(result.stores);
         toast({ title: '✅ Conexão bem-sucedida!', description: result.store ? `Loja: ${result.store}` : undefined });
       } else {
         const msg = result.message || 'Falha na conexão.';
@@ -263,7 +267,15 @@ const EcommerceConfig = () => {
               value={platform}
               onValueChange={(v) => {
                 setPlatform(v as EcommercePlatform);
-                setConfig({});
+                // Preserva campos internos (começam com _) ao trocar de plataforma
+                // para não apagar _store_mappings, _ecommerce_stores etc.
+                setConfig((prev) => {
+                  const preserved: Record<string, string> = {};
+                  for (const key of Object.keys(prev)) {
+                    if (key.startsWith('_')) preserved[key] = prev[key];
+                  }
+                  return preserved;
+                });
                 setConnectionStatus('idle');
                 setConnectionMsg('');
               }}
@@ -333,6 +345,21 @@ const EcommerceConfig = () => {
             <p className={`text-xs mt-1 ${connectionStatus === 'success' ? 'text-green-500' : 'text-destructive'}`}>
               {connectionMsg}
             </p>
+          )}
+
+          {/* Lista de lojas encontradas após teste bem-sucedido */}
+          {connectionStatus === 'success' && ecommerceStores.length > 0 && (
+            <div className="mt-3 rounded-lg border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Lojas encontradas</p>
+              <ul className="space-y-1">
+                {ecommerceStores.map(s => (
+                  <li key={s.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="truncate">{s.name}</span>
+                    <code className="text-xs bg-muted px-1 rounded ml-auto shrink-0">#{s.id}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </CardContent>
       </Card>

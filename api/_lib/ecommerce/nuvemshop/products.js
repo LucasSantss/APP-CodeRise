@@ -27,6 +27,17 @@ export async function fetchAndNormalizeProduct(config, productId) {
  * para o formato interno do CodeRise.
  */
 export function normalizeProduct(p) {
+  // p.attributes é [{ "pt": "Cor" }, { "pt": "Tamanho" }]
+  // v.values    é [{ "pt": "Branco" }, { "pt": "P" }]
+  // Precisamos cruzar pelo índice para montar { name: "Cor", value: "Branco" }
+  const productAttributes = p.attributes || [];
+
+  /** Extrai a string de um campo multilíngue da Nuvemshop ({ pt, es, en, ... }) */
+  function i18n(field) {
+    if (!field || typeof field === "string") return field || "";
+    return field.pt || field.es || field.en || Object.values(field)[0] || "";
+  }
+
   const variants = (p.variants || []).map(v => ({
     sku: String(v.sku || p.id),
     price: parseFloat(v.price || p.price || 0),
@@ -38,9 +49,10 @@ export function normalizeProduct(p) {
       lengthInCm: parseFloat(v.depth || 0),
     },
     stock: parseInt(v.stock || 0),
-    attributes: Object.entries(v.values || {}).map(([name, value]) => ({
-      name,
-      value: String(value),
+    // v.values é um array paralelo a p.attributes — cruzamos pelo índice
+    attributes: (v.values || []).map((val, idx) => ({
+      name: i18n(productAttributes[idx]) || String(idx),
+      value: i18n(val),
     })),
     imageUrl: v.image?.src || null,
   }));
@@ -54,11 +66,11 @@ export function normalizeProduct(p) {
     description: (p.description?.pt || p.description?.es || "").replace(/<[^>]+>/g, ""),
     categoryId: String(p.categories?.[0]?.id || ""),
     brand: p.brand || null,
-    isActive: !!p.published_at,
+    isActive: !!(p.published ?? p.published_at),
     price: firstVariant.price || 0,
     promotionalPrice: firstVariant.promotionalPrice || 0,
     url: p.canonical_url || null,
-    images: (p.images || []).map(i => ({ url: i.src, description: i.alt || null })),
+    images: (p.images || []).map(i => ({ url: i.src, description: Array.isArray(i.alt) ? (i.alt[0] || null) : (i.alt || null) })),
     weightInGrams: firstVariant.weightInGrams || 0,
     dimensions: firstVariant.dimensions || { heightInCm: 0, widthInCm: 0, lengthInCm: 0 },
     stock: firstVariant.stock || 0,

@@ -17,6 +17,7 @@ import AdminSettings from "./pages/admin/Settings";
 import UserHome from "./pages/dashboard/Home";
 import Chatbot from "./pages/dashboard/Chatbot";
 import EcommerceConfig from "./pages/dashboard/EcommerceConfig";
+import StoreMapping from "./pages/dashboard/StoreMapping";
 import UserLogs from "./pages/dashboard/Logs";
 import UserWebhooks from "./pages/dashboard/Webhooks";
 
@@ -56,6 +57,7 @@ const App = () => (
             <Route index element={<UserHome />} />
             <Route path="chatbot" element={<Chatbot />} />
             <Route path="ecommerce-config" element={<EcommerceConfig />} />
+            <Route path="store-mapping" element={<StoreMapping />} />
             <Route path="logs" element={<UserLogs />} />
             <Route path="webhooks" element={<UserWebhooks />} />
           </Route>

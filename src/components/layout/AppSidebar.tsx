@@ -1,7 +1,7 @@
 import { useLocation } from 'react-router-dom';
 import { NavLink } from '@/components/NavLink';
 import logo from '@/assets/CODERISE.png';
-import { LayoutDashboard, Users, Link2, Settings, Webhook, MessageSquare, ShoppingCart, ScrollText, Zap, Activity } from 'lucide-react';
+import { LayoutDashboard, Users, Link2, Settings, Webhook, MessageSquare, ShoppingCart, ScrollText, Zap, Activity, GitMerge } from 'lucide-react';
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
   SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
@@ -32,6 +32,7 @@ const AppSidebar = () => {
     { title: 'Dashboard',  url: '/dashboard',                  icon: LayoutDashboard, show: true },
     { title: 'Chatbot',    url: '/dashboard/chatbot',          icon: MessageSquare,   show: anyChatbotEnabled },
     { title: 'E-commerce', url: '/dashboard/ecommerce-config', icon: ShoppingCart,    show: anyEcommerceEnabled },
+    { title: 'Lojas',       url: '/dashboard/store-mapping',     icon: GitMerge,        show: anyChatbotEnabled && anyEcommerceEnabled },
     { title: 'Logs',       url: '/dashboard/logs',             icon: ScrollText,      show: true },
     { title: 'Webhooks',   url: '/dashboard/webhooks',         icon: Webhook,         show: true },
   ].filter((item) => item.show);

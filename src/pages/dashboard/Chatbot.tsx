@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection } from '@/services/api';
+import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection, type StoreItem } from '@/services/api';
 import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
 import { usePlatformSettingsStore } from '@/store/platformSettings';
 import gsap from 'gsap';
@@ -18,26 +18,28 @@ import { useGsapStagger } from '@/hooks/use-gsap';
 
 // ── Tópicos suportados pela Suri ─────────────────────────────────────────────
 const SURI_TOPICS = [
-  { value: 'OrdersCreated',       label: 'Pedido Criado',         desc: 'Novo pedido realizado na loja' },
-  { value: 'OrdersPaid',          label: 'Pedido Pago',           desc: 'Pagamento confirmado' },
-  { value: 'OrdersCanceled',      label: 'Pedido Cancelado',      desc: 'Pedido cancelado pelo cliente ou loja' },
+  { value: 'OrdersCreated', label: 'Pedido Criado', desc: 'Novo pedido realizado na loja' },
+  { value: 'OrdersPaid', label: 'Pedido Pago', desc: 'Pagamento confirmado' },
+  { value: 'OrdersCanceled', label: 'Pedido Cancelado', desc: 'Pedido cancelado pelo cliente ou loja' },
   { value: 'OrderLogisticUpdate', label: 'Atualização Logística', desc: 'Rastreamento / status de envio atualizado' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Chatbot = () => {
-  const [platform, setPlatform]             = useState<ChatbotPlatform | ''>('');
+  const [platform, setPlatform] = useState<ChatbotPlatform | ''>('');
   const { isPlatformEnabled } = usePlatformSettingsStore();
-  const [config, setConfig]                 = useState<Record<string, string>>({});
-  const [chatbotActive, setChatbotActive]   = useState(false);
-  const [loading, setLoading]               = useState(true);
-  const [saving, setSaving]                 = useState(false);
-  const [testing, setTesting]               = useState(false);
+  const [config, setConfig] = useState<Record<string, string>>({});
+  const [chatbotActive, setChatbotActive] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [connectionMsg, setConnectionMsg] = useState('');
+  const [ecommerceStores, setEcommerceStores] = useState<StoreItem[]>([]);
 
   // Token e URL dedicados ao chatbot (separados do e-commerce)
-  const [chatbotToken, setChatbotToken]     = useState('');
+  const [chatbotToken, setChatbotToken] = useState('');
   const [chatbotWebhookUrl, setChatbotWebhookUrl] = useState('');
 
   // Tópicos para Suri
@@ -45,12 +47,12 @@ const Chatbot = () => {
     'OrdersCreated', 'OrdersPaid', 'OrdersCanceled', 'OrderLogisticUpdate',
   ]);
 
-  const [copiedField, setCopiedField]       = useState<string | null>(null);
-  const { toast }                           = useToast();
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // ── GSAP ──────────────────────────────────────────────────────────────────
   const containerRef = useGsapStagger<HTMLDivElement>([loading], { stagger: 0.1, y: 20, delay: 0.05 });
-  const suriCardRef  = useRef<HTMLDivElement>(null);
+  const suriCardRef = useRef<HTMLDivElement>(null);
 
   // ── Load — usa /chatbot separado do /integrations ─────────────────────────
   useEffect(() => {
@@ -82,6 +84,7 @@ const Chatbot = () => {
           // Restore last known connection status from saved config
           if (savedConfig._connection_status) {
             setConnectionStatus(savedConfig._connection_status as 'success' | 'error');
+            setConnectionMsg(savedConfig._connection_msg || '');
           } else if (savedConfig.endpoint) {
             setConnectionStatus('success');
           }
@@ -136,7 +139,7 @@ const Chatbot = () => {
   // ── Teste de conexão: via backend (evita CORS + valida body real) ─────────
   const handleTest = async () => {
     const endpoint = config.endpoint?.trim() || '';
-    const token    = config.token?.trim()    || '';
+    const token = config.token?.trim() || '';
 
     if (!endpoint || !token) {
       toast({
@@ -155,21 +158,26 @@ const Chatbot = () => {
 
       if (result.success) {
         setConnectionStatus('success');
+        const msg = result.message || `HTTP ${result.httpStatus}`;
+        setConnectionMsg(msg);
         setConfig((prev) => {
-          const updated = { ...prev, _connection_status: 'success', _connection_msg: result.message || '' };
+          const updated = { ...prev, _connection_status: 'success', _connection_msg: msg };
           // Auto-persist so status survives page reload without requiring manual Save
-          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'success' } }).catch(() => {});
+          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'success' } }).catch(() => { });
           return updated;
         });
+        if (result.stores && result.stores.length > 0) setEcommerceStores(result.stores);
         toast({
-          title: '✅ Conexão bem-sucedida!',
+          title: `✅ Conexão bem-sucedida!  Loja: ${result.stores}`,
           description: result.message || `HTTP ${result.httpStatus}`,
         });
       } else {
         setConnectionStatus('error');
+        const msg = result.message || 'Verifique a URL e o Token de Integração.';
+        setConnectionMsg(msg);
         setConfig((prev) => {
-          const updated = { ...prev, _connection_status: 'error', _connection_msg: result.message || '' };
-          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => {});
+          const updated = { ...prev, _connection_status: 'error', _connection_msg: msg };
+          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => { });
           return updated;
         });
         toast({
@@ -181,9 +189,10 @@ const Chatbot = () => {
     } catch (err: unknown) {
       setConnectionStatus('error');
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      setConnectionMsg(msg);
       setConfig((prev) => {
         const updated = { ...prev, _connection_status: 'error', _connection_msg: msg };
-        updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => {});
+        updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => { });
         return updated;
       });
       toast({
@@ -214,7 +223,7 @@ const Chatbot = () => {
       finalConfig._connection_status = connectionStatus !== 'idle' ? connectionStatus : '';
       await updateChatbot({
         chatbot_platform: platform,
-        chatbot_config:   finalConfig,
+        chatbot_config: finalConfig,
       });
 
       toast({ title: 'Configuração de chatbot salva!' });
@@ -305,7 +314,7 @@ const Chatbot = () => {
             <Label>Plataforma</Label>
             <Select
               value={platform}
-              onValueChange={(v) => { setPlatform(v as ChatbotPlatform); setConfig({}); setConnectionStatus('idle'); }}
+              onValueChange={(v) => { setPlatform(v as ChatbotPlatform); setConfig({}); setConnectionStatus('idle'); setConnectionMsg(''); setEcommerceStores([]); }}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a plataforma de chatbot" />
@@ -325,7 +334,7 @@ const Chatbot = () => {
           {/* Campos dinâmicos com labels amigáveis para Suri */}
           {fields.map((field) => {
             const isSuriEndpoint = platform === 'suri' && field.key === 'endpoint';
-            const isSuriToken    = platform === 'suri' && field.key === 'token';
+            const isSuriToken = platform === 'suri' && field.key === 'token';
             return (
               <div key={field.key} className="space-y-2">
                 <Label>
@@ -351,15 +360,58 @@ const Chatbot = () => {
           })}
 
           {platform && (
-            <div className="flex gap-3 pt-2">
-              <Button variant="outline" onClick={handleTest} disabled={testing}>
-                {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Testar Conexão
+            <div className="flex flex-wrap gap-3 pt-2">
+              {/* Botão Testar Conexão */}
+              <Button
+                variant="outline"
+                onClick={handleTest}
+                disabled={testing || saving}
+                className={
+                  connectionStatus === 'success'
+                    ? 'border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950'
+                    : connectionStatus === 'error'
+                      ? 'border-destructive text-destructive hover:bg-destructive/10'
+                      : ''
+                }
+              >
+                {testing ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Testando...</>
+                ) : connectionStatus === 'success' ? (
+                  <><CheckCircle2 className="mr-2 h-4 w-4 text-green-500" />Conexão OK</>
+                ) : connectionStatus === 'error' ? (
+                  <><XCircle className="mr-2 h-4 w-4" />Falha — Testar novamente</>
+                ) : (
+                  <><Plug className="mr-2 h-4 w-4" />Testar Conexão</>
+                )}
               </Button>
-              <Button onClick={handleSave} disabled={saving}>
+
+              {/* Botão Salvar */}
+              <Button onClick={handleSave} disabled={saving || testing}>
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Salvar
               </Button>
+            </div>
+          )}
+
+          {/* Mensagem de status da conexão — só aparece após testar */}
+          {connectionStatus !== 'idle' && connectionMsg && (
+            <p className={`text-xs mt-1 ${connectionStatus === 'success' ? 'text-green-500' : 'text-destructive'}`}>
+              {connectionMsg}
+            </p>
+          )}
+
+          {/* Lista de lojas encontradas após teste bem-sucedido */}
+          {connectionStatus === 'success' && ecommerceStores.length > 0 && (
+            <div className="mt-3 rounded-lg border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Lojas encontradas</p>
+              <ul className="space-y-1">
+                {ecommerceStores.map(s => (
+                  <li key={s.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="truncate">{s.name}</span>
+                    <code className="text-xs bg-muted px-1 rounded ml-auto shrink-0">#{s.id}</code>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </CardContent>
@@ -381,8 +433,8 @@ const Chatbot = () => {
           <div className="grid sm:grid-cols-3 gap-3">
             {[
               { n: '1', title: 'Credenciais da Suri', desc: 'Cole a URL do Chatbot e Token acima' },
-              { n: '2', title: 'URL gerada aqui',     desc: 'Copie a URL do webhook abaixo' },
-              { n: '3', title: 'Configure na Suri',   desc: 'Cole URL + Token no painel da Suri' },
+              { n: '2', title: 'URL gerada aqui', desc: 'Copie a URL do webhook abaixo' },
+              { n: '3', title: 'Configure na Suri', desc: 'Cole URL + Token no painel da Suri' },
             ].map((step, i, arr) => (
               <div key={step.n} className="flex items-start gap-2">
                 <div className="h-6 w-6 rounded-full gradient-brand text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -497,11 +549,10 @@ const Chatbot = () => {
                       key={topic.value}
                       type="button"
                       onClick={() => toggleTopic(topic.value)}
-                      className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all duration-200 ${
-                        active
+                      className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all duration-200 ${active
                           ? 'border-[#56388e]/50 bg-[#56388e]/8 shadow-sm'
                           : 'border-border/50 bg-background hover:border-[#56388e]/30 hover:bg-muted/30'
-                      }`}
+                        }`}
                     >
                       <div className={`h-4 w-4 rounded flex-shrink-0 mt-0.5 border-2 flex items-center justify-center transition-colors ${active ? 'bg-[#56388e] border-[#56388e]' : 'border-muted-foreground/40'}`}>
                         {active && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}

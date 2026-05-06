@@ -1,4 +1,4 @@
-import pool from "./db.js";
+import pool, { checkDb } from "./db.js";
 import { setCors } from "./_cors.js";
 import { requireAuth, requireAdmin } from "./_auth.js";
 import crypto from "crypto";
@@ -8,6 +8,7 @@ const SALT_ROUNDS = 10;
 
 export default async function handler(req, res) {
   if (setCors(req, res)) return;
+  try { await checkDb(); } catch (dbErr) { return res.status(500).json({ success: false, message: dbErr.message }); }
   try {
     switch (req.method) {
       case "GET": {

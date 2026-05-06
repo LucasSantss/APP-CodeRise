@@ -1,52 +1,70 @@
 /**
  * chatbot/suri/products.js
  * Criação e atualização de produtos na Suri.
+ *
+ * storeId agora vem resolvido via store mapping (passado pelo caller).
+ * Fallback para getFirstStoreId apenas quando não há mapeamento configurado.
  */
 
 import * as client from "./client.js";
 import { getFirstStoreId, buildStocks } from "./stores.js";
 
 function toSuriFormat(product, storeId) {
+  // Monta as variações (campo `dimensions` na Suri).
+  // Cada variação recebe: sku, preço, estoque, medidas, imagem própria e atributos (Cor, Tamanho, etc.)
   const dimensions = (product.variants && product.variants.length > 0)
     ? product.variants.map(v => ({
-        sku: v.sku,
-        dimensions: {},
-        image: { url: v.imageUrl || product.images?.[0]?.url || "", description: null },
-        price: v.price || product.price,
-        priceTables: {},
-        stocks: buildStocks(storeId, v.stock),
-        measurements: {
-          weightInGrams: v.weightInGrams || product.weightInGrams || 0,
-          heightInCm: v.dimensions?.heightInCm || product.dimensions?.heightInCm || 0,
-          widthInCm: v.dimensions?.widthInCm || product.dimensions?.widthInCm || 0,
-          lengthInCm: v.dimensions?.lengthInCm || product.dimensions?.lengthInCm || 0,
-          unitsPerPackage: 1,
-        },
-        attributes: v.attributes || [],
-      }))
+      sku: String(v.sku || product.sku),
+      dimensions: Object.fromEntries(
+        (v.attributes || []).map(a => [String(a.name), String(a.value)])
+      ),
+      image: {
+        url: v.imageUrl || product.images?.[0]?.url || "",
+        description: null,
+      },
+      price: v.price ?? product.price,
+      promotionalPrice: v.promotionalPrice ?? product.promotionalPrice ?? 0,
+      priceTables: {},
+      stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
+      measurements: {
+        weightInGrams: v.weightInGrams || product.weightInGrams || 0,
+        heightInCm: v.dimensions?.heightInCm || product.dimensions?.heightInCm || 0,
+        widthInCm: v.dimensions?.widthInCm || product.dimensions?.widthInCm || 0,
+        lengthInCm: v.dimensions?.lengthInCm || product.dimensions?.lengthInCm || 0,
+        unitsPerPackage: 1,
+      },
+      // Atributos da variação (ex: [{ name: "Cor", value: "Azul" }, { name: "Tamanho", value: "M" }])
+      attributes: (v.attributes || []).map(a => ({
+        name: String(a.name || ""),
+        value: String(a.value || ""),
+      })),
+    }))
     : [{
-        sku: product.sku,
-        dimensions: {},
-        image: { url: product.images?.[0]?.url || "", description: null },
-        price: product.price,
-        priceTables: {},
-        stocks: buildStocks(storeId, product.stock),
-        measurements: {
-          weightInGrams: product.weightInGrams || 0,
-          heightInCm: product.dimensions?.heightInCm || 0,
-          widthInCm: product.dimensions?.widthInCm || 0,
-          lengthInCm: product.dimensions?.lengthInCm || 0,
-          unitsPerPackage: 1,
-        },
-        attributes: [],
-      }];
+      sku: String(product.sku),
+      dimensions: {},
+      image: { url: product.images?.[0]?.url || "", description: null },
+      price: product.price,
+      promotionalPrice: product.promotionalPrice ?? 0,
+      priceTables: {},
+      stocks: buildStocks(storeId, product.stock ?? 0),
+      measurements: {
+        weightInGrams: product.weightInGrams || 0,
+        heightInCm: product.dimensions?.heightInCm || 0,
+        widthInCm: product.dimensions?.widthInCm || 0,
+        lengthInCm: product.dimensions?.lengthInCm || 0,
+        unitsPerPackage: 1,
+      },
+      attributes: [],
+    }];
 
   return {
     id: product.id,
     sku: product.sku,
     categoryId: product.categoryId || null,
     subcategoryId: null,
-    brand: product.brand || null,
+    // A Suri espera um objeto ShopBrand, não uma string simples.
+    // Enviar o nome como string causa HTTP 400 — campo mantido como null.
+    brand: null,
     sellerId: "all",
     sellerName: null,
     isActive: product.isActive,
@@ -57,31 +75,77 @@ function toSuriFormat(product, storeId) {
     promotionalPrice: product.promotionalPrice || 0,
     hasShippingRestriction: false,
     images: product.images || [],
-    attributes: [],
+    attributes: (() => {
+      // Agrega atributos das variações no formato que a Suri espera:
+      // [{ name: "Cor", options: [{ name: "Azul" }, { name: "Vermelho" }] }]
+      const attrMap = new Map();
+      for (const v of (product.variants || [])) {
+        for (const a of (v.attributes || [])) {
+          if (!attrMap.has(a.name)) attrMap.set(a.name, new Set());
+          attrMap.get(a.name).add(String(a.value));
+        }
+      }
+      return Array.from(attrMap.entries()).map(([name, values]) => ({
+        name,
+        options: Array.from(values).map(v => ({ name: v })),
+      }));
+    })(),
     dimensions,
     weightInGrams: product.weightInGrams || 0,
   };
 }
 
 /**
- * Sincroniza um produto na Suri — cria se não existir, atualiza se já existir.
- * A Suri retorna HTTP 400 com errorCode 1000 quando o produto não existe para PUT.
+ * Sincroniza um produto na Suri.
+ *
+ * Estratégia: POST primeiro (criar). Se a Suri indicar que o produto
+ * já existe (HTTP 409, ou HTTP 400/422 com "already exists" / "duplicate"),
+ * faz PUT (atualizar). Isso evita o erro de validação do campo `brand`
+ * que ocorria quando se tentava PUT em produtos ainda não criados.
+ *
+ * @param {string} endpoint
+ * @param {string} token
+ * @param {object} product  - produto normalizado
+ * @param {string|null} resolvedStoreId - ID da loja Suri resolvido via store mapping.
+ *   Se null, usa getFirstStoreId como fallback.
  */
-export async function syncProduct(endpoint, token, product) {
-  const storeId = await getFirstStoreId(endpoint, token) || "141301072";
+export async function syncProduct(endpoint, token, product, resolvedStoreId = null) {
+  const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token) || "141301072";
   const suriPayload = toSuriFormat(product, storeId);
 
+  // 1) Verifica se o produto já existe na Suri pelo ID
+  let exists = false;
   try {
+    exists = await client.productExists(endpoint, token, product.id);
+  } catch {
+    // Se não conseguir verificar, tenta POST e deixa a Suri decidir
+    exists = false;
+  }
+
+  if (exists) {
+    // Produto já existe → PUT (atualizar)
     await client.updateProduct(endpoint, token, suriPayload);
     return { action: "product_updated", productId: product.id, storeId };
-  } catch (err) {
-    const msg = err.message || "";
-    const isNotFound = msg.includes("HTTP 404") || msg.includes("errorCode") || (msg.includes("HTTP 400") && msg.includes("not found"));
-    if (isNotFound) {
-      await client.createProduct(endpoint, token, suriPayload);
-      return { action: "product_created", productId: product.id, storeId };
+  }
+
+  // Produto não existe → POST (criar)
+  try {
+    await client.createProduct(endpoint, token, suriPayload);
+    return { action: "product_created", productId: product.id, storeId };
+  } catch (createErr) {
+    const msg = createErr.message || "";
+    // Se a Suri retornar que o produto já existe (race condition ou ID duplicado),
+    // tenta PUT como fallback
+    const alreadyExists =
+      msg.includes("HTTP 409") ||
+      msg.includes("already exists") ||
+      msg.includes("duplicate") ||
+      msg.includes("já existe");
+    if (alreadyExists) {
+      await client.updateProduct(endpoint, token, suriPayload);
+      return { action: "product_updated", productId: product.id, storeId };
     }
-    throw err;
+    throw createErr;
   }
 }
 

@@ -1,6 +1,6 @@
 import { useLongPoll } from '@/hooks/use-polling';
 import { useEffect, useCallback } from 'react';
-import { Bell, X, AlertTriangle, UserX, Zap, Megaphone, CheckCheck, Loader2 } from 'lucide-react';
+import { Bell, BellOff, X, AlertTriangle, UserX, Zap, Megaphone, CheckCheck, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAuthStore } from '@/store/auth';
@@ -41,6 +41,8 @@ const NotificationPanel = () => {
   const markAllRead      = useNotificationsStore((s) => s.markAllRead);
   const remove           = useNotificationsStore((s) => s.remove);
   const openPopupFor     = useNotificationsStore((s) => s.openPopupFor);
+  const popupsEnabled    = useNotificationsStore((s) => s.popupsEnabled);
+  const setPopupsEnabled = useNotificationsStore((s) => s.setPopupsEnabled);
 
   const [open, setOpen] = useState(false);
 
@@ -106,12 +108,41 @@ const NotificationPanel = () => {
               <p className="text-[11px] text-muted-foreground">{unread} não lida{unread > 1 ? 's' : ''}</p>
             )}
           </div>
-          {unread > 0 && (
-            <Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1 text-muted-foreground hover:text-foreground" onClick={handleMarkAll}>
-              <CheckCheck className="h-3 w-3" /> Marcar todas
+          <div className="flex items-center gap-1">
+            {/* Toggle habilitar/desabilitar popups */}
+            <Button
+              variant="ghost"
+              size="sm"
+              title={popupsEnabled ? 'Desativar alertas automáticos' : 'Ativar alertas automáticos'}
+              className={cn(
+                'h-7 w-7 p-0 rounded-lg',
+                popupsEnabled ? 'text-muted-foreground hover:text-foreground' : 'text-muted-foreground/40 hover:text-muted-foreground'
+              )}
+              onClick={() => setPopupsEnabled(!popupsEnabled)}
+            >
+              {popupsEnabled ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
             </Button>
-          )}
+            {unread > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1 text-muted-foreground hover:text-foreground" onClick={handleMarkAll}>
+                <CheckCheck className="h-3 w-3" /> Marcar todas
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* Banner de popups desabilitados */}
+        {!popupsEnabled && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-muted/20 border-b border-border/40">
+            <BellOff className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+            <p className="text-[11px] text-muted-foreground/60">Alertas automáticos desativados</p>
+            <button
+              onClick={() => setPopupsEnabled(true)}
+              className="ml-auto text-[11px] text-primary hover:underline shrink-0"
+            >
+              Ativar
+            </button>
+          </div>
+        )}
 
         <div className="max-h-80 overflow-y-auto">
           {loading ? (

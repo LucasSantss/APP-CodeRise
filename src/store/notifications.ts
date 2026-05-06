@@ -17,24 +17,49 @@ export interface Notification {
   created_at: string;
 }
 
+const NOTIF_ENABLED_KEY = 'coderise_notifications_enabled';
+
+function loadEnabledPref(): boolean {
+  try { return localStorage.getItem(NOTIF_ENABLED_KEY) !== 'false'; } catch { return true; }
+}
+function saveEnabledPref(v: boolean) {
+  try { localStorage.setItem(NOTIF_ENABLED_KEY, String(v)); } catch {}
+}
+
 interface NotificationsState {
   notifications: Notification[];
   loading: boolean;
-  popupTriggerId: number | null; // ID da notificação a abrir no popup manualmente
+
+  /** Fila de notificações pendentes de exibição no popup */
+  popupQueue: Notification[];
+
+  /** ID de notificação para abrir manualmente pelo sininho */
+  popupTriggerId: number | null;
+
+  /** Se o usuário habilitou popups automáticos de notificação */
+  popupsEnabled: boolean;
+
   setNotifications: (n: Notification[]) => void;
   setLoading: (v: boolean) => void;
   markRead: (id: number) => void;
   markAllRead: () => void;
   remove: (id: number) => void;
   addLocal: (n: Notification) => void;
+
   openPopupFor: (id: number) => void;
   clearPopupTrigger: () => void;
+  enqueuePopup: (n: Notification) => void;
+  dequeuePopup: () => void;
+  clearQueue: () => void;
+  setPopupsEnabled: (v: boolean) => void;
 }
 
 export const useNotificationsStore = create<NotificationsState>()((set) => ({
   notifications: [],
   loading: false,
+  popupQueue: [],
   popupTriggerId: null,
+  popupsEnabled: loadEnabledPref(),
 
   setNotifications: (notifications) => set({ notifications }),
   setLoading: (loading) => set({ loading }),
@@ -54,6 +79,7 @@ export const useNotificationsStore = create<NotificationsState>()((set) => ({
   remove: (id) =>
     set((s) => ({
       notifications: s.notifications.filter((n) => n.id !== id),
+      popupQueue: s.popupQueue.filter((n) => n.id !== id),
     })),
 
   addLocal: (n: Notification) =>
@@ -61,6 +87,22 @@ export const useNotificationsStore = create<NotificationsState>()((set) => ({
 
   openPopupFor: (id) => set({ popupTriggerId: id }),
   clearPopupTrigger: () => set({ popupTriggerId: null }),
+
+  enqueuePopup: (n: Notification) =>
+    set((s) => {
+      if (s.popupQueue.some((q) => q.id === n.id)) return s;
+      return { popupQueue: [...s.popupQueue, n] };
+    }),
+
+  dequeuePopup: () =>
+    set((s) => ({ popupQueue: s.popupQueue.slice(1) })),
+
+  clearQueue: () => set({ popupQueue: [] }),
+
+  setPopupsEnabled: (v: boolean) => {
+    saveEnabledPref(v);
+    set({ popupsEnabled: v, ...(v ? {} : { popupQueue: [] }) });
+  },
 }));
 
 // ── Helpers de filtro (usados nos componentes) ────────────────────────────────

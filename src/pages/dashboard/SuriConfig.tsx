@@ -10,7 +10,7 @@ import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, A
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection } from '@/services/api';
+import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection, type StoreItem } from '@/services/api';
 import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
 import { usePlatformSettingsStore } from '@/store/platformSettings';
 import gsap from 'gsap';
@@ -46,6 +46,7 @@ const Chatbot = () => {
   ]);
 
   const [copiedField, setCopiedField]       = useState<string | null>(null);
+  const [suriStores, setSuriStores]         = useState<StoreItem[]>([]);
   const { toast }                           = useToast();
 
   // ── GSAP ──────────────────────────────────────────────────────────────────
@@ -161,6 +162,7 @@ const Chatbot = () => {
           updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'success' } }).catch(() => {});
           return updated;
         });
+        if (result.stores && result.stores.length > 0) setSuriStores(result.stores);
         toast({
           title: '✅ Conexão bem-sucedida!',
           description: result.message || `HTTP ${result.httpStatus}`,
@@ -360,6 +362,21 @@ const Chatbot = () => {
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Salvar
               </Button>
+            </div>
+          )}
+
+          {/* Lojas encontradas na Suri após teste bem-sucedido */}
+          {connectionStatus === 'success' && suriStores.length > 0 && (
+            <div className="mt-3 rounded-lg border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Lojas encontradas na Suri</p>
+              <ul className="space-y-1">
+                {suriStores.map(s => (
+                  <li key={s.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="truncate">{s.name}</span>
+                    <code className="text-xs bg-muted px-1 rounded ml-auto shrink-0">#{s.id}</code>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </CardContent>

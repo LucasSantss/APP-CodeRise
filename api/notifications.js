@@ -1,4 +1,4 @@
-import pool from "./db.js";
+import pool, { checkDb } from "./db.js";
 import { setCors } from "./_cors.js";
 import { requireAuth, getUserByTokenString } from "./_auth.js";
 
@@ -31,6 +31,7 @@ async function fetchNotificationsForCaller(caller, afterId = null) {
 export default async function handler(req, res) {
   // ── REST normal ─────────────────────────────────────────────────────────────
   if (setCors(req, res)) return;
+  try { await checkDb(); } catch (dbErr) { return res.status(500).json({ success: false, message: dbErr.message }); }
   try {
     switch (req.method) {
       case "GET": {

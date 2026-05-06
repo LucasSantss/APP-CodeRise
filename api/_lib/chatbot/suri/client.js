@@ -59,6 +59,24 @@ export async function deactivateProduct(endpoint, token, productId) {
   return request(endpoint, token, "PUT", "/api/shop/products", { id: productId, isActive: false });
 }
 
+/**
+ * Verifica se um produto existe na Suri pelo ID.
+ * Retorna true se existir, false se não existir (404).
+ * Lança erro para outros problemas de rede/autenticação.
+ */
+export async function productExists(endpoint, token, productId) {
+  try {
+    await request(endpoint, token, "GET", `/api/shop/products/${productId}`, undefined);
+    return true;
+  } catch (err) {
+    const msg = err.message || "";
+    if (msg.includes("HTTP 404")) return false;
+    // Se a Suri não suporta GET por ID, tratamos como desconhecido (false = tentar POST)
+    if (msg.includes("HTTP 405") || msg.includes("HTTP 501")) return false;
+    throw err;
+  }
+}
+
 // ─── Categorias ───────────────────────────────────────────────────────────────
 export async function listCategories(endpoint, token) {
   return request(endpoint, token, "GET", "/api/shop/categories");

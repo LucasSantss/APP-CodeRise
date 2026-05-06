@@ -9,6 +9,7 @@
  */
 
 import * as client from "./client.js";
+import { normalizeCategory } from "./categories.js";
 
 export function normalizeWebhook(payload) {
   const topic = payload.topic || payload.event || "";
@@ -23,6 +24,9 @@ export function normalizeWebhook(payload) {
     "products/created":           "product.sync",
     "products/updated":           "product.sync",
     "products/deleted":           "product.deleted",
+    "categories/created":         "category.sync",
+    "categories/updated":         "category.sync",
+    "categories/deleted":         "category.deleted",
     // Formato singular (usado nos webhooks reais disparados pela Nuvemshop)
     "order/created":              "order.created",
     "order/paid":                 "order.created",
@@ -32,9 +36,32 @@ export function normalizeWebhook(payload) {
     "product/created":            "product.sync",
     "product/updated":            "product.sync",
     "product/deleted":            "product.deleted",
+    "category/created":           "category.sync",
+    "category/updated":           "category.sync",
+    "category/deleted":           "category.deleted",
   };
 
   const eventType = topicMap[topic] || topic;
+
+  // ── Categoria criada/atualizada ───────────────────────────────────────────
+  if (eventType === "category.sync") {
+    const c = payload.category || payload;
+    const categoryId = String(c.id || "");
+    // Usa normalizeCategory para tratar corretamente todos os formatos reais da Nuvemshop:
+    // name multilíngue { pt, es, en }, parent como 0/número/objeto, etc.
+    const normalized = normalizeCategory(c);
+    // Se o nome ficou vazio, o payload só tem o ID — força busca via API
+    if (!normalized.name) {
+      return { eventType, categoryId, needsApiFetch: true };
+    }
+    return { eventType, needsApiFetch: false, category: normalized };
+  }
+
+  // ── Categoria deletada ────────────────────────────────────────────────────
+  if (eventType === "category.deleted") {
+    const c = payload.category || payload;
+    return { eventType, categoryId: String(c.id), needsApiFetch: false };
+  }
 
   // ── Produto deletado ──────────────────────────────────────────────────────
   if (eventType === "product.deleted") {
@@ -126,6 +153,7 @@ export async function registerWebhooks(config, webhookUrl) {
     "order/created", "order/paid", "order/fulfilled",
     "order/cancelled", "order/partially_fulfilled",
     "product/created", "product/updated", "product/deleted",
+    "category/created", "category/updated", "category/deleted",
   ];
   const results = [];
   for (const event of events) {

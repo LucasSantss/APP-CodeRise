@@ -90,6 +90,14 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/test-ecommerce",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/test-ecommerce(.*)",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/platform-settings",
       "destination": "/api/index.js"
     },
@@ -98,8 +106,21 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/sync-catalog",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/sync-catalog(.*)",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 300
+    }
+  }
 }

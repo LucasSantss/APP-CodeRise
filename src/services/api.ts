@@ -15,10 +15,26 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch (networkErr) {
+    throw new Error('Erro de rede: não foi possível conectar ao servidor. Verifique sua conexão.');
+  }
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Erro de rede' }));
-    throw new Error(err.message || `HTTP ${res.status}`);
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const err = await res.json();
+        errMsg = err.message || err.error || errMsg;
+      } else {
+        const text = await res.text();
+        errMsg = `HTTP ${res.status}: ${text.slice(0, 120).replace(/<[^>]+>/g, '').trim() || res.statusText}`;
+      }
+    } catch { /* mantém errMsg padrão */ }
+    throw new Error(errMsg);
   }
   return res.json();
 }
@@ -85,15 +101,17 @@ export const regenerateChatbotToken = (userId?: number) =>
 
 
 // Suri connection test (proxied through backend to avoid CORS)
+export type StoreItem = { id: string; name: string };
+
 export const testSuriConnection = (endpoint: string, token: string) =>
-  request<ApiResponse & { httpStatus?: number; debug?: string }>(
+  request<ApiResponse & { httpStatus?: number; debug?: string; stores?: StoreItem[] }>(
     '/test-suri',
     { method: 'POST', body: JSON.stringify({ endpoint, token }) }
   );
 
 // E-commerce connection test (proxied through backend)
 export const testEcommerceConnection = (platform: string, config: Record<string, string>) =>
-  request<ApiResponse & { store?: string; plan?: string; country?: string }>(
+  request<ApiResponse & { store?: string; plan?: string; country?: string; stores?: StoreItem[] }>(
     '/test-ecommerce',
     { method: 'POST', body: JSON.stringify({ platform, config }) }
   );
