@@ -278,7 +278,7 @@ async function processReverseEvent(platform, config, eventType, payload) {
   if (platform === "nuvemshop") {
     switch (eventType) {
       case "order.created": return nuvemshopDeductStock(config, payload.items || []);
-      case "order.paid":    return handleOrdersPaid(payload._suriEndpoint, payload._suriToken, payload.orderId, config);
+      case "order.paid": return handleOrdersPaid(payload._suriEndpoint, payload._suriToken, payload.orderId, config);
       case "order.shipped": return nuvemshopFulfillOrder(config, payload);
       case "order.cancelled": return nuvemshopCancelOrder(config, payload);
       case "order.note": return nuvemshopAddNote(config, payload);
@@ -594,9 +594,9 @@ async function handleWebhook(req, res) {
       // O payload da Suri usa PascalCase: { HookEvent, OrderId, Status }
       const hookEvent = rawPayload.HookEvent || rawPayload.hookEvent || "";
       const suriEventMap = {
-        "OrdersPaid":      "order.paid",
-        "OrdersCreated":   "order.created",
-        "OrdersShipped":   "order.shipped",
+        "OrdersPaid": "order.paid",
+        "OrdersCreated": "order.created",
+        "OrdersShipped": "order.shipped",
         "OrdersCancelled": "order.cancelled",
       };
       const mappedEvent = suriEventMap[hookEvent]
@@ -607,7 +607,7 @@ async function handleWebhook(req, res) {
         hookEvent,
         // Injeta credenciais da Suri para uso em processReverseEvent (ex: order.paid → baixa de estoque)
         _suriEndpoint: suri_endpoint || null,
-        _suriToken:    suri_token    || null,
+        _suriToken: suri_token || null,
         ...rawPayload,
       };
     }
@@ -1052,13 +1052,17 @@ async function handleSyncCatalog(req, res) {
 
   try {
     // ── 1. Sincroniza Categorias ──────────────────────────────────────────
+    // categoryIdMap: nuvemshop_id → suri_id (para resolver categoryId dos produtos)
+    const categoryIdMap = new Map();
     try {
       const { fetchCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
-      const { syncCategory } = await import("./_lib/chatbot/suri/categories.js");
+      const { syncCategory, listCategories: listSuriCategories } = await import("./_lib/chatbot/suri/categories.js");
       const categories = await fetchCategories(ecomConfig);
       for (const cat of categories) {
         try {
           const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
+          // r.suriId = ID interno que a Suri atribuiu à categoria
+          if (r.suriId) categoryIdMap.set(String(cat.id), String(r.suriId));
           results.push({ type: r.action, entity: "category", id: cat.id, name: cat.name, storeId: r.storeId });
           if (r.action === "category_created") summary.categories_created++;
           else if (r.action === "category_updated") summary.categories_updated++;
@@ -1066,6 +1070,18 @@ async function handleSyncCatalog(req, res) {
           results.push({ type: "error", entity: "category", id: cat.id, name: cat.name, message: err.message });
           summary.errors++;
         }
+      }
+      // Complementa o mapa com categorias já existentes na Suri (sincronizações anteriores)
+      if (categoryIdMap.size < categories.length) {
+        try {
+          const suriCats = await listSuriCategories(suriEndpoint, suriToken);
+          for (const sc of suriCats) {
+            const extId = sc.externalId || sc.id;
+            if (extId && sc.id && !categoryIdMap.has(String(extId))) {
+              categoryIdMap.set(String(extId), String(sc.id));
+            }
+          }
+        } catch { /* silencioso — mapa parcial ainda ajuda */ }
       }
     } catch (err) {
       results.push({ type: "error", entity: "categories_fetch", message: `Erro ao buscar/sincronizar categorias: ${err.message}` });
@@ -1114,7 +1130,7 @@ async function handleSyncCatalog(req, res) {
             continue;
           }
           try {
-            const r = await syncProduct(suriEndpoint, suriToken, product, resolvedStoreId);
+            const r = await syncProduct(suriEndpoint, suriToken, product, resolvedStoreId, categoryIdMap);
             results.push({ type: r.action, entity: "product", id: product.id, name: product.name, storeId: r.storeId });
             if (r.action === "product_created") summary.products_created++;
             else if (r.action === "product_updated") summary.products_updated++;

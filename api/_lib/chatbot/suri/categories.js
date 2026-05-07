@@ -28,16 +28,19 @@ export async function syncCategory(endpoint, token, category, resolvedStoreId = 
 
   try {
     if (existing) {
-      await client.updateCategory(endpoint, token, { ...payload, id: existing.id });
-      return { action: "category_updated", categoryId: category.id, suriId: existing.id, storeId: resolvedStoreId };
+      const res = await client.updateCategory(endpoint, token, { ...payload, id: existing.id });
+      const suriId = res?.id || existing.id || null;
+      return { action: "category_updated", categoryId: category.id, suriId, storeId: resolvedStoreId };
     } else {
-      await client.createCategory(endpoint, token, payload);
-      return { action: "category_created", categoryId: category.id, storeId: resolvedStoreId };
+      const res = await client.createCategory(endpoint, token, payload);
+      const suriId = res?.id || category.id || null;
+      return { action: "category_created", categoryId: category.id, suriId, storeId: resolvedStoreId };
     }
   } catch (err) {
     if (err.message.includes("404") || err.message.includes("HTTP 404")) {
-      await client.createCategory(endpoint, token, payload);
-      return { action: "category_created", categoryId: category.id, storeId: resolvedStoreId };
+      const res = await client.createCategory(endpoint, token, payload);
+      const suriId = res?.id || category.id || null;
+      return { action: "category_created", categoryId: category.id, suriId, storeId: resolvedStoreId };
     }
     throw err;
   }

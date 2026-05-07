@@ -127,10 +127,25 @@ function toSuriFormat(product, storeId) {
  * @param {object} product  - produto normalizado
  * @param {string|null} resolvedStoreId - ID da loja Suri resolvido via store mapping.
  *   Se null, usa getFirstStoreId como fallback.
+ * @param {Map<string,string>|null} categoryIdMap - mapa nuvemshop_id → suri_id para categorias.
  */
-export async function syncProduct(endpoint, token, product, resolvedStoreId = null) {
+export async function syncProduct(endpoint, token, product, resolvedStoreId = null, categoryIdMap = null) {
   const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token) || "141301072";
-  const suriPayload = toSuriFormat(product, storeId);
+
+  // Resolve o categoryId para o ID interno da Suri.
+  // Se não houver mapeamento, envia null para evitar rejeição por ID de outra plataforma.
+  const resolvedCategoryId = (() => {
+    if (!product.categoryId) return null;
+    if (categoryIdMap && categoryIdMap.size > 0) {
+      const mapped = categoryIdMap.get(String(product.categoryId));
+      return mapped || null;
+    }
+    // Sem mapa disponível: não envia o ID externo pois a Suri vai rejeitar
+    return null;
+  })();
+
+  const productWithResolvedCategory = { ...product, categoryId: resolvedCategoryId };
+  const suriPayload = toSuriFormat(productWithResolvedCategory, storeId);
 
   // 1) Verifica se o produto já existe na Suri pelo ID
   let exists = false;

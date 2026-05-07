@@ -136,7 +136,7 @@ const StoreMapping = () => {
       setEcommerceStores(stores);
       setEcommerceStatus('ok');
       const updatedCfg = { ...ecommerceConfig, _ecommerce_stores: JSON.stringify(stores) };
-      await updateIntegration({ ecommerce_config: updatedCfg }).catch(() => {});
+      await updateIntegration({ ecommerce_config: updatedCfg }).catch(() => { });
       setEcommerceConfig(updatedCfg);
     } else {
       setEcommerceStatus('error');
@@ -149,7 +149,7 @@ const StoreMapping = () => {
       setChatbotStatus('ok');
       if (stores.length > 0) {
         const updatedChatbotCfg = { ...chatbotConfig, _chatbot_stores: JSON.stringify(stores) };
-        await updateChatbot({ chatbot_config: updatedChatbotCfg }).catch(() => {});
+        await updateChatbot({ chatbot_config: updatedChatbotCfg }).catch(() => { });
         setChatbotConfig(updatedChatbotCfg);
       }
     } else {
@@ -502,24 +502,21 @@ const StoreMapping = () => {
                       { value: syncResult.summary.products_updated, label: 'Prod. atualizados', color: 'blue' },
                       { value: syncResult.summary.errors, label: 'Erros', color: syncResult.summary.errors > 0 ? 'red' : 'gray' },
                     ].map(({ value, label, color }) => (
-                      <div key={label} className={`rounded-md border p-2 text-center ${
-                        color === 'green' ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900' :
-                        color === 'blue'  ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900' :
-                        color === 'red'   ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900' :
-                        'bg-muted border-border'
-                      }`}>
-                        <p className={`text-lg font-bold ${
-                          color === 'green' ? 'text-green-700 dark:text-green-400' :
-                          color === 'blue'  ? 'text-blue-700 dark:text-blue-400' :
-                          color === 'red'   ? 'text-destructive' :
-                          'text-muted-foreground'
-                        }`}>{value}</p>
-                        <p className={`text-xs ${
-                          color === 'green' ? 'text-green-600 dark:text-green-500' :
-                          color === 'blue'  ? 'text-blue-600 dark:text-blue-500' :
-                          color === 'red'   ? 'text-red-600 dark:text-red-400' :
-                          'text-muted-foreground'
-                        }`}>{label}</p>
+                      <div key={label} className={`rounded-md border p-2 text-center ${color === 'green' ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900' :
+                          color === 'blue' ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900' :
+                            color === 'red' ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900' :
+                              'bg-muted border-border'
+                        }`}>
+                        <p className={`text-lg font-bold ${color === 'green' ? 'text-green-700 dark:text-green-400' :
+                            color === 'blue' ? 'text-blue-700 dark:text-blue-400' :
+                              color === 'red' ? 'text-destructive' :
+                                'text-muted-foreground'
+                          }`}>{value}</p>
+                        <p className={`text-xs ${color === 'green' ? 'text-green-600 dark:text-green-500' :
+                            color === 'blue' ? 'text-blue-600 dark:text-blue-500' :
+                              color === 'red' ? 'text-red-600 dark:text-red-400' :
+                                'text-muted-foreground'
+                          }`}>{label}</p>
                       </div>
                     ))}
                   </div>
@@ -546,6 +543,7 @@ const StoreMapping = () => {
                       const isError = item.type === 'error';
                       let displayMessage = item.message;
                       let errorHint: string | undefined;
+                      const rawErrorMessage = isError ? item.message : undefined;
                       if (isError && item.message) {
                         const context = item.entity === 'category' ? 'category'
                           : item.entity === 'product' ? 'product' : 'general';
@@ -572,6 +570,16 @@ const StoreMapping = () => {
                               <p className="text-[10px] mt-0.5 px-1.5 py-1 rounded bg-muted/50 text-muted-foreground/70 border border-border/30">
                                 💡 {errorHint}
                               </p>
+                            )}
+                            {rawErrorMessage && rawErrorMessage !== displayMessage && (
+                              <details className="mt-0.5">
+                                <summary className="text-[10px] text-muted-foreground/50 cursor-pointer select-none hover:text-muted-foreground/80">
+                                  🔍 Detalhe técnico
+                                </summary>
+                                <p className="text-[10px] mt-0.5 px-1.5 py-1 rounded bg-muted/30 text-muted-foreground/60 border border-border/20 font-mono break-all whitespace-pre-wrap">
+                                  {rawErrorMessage}
+                                </p>
+                              </details>
                             )}
                           </div>
                           {item.storeId && <code className="text-muted-foreground bg-muted px-1 rounded shrink-0 mt-0.5">loja #{item.storeId}</code>}
