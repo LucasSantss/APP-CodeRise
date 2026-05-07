@@ -22,11 +22,12 @@ function toSuriFormat(product, storeId) {
   }
 
   // Helper: retorna o objeto image apenas quando há URL válida.
-  // A Suri rejeita { url: "" } — omitir o campo evita o HTTP 400/422.
+  // A Suri espera o campo como `source` (não `url`).
+  // A Suri rejeita source nulo — omitir o campo evita o HTTP 400.
   function buildImage(variantImageUrl) {
     const url = variantImageUrl || product.images?.[0]?.url || "";
-    if (!url) return undefined;
-    return { url, description: null };
+    if (!url || url === "null" || url === "undefined") return undefined;
+    return { source: url };
   }
 
   const dimensions = (product.variants && product.variants.length > 0)
@@ -93,7 +94,13 @@ function toSuriFormat(product, storeId) {
     promotionalPrice: product.promotionalPrice || 0,
     hasShippingRestriction: false,
     // Omite o campo `images` quando vazio — a Suri rejeita arrays vazios em alguns endpoints.
-    images: (product.images && product.images.length > 0) ? product.images : undefined,
+    // Converte { url, description } → { source } e filtra entradas sem URL válida.
+    images: (() => {
+      const imgs = (product.images || [])
+        .filter(i => i && i.url && i.url !== "null" && i.url !== "undefined")
+        .map(i => ({ source: i.url }));
+      return imgs.length > 0 ? imgs : undefined;
+    })(),
     attributes: (() => {
       // Agrega atributos das variações no formato que a Suri espera:
       // [{ name: "Cor", options: [{ name: "Azul" }, { name: "Vermelho" }] }]
