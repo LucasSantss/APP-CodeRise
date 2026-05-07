@@ -92,13 +92,30 @@ function toSuriFormat(product, storeId) {
     price: product.price,
     promotionalPrice: product.promotionalPrice || 0,
     hasShippingRestriction: false,
-    // Omite o campo `images` quando vazio — a Suri rejeita arrays vazios.
-    // Filtra entradas com url nula/vazia antes de enviar (causa HTTP 400 na Suri).
+    // A Suri requer que `images` seja um array não-nulo quando dimensions[].image tem URLs.
+    // Se o produto não tem imagens no nível raiz mas as variações têm, usa as imagens das variações.
+    // Nunca envia null — envia [] (vazio) quando não há nenhuma imagem.
     images: (() => {
-      const imgs = (product.images || [])
+      // 1) Imagens do produto (nível raiz)
+      const productImgs = (product.images || [])
         .filter(i => i && i.url && i.url !== "null" && i.url !== "undefined")
         .map(i => ({ url: i.url, description: i.description || null }));
-      return imgs.length > 0 ? imgs : undefined;
+      if (productImgs.length > 0) return productImgs;
+
+      // 2) Fallback: imagens das variações (deduplica por URL)
+      const seen = new Set();
+      const variantImgs = [];
+      for (const v of (product.variants || [])) {
+        const u = v.imageUrl;
+        if (u && u !== "null" && u !== "undefined" && !seen.has(u)) {
+          seen.add(u);
+          variantImgs.push({ url: u, description: null });
+        }
+      }
+      if (variantImgs.length > 0) return variantImgs;
+
+      // 3) Sem imagens: array vazio (nunca null — Suri lança ArgumentNullException(source) com null)
+      return [];
     })(),
     attributes: (() => {
       // Agrega atributos das variações no formato que a Suri espera:
