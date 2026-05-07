@@ -13,6 +13,14 @@ function toSuriFormat(product, storeId) {
   // Monta as variações (campo `dimensions` na Suri).
   // Cada variação recebe: sku, preço, estoque, medidas, imagem própria e atributos (Cor, Tamanho, etc.)
 
+  // Helper: retorna um SKU válido.
+  // String(null) = "null" e String(undefined) = "undefined" — ambos rejeitados pela Suri.
+  // Usa o ID do produto como fallback seguro.
+  function buildSku(skuValue, fallbackId) {
+    const s = skuValue != null ? String(skuValue).trim() : "";
+    return s && s !== "null" && s !== "undefined" ? s : String(fallbackId);
+  }
+
   // Helper: retorna o objeto image apenas quando há URL válida.
   // A Suri rejeita { url: "" } — omitir o campo evita o HTTP 400/422.
   function buildImage(variantImageUrl) {
@@ -24,7 +32,7 @@ function toSuriFormat(product, storeId) {
   const dimensions = (product.variants && product.variants.length > 0)
     ? product.variants.map(v => {
       const variantObj = {
-        sku: String(v.sku || product.sku),
+        sku: buildSku(v.sku || product.sku, product.id),
         dimensions: Object.fromEntries(
           (v.attributes || []).map(a => [String(a.name), String(a.value)])
         ),
@@ -50,7 +58,7 @@ function toSuriFormat(product, storeId) {
       return variantObj;
     })
     : [{
-      sku: String(product.sku),
+      sku: buildSku(product.sku, product.id),
       dimensions: {},
       ...(buildImage(null) ? { image: buildImage(null) } : {}),
       price: product.price,
@@ -69,7 +77,7 @@ function toSuriFormat(product, storeId) {
 
   return {
     id: product.id,
-    sku: product.sku,
+    sku: buildSku(product.sku, product.id),
     categoryId: product.categoryId || null,
     subcategoryId: null,
     // A Suri espera um objeto ShopBrand, não uma string simples.

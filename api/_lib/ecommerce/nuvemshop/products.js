@@ -38,30 +38,34 @@ export function normalizeProduct(p) {
     return field.pt || field.es || field.en || Object.values(field)[0] || "";
   }
 
-  const variants = (p.variants || []).map(v => ({
-    sku: String(v.sku || p.id),
-    price: parseFloat(v.price || p.price || 0),
-    promotionalPrice: parseFloat(v.promotional_price || p.promotional_price || 0),
-    weightInGrams: parseFloat(v.weight || 0) * 1000,
-    dimensions: {
-      heightInCm: parseFloat(v.height || 0),
-      widthInCm: parseFloat(v.width || 0),
-      lengthInCm: parseFloat(v.depth || 0),
-    },
-    stock: parseInt(v.stock || 0),
-    // v.values é um array paralelo a p.attributes — cruzamos pelo índice
-    attributes: (v.values || []).map((val, idx) => ({
-      name: i18n(productAttributes[idx]) || String(idx),
-      value: i18n(val),
-    })),
-    imageUrl: v.image?.src || null,
-  }));
+  const variants = (p.variants || []).map(v => {
+    const rawSku = v.sku != null ? String(v.sku).trim() : "";
+    const safeSku = rawSku && rawSku !== "null" && rawSku !== "undefined" ? rawSku : String(p.id);
+    return {
+      sku: safeSku,
+      price: parseFloat(v.price || p.price || 0),
+      promotionalPrice: parseFloat(v.promotional_price || p.promotional_price || 0),
+      weightInGrams: parseFloat(v.weight || 0) * 1000,
+      dimensions: {
+        heightInCm: parseFloat(v.height || 0),
+        widthInCm: parseFloat(v.width || 0),
+        lengthInCm: parseFloat(v.depth || 0),
+      },
+      stock: parseInt(v.stock || 0),
+      // v.values é um array paralelo a p.attributes — cruzamos pelo índice
+      attributes: (v.values || []).map((val, idx) => ({
+        name: i18n(productAttributes[idx]) || String(idx),
+        value: i18n(val),
+      })),
+      imageUrl: v.image?.src || null,
+    };
+  });
 
   const firstVariant = variants[0] || {};
 
   return {
     id: String(p.id),
-    sku: String(p.variants?.[0]?.sku || p.id),
+    sku: firstVariant.sku || String(p.id),
     name: p.name?.pt || p.name?.es || Object.values(p.name || {})[0] || "",
     description: (p.description?.pt || p.description?.es || "").replace(/<[^>]+>/g, ""),
     categoryId: String(p.categories?.[0]?.id || ""),
