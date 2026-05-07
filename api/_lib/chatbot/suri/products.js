@@ -12,37 +12,47 @@ import { getFirstStoreId, buildStocks } from "./stores.js";
 function toSuriFormat(product, storeId) {
   // Monta as variações (campo `dimensions` na Suri).
   // Cada variação recebe: sku, preço, estoque, medidas, imagem própria e atributos (Cor, Tamanho, etc.)
+
+  // Helper: retorna o objeto image apenas quando há URL válida.
+  // A Suri rejeita { url: "" } — omitir o campo evita o HTTP 400/422.
+  function buildImage(variantImageUrl) {
+    const url = variantImageUrl || product.images?.[0]?.url || "";
+    if (!url) return undefined;
+    return { url, description: null };
+  }
+
   const dimensions = (product.variants && product.variants.length > 0)
-    ? product.variants.map(v => ({
-      sku: String(v.sku || product.sku),
-      dimensions: Object.fromEntries(
-        (v.attributes || []).map(a => [String(a.name), String(a.value)])
-      ),
-      image: {
-        url: v.imageUrl || product.images?.[0]?.url || "",
-        description: null,
-      },
-      price: v.price ?? product.price,
-      promotionalPrice: v.promotionalPrice ?? product.promotionalPrice ?? 0,
-      priceTables: {},
-      stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
-      measurements: {
-        weightInGrams: v.weightInGrams || product.weightInGrams || 0,
-        heightInCm: v.dimensions?.heightInCm || product.dimensions?.heightInCm || 0,
-        widthInCm: v.dimensions?.widthInCm || product.dimensions?.widthInCm || 0,
-        lengthInCm: v.dimensions?.lengthInCm || product.dimensions?.lengthInCm || 0,
-        unitsPerPackage: 1,
-      },
-      // Atributos da variação (ex: [{ name: "Cor", value: "Azul" }, { name: "Tamanho", value: "M" }])
-      attributes: (v.attributes || []).map(a => ({
-        name: String(a.name || ""),
-        value: String(a.value || ""),
-      })),
-    }))
+    ? product.variants.map(v => {
+      const variantObj = {
+        sku: String(v.sku || product.sku),
+        dimensions: Object.fromEntries(
+          (v.attributes || []).map(a => [String(a.name), String(a.value)])
+        ),
+        price: v.price ?? product.price,
+        promotionalPrice: v.promotionalPrice ?? product.promotionalPrice ?? 0,
+        priceTables: {},
+        stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
+        measurements: {
+          weightInGrams: v.weightInGrams || product.weightInGrams || 0,
+          heightInCm: v.dimensions?.heightInCm || product.dimensions?.heightInCm || 0,
+          widthInCm: v.dimensions?.widthInCm || product.dimensions?.widthInCm || 0,
+          lengthInCm: v.dimensions?.lengthInCm || product.dimensions?.lengthInCm || 0,
+          unitsPerPackage: 1,
+        },
+        // Atributos da variação (ex: [{ name: "Cor", value: "Azul" }, { name: "Tamanho", value: "M" }])
+        attributes: (v.attributes || []).map(a => ({
+          name: String(a.name || ""),
+          value: String(a.value || ""),
+        })),
+      };
+      const img = buildImage(v.imageUrl);
+      if (img) variantObj.image = img;
+      return variantObj;
+    })
     : [{
       sku: String(product.sku),
       dimensions: {},
-      image: { url: product.images?.[0]?.url || "", description: null },
+      ...(buildImage(null) ? { image: buildImage(null) } : {}),
       price: product.price,
       promotionalPrice: product.promotionalPrice ?? 0,
       priceTables: {},
@@ -74,7 +84,8 @@ function toSuriFormat(product, storeId) {
     price: product.price,
     promotionalPrice: product.promotionalPrice || 0,
     hasShippingRestriction: false,
-    images: product.images || [],
+    // Omite o campo `images` quando vazio — a Suri rejeita arrays vazios em alguns endpoints.
+    images: (product.images && product.images.length > 0) ? product.images : undefined,
     attributes: (() => {
       // Agrega atributos das variações no formato que a Suri espera:
       // [{ name: "Cor", options: [{ name: "Azul" }, { name: "Vermelho" }] }]
