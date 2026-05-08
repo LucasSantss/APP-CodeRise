@@ -86,11 +86,18 @@ function toSuriFormat(product, storeId) {
     sellerId: "all",
     sellerName: null,
     isActive: product.isActive,
+    isPriceEditable: false,
+    itemWithoutLogistic: false,
+    isRestrictedSale: false,
     name: product.name,
     description: product.description || "",
-    url: product.url || null,
+    // url nula/vazia é omitida — a Suri rejeita null neste campo (HTTP 400)
+    ...(product.url && product.url !== "null" && product.url !== "undefined"
+      ? { url: product.url }
+      : {}),
     price: product.price,
     promotionalPrice: product.promotionalPrice || 0,
+    minPrice: product.price,
     hasShippingRestriction: false,
     // A Suri requer que `images` seja um array não-nulo quando dimensions[].image tem URLs.
     // Se o produto não tem imagens no nível raiz mas as variações têm, usa as imagens das variações.
