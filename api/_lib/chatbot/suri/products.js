@@ -21,12 +21,13 @@ function toSuriFormat(product, storeId) {
     return s && s !== "null" && s !== "undefined" ? s : String(fallbackId);
   }
 
-  // Helper: retorna o objeto image apenas quando há URL válida.
-  // A Suri usa { url } para imagens — nunca enviar url nula (causa HTTP 400).
+  // Helper: monta o objeto image no formato exato que a Suri espera.
+  // A Suri usa { providerId, url, description } — quando não há URL válida,
+  // envia o objeto com url: null em vez de omitir o campo (evita ArgumentNullException no servidor).
   function buildImage(variantImageUrl) {
     const url = variantImageUrl || product.images?.[0]?.url || "";
-    if (!url || url === "null" || url === "undefined") return undefined;
-    return { url };
+    const validUrl = url && url !== "null" && url !== "undefined" ? url : null;
+    return { providerId: null, url: validUrl, description: null };
   }
 
   const dimensions = (product.variants && product.variants.length > 0)
@@ -52,15 +53,14 @@ function toSuriFormat(product, storeId) {
           name: String(a.name || ""),
           value: String(a.value || ""),
         })),
+        image: buildImage(v.imageUrl),
       };
-      const img = buildImage(v.imageUrl);
-      if (img) variantObj.image = img;
       return variantObj;
     })
     : [{
       sku: buildSku(product.sku, product.id),
       dimensions: {},
-      ...(buildImage(null) ? { image: buildImage(null) } : {}),
+      image: buildImage(null),
       price: product.price,
       promotionalPrice: product.promotionalPrice ?? 0,
       priceTables: {},
@@ -99,9 +99,8 @@ function toSuriFormat(product, storeId) {
     promotionalPrice: product.promotionalPrice || 0,
     minPrice: product.price,
     hasShippingRestriction: false,
-    // A Suri requer que `images` seja um array não-nulo quando dimensions[].image tem URLs.
-    // Se o produto não tem imagens no nível raiz mas as variações têm, usa as imagens das variações.
-    // Nunca envia null — envia [] (vazio) quando não há nenhuma imagem.
+    // images no nível raiz: usa as imagens do produto ou das variações.
+    // Quando não há nenhuma imagem, envia null (formato nativo da Suri, conforme retornado pela API).
     images: (() => {
       // 1) Imagens do produto (nível raiz)
       const productImgs = (product.images || [])
@@ -121,8 +120,8 @@ function toSuriFormat(product, storeId) {
       }
       if (variantImgs.length > 0) return variantImgs;
 
-      // 3) Sem imagens: array vazio (nunca null — Suri lança ArgumentNullException(source) com null)
-      return [];
+      // 3) Sem imagens: null (igual ao formato que a Suri retorna)
+      return null;
     })(),
     attributes: (() => {
       // Agrega atributos das variações no formato que a Suri espera:
