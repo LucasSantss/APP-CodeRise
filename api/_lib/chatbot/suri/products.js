@@ -30,32 +30,44 @@ function toSuriFormat(product, storeId) {
     return { providerId: null, url: validUrl, description: null };
   }
 
+  // Para produtos com múltiplas variantes, cada uma pode ter um SKU diferente.
+  // Se todas as variantes têm o mesmo SKU (ou o SKU é o ID do produto como fallback),
+  // diferenciamos pelo índice para que a Suri não trate como produto único.
+  const variantSkus = (product.variants || []).map(v => buildSku(v.sku, product.id));
+  const allSkusSame = variantSkus.length > 1 && variantSkus.every(s => s === variantSkus[0]);
+
   const dimensions = (product.variants && product.variants.length > 0)
-    ? product.variants.map(v => {
-      const variantObj = {
-        sku: buildSku(v.sku || product.sku, product.id),
+    ? product.variants.map((v, idx) => {
+      // Garante SKU único por variante quando todas coincidem
+      const sku = allSkusSame
+        ? `${variantSkus[idx]}-${idx + 1}`
+        : buildSku(v.sku || product.sku, product.id);
+
+      // Estoque real da variante (vem atualizado do endpoint /variants)
+      const stockQty = v.stock ?? product.stock ?? 0;
+
+      return {
+        sku,
         dimensions: Object.fromEntries(
           (v.attributes || []).map(a => [String(a.name), String(a.value)])
         ),
         price: v.price ?? product.price,
         promotionalPrice: v.promotionalPrice ?? product.promotionalPrice ?? 0,
         priceTables: {},
-        stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
+        stocks: buildStocks(storeId, stockQty),
         measurements: {
           weightInGrams: v.weightInGrams || product.weightInGrams || 0,
           heightInCm: v.dimensions?.heightInCm || product.dimensions?.heightInCm || 0,
-          widthInCm: v.dimensions?.widthInCm || product.dimensions?.widthInCm || 0,
+          widthInCm:  v.dimensions?.widthInCm  || product.dimensions?.widthInCm  || 0,
           lengthInCm: v.dimensions?.lengthInCm || product.dimensions?.lengthInCm || 0,
           unitsPerPackage: 1,
         },
-        // Atributos da variação (ex: [{ name: "Cor", value: "Azul" }, { name: "Tamanho", value: "M" }])
         attributes: (v.attributes || []).map(a => ({
-          name: String(a.name || ""),
+          name:  String(a.name  || ""),
           value: String(a.value || ""),
         })),
         image: buildImage(v.imageUrl),
       };
-      return variantObj;
     })
     : [{
       sku: buildSku(product.sku, product.id),
@@ -68,7 +80,7 @@ function toSuriFormat(product, storeId) {
       measurements: {
         weightInGrams: product.weightInGrams || 0,
         heightInCm: product.dimensions?.heightInCm || 0,
-        widthInCm: product.dimensions?.widthInCm || 0,
+        widthInCm:  product.dimensions?.widthInCm  || 0,
         lengthInCm: product.dimensions?.lengthInCm || 0,
         unitsPerPackage: 1,
       },
