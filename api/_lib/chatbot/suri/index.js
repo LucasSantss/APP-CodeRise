@@ -2,19 +2,10 @@
  * chatbot/suri/index.js
  * Orquestra o fluxo direto: evento normalizado → ação na Suri.
  *
- * STORE MAPPING:
- *   ecommerceConfig._store_mappings é um JSON array:
- *   [{ ecommerceStoreId, ecommerceStoreName, chatbotStoreId, chatbotStoreName }]
+ * STORE MAPPING: resolve loja Suri de destino via _store_mappings no ecommerceConfig.
+ * CATEGORY MAPPING: resolve categoryId externo → ID interno da Suri antes de sincronizar produto.
  *
- * CATEGORY ID MAPPING:
- *   A Suri usa IDs internos próprios para categorias.
- *   Quando um produto chega da Nuvemshop, o categoryId é o ID da Nuvemshop.
- *   Antes de sincronizar o produto, buscamos todas as categorias da Suri,
- *   construímos um mapa { nuvemshop_id → suri_id } e resolvemos o categoryId
- *   correto. Sem isso, a Suri rejeita com errorCode:1003 ("Product must have a category").
- *
- *   O mapa é construído uma vez por chamada a processForwardEvent e não é
- *   persistido entre requests (stateless serverless).
+ * Erros enriquecidos com contexto para aparecerem legíveis nos Logs do app.
  */
 
 import { syncProduct, deactivateProduct } from "./products.js";
@@ -43,19 +34,6 @@ function resolveStoreId(ecommerceConfig) {
 
 // ─── Category ID mapping ────────────────────────────────────────────────────────
 
-/**
- * Busca todas as categorias da Suri e constrói um mapa:
- *   externalId (= ID da plataforma de e-commerce) → id interno da Suri
- *
- * A Suri retorna cada categoria com:
- *   { id: "suri-uuid", name: "...", externalId: "nuvemshop-id", ... }
- *
- * Quando externalId não existe (categoria criada manualmente na Suri),
- * o mapa também inclui id → id para cobrir casos onde o categoryId do produto
- * já seja o ID interno da Suri.
- *
- * @returns {Map<string, string>} externalId/suriId → suriId
- */
 async function buildCategoryIdMap(endpoint, token) {
   try {
     const categories = await listCategories(endpoint, token);
@@ -63,38 +41,25 @@ async function buildCategoryIdMap(endpoint, token) {
     for (const c of categories) {
       const suriId = String(c.id || "");
       if (!suriId) continue;
-      // Mapeia pelo externalId (= ID da Nuvemshop)
       if (c.externalId) map.set(String(c.externalId), suriId);
-      // Mapeia pelo próprio ID da Suri (cobertura extra)
       map.set(suriId, suriId);
+      // Alguns campos alternativos de ID externo
+      if (c.providerId) map.set(String(c.providerId), suriId);
     }
     return map;
-  } catch {
-    // Se não conseguir listar categorias, retorna mapa vazio.
-    // syncProduct vai deixar categoryId como null e a Suri vai rejeitar
-    // com errorCode:1003 — mas isso é melhor do que uma exceção não tratada.
+  } catch (err) {
+    // Retorna mapa vazio — produto pode falhar por falta de categoria,
+    // mas o erro virá da Suri com mensagem clara
+    console.error("[CategoryMap] Falha ao listar categorias da Suri:", err.message);
     return new Map();
   }
 }
 
-/**
- * Resolve o categoryId do produto para o ID interno da Suri.
- * - Se houver mapeamento, retorna o suriId correspondente.
- * - Se não houver mapeamento mas o produto tem categoryId, tenta
- *   usar direto (pode já ser o ID interno).
- * - Se não houver nenhuma categoria, retorna null.
- *
- * IMPORTANTE: se retornar null, o produto será rejeitado pela Suri (errorCode:1003).
- * Nesse caso, o produto precisa ter suas categorias sincronizadas primeiro.
- */
 function resolveCategoryId(externalCategoryId, categoryIdMap) {
   if (!externalCategoryId) return null;
   const key = String(externalCategoryId);
-  if (categoryIdMap.size > 0) {
-    const mapped = categoryIdMap.get(key);
-    if (mapped) return mapped;
-  }
-  return null;
+  if (categoryIdMap.size === 0) return null;
+  return categoryIdMap.get(key) || null;
 }
 
 // ─── Entry point ────────────────────────────────────────────────────────────────
@@ -106,35 +71,41 @@ export async function processForwardEvent(endpoint, token, normalized, ecommerce
   switch (eventType) {
 
     case "product.sync": {
-      let product = normalized.product;
-      if (normalized.needsApiFetch && normalized.productId && ecommerceConfig) {
+      // 1) Busca o produto atualizado via API (nunca usa o payload do webhook)
+      let product;
+      try {
         product = await fetchProductFromEcommerce(ecommercePlatform, ecommerceConfig, normalized.productId);
+      } catch (err) {
+        throw new Error(`Falha ao buscar produto #${normalized.productId} na ${ecommercePlatform}: ${err.message}`);
       }
-      if (!product) throw new Error(`Não foi possível obter dados do produto ${normalized.productId}`);
 
-      // Constrói o mapa de categorias (nuvemshop_id → suri_id) antes de sincronizar
+      if (!product) {
+        throw new Error(`Produto #${normalized.productId} não encontrado na ${ecommercePlatform}.`);
+      }
+
+      // 2) Monta mapa de categorias Suri para resolver o ID correto
       const categoryIdMap = await buildCategoryIdMap(endpoint, token);
+      let resolvedCategoryId = resolveCategoryId(product.categoryId, categoryIdMap);
 
-      // Resolve o categoryId do produto para o ID interno da Suri
-      const resolvedCategoryId = resolveCategoryId(product.categoryId, categoryIdMap);
-
-      // Se o produto tem categoria na Nuvemshop mas não encontrou na Suri,
-      // tenta sincronizar a categoria primeiro, depois reenvia o produto
+      // 3) Categoria ainda não existe na Suri → sincroniza on-the-fly
       if (product.categoryId && !resolvedCategoryId) {
-        const categoryResult = await syncCategoryFromEcommerce(
+        console.log(`[ProductSync] Categoria externa #${product.categoryId} não encontrada na Suri — sincronizando...`);
+        const catResult = await syncCategoryFromEcommerce(
           endpoint, token, ecommercePlatform, ecommerceConfig,
           product.categoryId, resolvedStoreId
         );
-        // Depois da sincronização, o suriId está no resultado
-        const newSuriId = categoryResult?.suriId || null;
-
-        const productWithCategory = { ...product, categoryId: newSuriId };
-        return syncProduct(endpoint, token, productWithCategory, resolvedStoreId, null);
+        resolvedCategoryId = catResult?.suriId || catResult?.categoryId || null;
+        if (!resolvedCategoryId) {
+          throw new Error(
+            `Produto #${product.id}: categoria externa #${product.categoryId} não pôde ser sincronizada na Suri. ` +
+            `Crie a categoria manualmente na Suri antes de sincronizar este produto.`
+          );
+        }
       }
 
-      // Categoria já mapeada: injeta o suriId no produto antes de enviar
-      const productWithResolvedCategory = { ...product, categoryId: resolvedCategoryId };
-      return syncProduct(endpoint, token, productWithResolvedCategory, resolvedStoreId, null);
+      // 4) Injeta categoryId resolvido e sincroniza
+      const productToSync = { ...product, categoryId: resolvedCategoryId };
+      return syncProduct(endpoint, token, productToSync, resolvedStoreId);
     }
 
     case "product.deleted":
@@ -143,10 +114,14 @@ export async function processForwardEvent(endpoint, token, normalized, ecommerce
     case "category.sync": {
       let category = normalized.category;
       if (normalized.needsApiFetch && normalized.categoryId && ecommerceConfig) {
-        category = await fetchCategoryFromEcommerce(ecommercePlatform, ecommerceConfig, normalized.categoryId);
+        try {
+          category = await fetchCategoryFromEcommerce(ecommercePlatform, ecommerceConfig, normalized.categoryId);
+        } catch (err) {
+          throw new Error(`Falha ao buscar categoria #${normalized.categoryId} na ${ecommercePlatform}: ${err.message}`);
+        }
       }
-      if (!category) throw new Error(`Não foi possível obter dados da categoria ${normalized.categoryId}`);
-      if (!category.name) throw new Error(`Categoria ${category.id} sem nome — verifique os dados na plataforma.`);
+      if (!category) throw new Error(`Categoria #${normalized.categoryId} não encontrada na ${ecommercePlatform}.`);
+      if (!category.name) throw new Error(`Categoria #${category.id} sem nome — verifique os dados na plataforma.`);
       return syncCategory(endpoint, token, category, resolvedStoreId);
     }
 
@@ -177,16 +152,13 @@ export async function processForwardEvent(endpoint, token, normalized, ecommerce
 
 // ─── Helpers internos ──────────────────────────────────────────────────────────
 
-/**
- * Sincroniza a categoria da plataforma e-commerce na Suri on-the-fly,
- * chamado quando o produto tem uma categoria não encontrada no mapeamento.
- */
 async function syncCategoryFromEcommerce(endpoint, token, platform, config, categoryId, resolvedStoreId) {
   try {
     const category = await fetchCategoryFromEcommerce(platform, config, categoryId);
     if (!category || !category.name) return null;
     return await syncCategory(endpoint, token, category, resolvedStoreId);
-  } catch {
+  } catch (err) {
+    console.error(`[CategorySync] Falha ao sincronizar categoria #${categoryId}:`, err.message);
     return null;
   }
 }

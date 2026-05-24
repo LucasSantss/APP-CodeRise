@@ -1,1157 +1,202 @@
 /**
- * api/index.js
- * Router unificado — orquestra rotas, auth, webhooks e notificações.
- * Toda lógica de integração é delegada aos módulos:
- *   api/ecommerce/{plataforma}/  → client, products, categories, orders
- *   api/chatbot/suri/            → client, stores, products, categories, orders
+ * chatbot/suri/index.js
+ * Orquestra o fluxo direto: evento normalizado → ação na Suri.
+ *
+ * STORE MAPPING: resolve loja Suri de destino via _store_mappings no ecommerceConfig.
+ * CATEGORY MAPPING: resolve categoryId externo → ID interno da Suri antes de sincronizar produto.
+ *
+ * Erros enriquecidos com contexto para aparecerem legíveis nos Logs do app.
  */
 
-import pool, { checkDb } from "./db.js";
-import { setCors } from "./_cors.js";
-import { getUserByToken, requireAuth, requireAdmin, isAdminSecret, verifyPassword } from "./_auth.js";
-import crypto from "crypto";
+import { syncProduct, deactivateProduct } from "./products.js";
+import { syncCategory, listCategories } from "./categories.js";
+import { createOrder, shipOrder, partiallyShipOrder, cancelOrder } from "./orders.js";
 
-// ─── Módulos ecommerce ────────────────────────────────────────────────────────
-import {
-  normalizeWebhook as normalizeNuvemshopWebhook,
-  registerWebhooks as registerNuvemshopWebhooks,
-} from "./_lib/ecommerce/nuvemshop/index.js";
-import {
-  fulfillOrder as nuvemshopFulfillOrder,
-  cancelOrder as nuvemshopCancelOrder,
-  addOrderNote as nuvemshopAddNote,
-  deductStock as nuvemshopDeductStock,
-  updateStock as nuvemshopUpdateStock,
-} from "./_lib/ecommerce/nuvemshop/orders.js";
+// ─── Store mapping ─────────────────────────────────────────────────────────────
 
-// ─── Módulos chatbot / Suri ───────────────────────────────────────────────────
-import { processForwardEvent } from "./_lib/chatbot/suri/index.js";
-import { handleOrdersPaid } from "./_lib/chatbot/suri/stock-deduction.js";
-
-// ════════════════════════════════════════════════════════════════════════════
-// HELPERS
-// ════════════════════════════════════════════════════════════════════════════
-function getPath(req) {
-  return (req.url || "").split("?")[0].replace(/^\/api/, "");
-}
-
-async function withRetry(fn, maxAttempts = 3, baseDelayMs = 500) {
-  let lastErr;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try { return await fn(); } catch (err) {
-      lastErr = err;
-      const isTransient = !err.message.includes("HTTP 4") || err.message.includes("HTTP 429") || err.message.includes("HTTP 408");
-      if (!isTransient || attempt === maxAttempts) throw err;
-      await new Promise(r => setTimeout(r, baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 200));
-    }
-  }
-  throw lastErr;
-}
-
-// ─── HMAC helpers ─────────────────────────────────────────────────────────────
-function validateNuvemshopHmac(req, secret) {
-  if (!secret) return true;
-  const sig = req.headers["x-linkedstore-hmac-sha256"] || req.headers["x-nuvemshop-hmac-sha256"] || "";
-  if (!sig) return true;
-  const expected = crypto.createHmac("sha256", secret).update(JSON.stringify(req.body || {})).digest("base64");
-  try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)); } catch { return false; }
-}
-function validateShopifyHmac(req, secret) {
-  if (!secret) return true;
-  const sig = req.headers["x-shopify-hmac-sha256"] || "";
-  if (!sig) return false;
-  const expected = crypto.createHmac("sha256", secret).update(JSON.stringify(req.body || {})).digest("base64");
-  try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)); } catch { return false; }
-}
-function validateWoocommerceSignature(req, secret) {
-  if (!secret) return true;
-  const sig = req.headers["x-wc-webhook-signature"] || "";
-  if (!sig) return false;
-  const expected = crypto.createHmac("sha256", secret).update(JSON.stringify(req.body || {})).digest("base64");
-  try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)); } catch { return false; }
-}
-
-// ─── Deduplicação ─────────────────────────────────────────────────────────────
-function extractEventId(platform, payload, req) {
-  switch (platform) {
-    case "shopify":
-      // Shopify envia header único por entrega — deduplicação perfeita
-      return req.headers["x-shopify-webhook-id"] || null;
-    case "nuvemshop": {
-      // A Nuvemshop envia o topic no header HTTP — lemos do header com fallback ao body
-      const topic = payload.topic
-        || req.headers["x-tiendanube-topic"]
-        || req.headers["x-nuvemshop-topic"]
-        || req.headers["x-linkedstore-topic"]
-        || payload.event
-        || "";
-      const id = String(payload.product?.id || payload.category?.id || payload.order?.id || payload.id || "");
-      if (!id) return null;
-      return `${topic}:${id}`;
-    }
-    case "woocommerce":
-      // WooCommerce envia header único por entrega
-      return req.headers["x-wc-webhook-delivery-id"] || String(payload.id || "");
-    default:
-      return String(payload.id || payload.order_id || "");
-  }
-}
-async function isDuplicateEvent(userId, platform, eventId) {
-  if (!eventId) return false;
+function resolveStoreId(ecommerceConfig) {
+  if (!ecommerceConfig?._store_mappings) return null;
+  let mappings;
   try {
-    const key = `${platform}:${eventId}`;
-    const r = await pool.query(
-      "SELECT id FROM user_webhooks WHERE user_id=$1 AND status='processed' AND payload->>'_event_id'=$2 LIMIT 1",
-      [userId, key]
-    );
-    return r.rowCount > 0;
-  } catch { return false; }
+    mappings = typeof ecommerceConfig._store_mappings === "string"
+      ? JSON.parse(ecommerceConfig._store_mappings)
+      : ecommerceConfig._store_mappings;
+  } catch { return null; }
+  if (!Array.isArray(mappings) || mappings.length === 0) return null;
+  const ecommerceStoreId = String(ecommerceConfig.store_id || "");
+  if (ecommerceStoreId) {
+    const match = mappings.find(m => String(m.ecommerceStoreId) === ecommerceStoreId);
+    if (match?.chatbotStoreId) return String(match.chatbotStoreId);
+  }
+  if (mappings[0]?.chatbotStoreId) return String(mappings[0].chatbotStoreId);
+  return null;
 }
 
-// ─── Normaliza plataformas não-modularizadas ainda (Shopify, WooCommerce, VTEX, Tray) ──
-function normalizeGenericWebhook(platform, payload) {
-  // Shopify
-  if (platform === "shopify") {
-    const topic = payload.topic || payload.x_shopify_topic || "";
-    const map = { "orders/create": "order.created", "orders/paid": "order.created", "orders/fulfilled": "order.shipped", "orders/cancelled": "order.cancelled", "products/create": "product.sync", "products/update": "product.sync" };
-    const eventType = map[topic] || topic;
-    if (eventType === "product.sync") {
-      const p = payload; const v = p.variants?.[0] || {};
-      return {
-        eventType, needsApiFetch: true, productId: String(p.id),
-        product: { id: String(p.id), sku: String(v.sku || p.id), name: p.title, description: (p.body_html || "").replace(/<[^>]+>/g, ""), categoryId: String(p.product_type || ""), brand: p.vendor || null, isActive: p.status === "active", price: parseFloat(v.price || 0), promotionalPrice: parseFloat(v.compare_at_price || 0), url: p.handle ? `https://shop.myshopify.com/products/${p.handle}` : null, images: (p.images || []).map(i => ({ url: i.src, description: i.alt || null })), weightInGrams: v.grams || 0, stock: v.inventory_quantity || 0, variants: (p.variants || []).map(v => ({ sku: String(v.sku || v.id), price: parseFloat(v.price || 0), promotionalPrice: parseFloat(v.compare_at_price || 0), weightInGrams: v.grams || 0, stock: v.inventory_quantity || 0, attributes: [...(v.option1 ? [{ name: "option1", value: v.option1 }] : []), ...(v.option2 ? [{ name: "option2", value: v.option2 }] : []), ...(v.option3 ? [{ name: "option3", value: v.option3 }] : [])] })) }
-      };
-    }
-    const f = payload.fulfillments?.[0] || {};
-    return { eventType, orderId: String(payload.id || payload.order_id || ""), paymentTracking: payload.payment_gateway || "", logisticStatus: payload.fulfillment_status || "fulfilled", totalAmount: parseFloat(payload.total_price || 0), items: (payload.line_items || []).map(i => ({ productId: String(i.product_id), sku: String(i.sku || i.variant_id), name: i.title, quantity: i.quantity, unitPrice: parseFloat(i.price || 0), discount: parseFloat(i.total_discount || 0), sellerId: "all" })), shipping: { provider: f.tracking_company || payload.shipping_lines?.[0]?.title || "Entrega", type: 1, price: parseFloat(payload.shipping_lines?.[0]?.price || 0), estimative: "5 dias úteis" } };
-  }
-  // WooCommerce
-  if (platform === "woocommerce") {
-    const action = payload.action || payload.webhook_event || payload.status || "";
-    const map = { "woocommerce_new_order": "order.created", "woocommerce_order_status_processing": "order.created", "woocommerce_order_status_completed": "order.shipped", "woocommerce_order_status_shipped": "order.shipped", "woocommerce_order_status_cancelled": "order.cancelled", "woocommerce_order_status_refunded": "order.cancelled", "woocommerce_new_product": "product.sync", "woocommerce_update_product": "product.sync", "order.created": "order.created", "order.updated": "order.shipped", "order.deleted": "order.cancelled", "product.created": "product.sync", "product.updated": "product.sync", "processing": "order.created", "completed": "order.shipped", "cancelled": "order.cancelled", "refunded": "order.cancelled" };
-    const eventType = map[action] || "order.created";
-    if (eventType === "product.sync") { const p = payload; return { eventType, needsApiFetch: true, productId: String(p.id), product: { id: String(p.id), sku: String(p.sku || p.id), name: p.name, description: (p.short_description || p.description || "").replace(/<[^>]+>/g, ""), categoryId: String(p.categories?.[0]?.id || ""), brand: p.brands?.[0]?.name || null, isActive: p.status === "publish", price: parseFloat(p.price || p.regular_price || 0), promotionalPrice: parseFloat(p.sale_price || 0), url: p.permalink || null, images: (p.images || []).map(i => ({ url: i.src, description: i.alt || null })), weightInGrams: p.weight ? parseFloat(p.weight) * 1000 : 0, dimensions: { heightInCm: parseFloat(p.dimensions?.height || 0), widthInCm: parseFloat(p.dimensions?.width || 0), lengthInCm: parseFloat(p.dimensions?.length || 0) }, stock: parseInt(p.stock_quantity || 0) } }; }
-    const sh = payload.shipping_lines?.[0] || {};
-    return { eventType, orderId: String(payload.id || payload.order_id || ""), paymentTracking: payload.transaction_id || payload.payment_method || "", logisticStatus: payload.status || "processing", totalAmount: parseFloat(payload.total || 0), items: (payload.line_items || []).map(i => ({ productId: String(i.product_id), sku: String(i.sku || i.product_id), name: i.name, quantity: i.quantity, unitPrice: parseFloat(i.price || 0), discount: 0, sellerId: "all" })), shipping: { provider: sh.method_title || "Entrega", type: 1, price: parseFloat(sh.total || 0), estimative: "5 dias úteis" } };
-  }
-  // VTEX
-  if (platform === "vtex") {
-    const order = payload.order || payload;
-    const raw = payload.type || payload.event || order.status || "";
-    const map = { "payment-approved": "order.created", "order-created": "order.created", "OrderCreated": "order.created", "invoiced": "order.shipped", "shipped": "order.shipped", "order-completed": "order.shipped", "canceled": "order.cancelled", "order-cancelled": "order.cancelled", "product-created": "product.sync", "product-updated": "product.sync" };
-    const eventType = map[raw] || raw;
-    if (eventType === "product.sync") { const p = payload.product || payload; return { eventType, needsApiFetch: true, productId: String(p.Id || p.ProductId || p.id), product: { id: String(p.Id || p.ProductId || p.id), sku: String(p.RefId || p.sku || "1"), name: p.ProductName || p.name, description: (p.Description || p.description || "").replace(/<[^>]+>/g, ""), categoryId: String(p.CategoryId || p.categoryId || ""), brand: p.BrandName || p.brand || null, isActive: p.IsActive ?? p.isActive ?? true, price: p.Price || p.price || 0, promotionalPrice: p.ListPrice || p.promotionalPrice || 0, url: p.DetailUrl || p.url || null, images: (p.Images || p.images || []).map(i => ({ url: i.ImageUrl || i.url, description: i.ImageLabel || null })), weightInGrams: p.WeightKg ? p.WeightKg * 1000 : 0, stock: p.AvailableQuantity || 0 } }; }
-    const log = order.shippingData?.logisticsInfo?.[0] || {};
-    return { eventType, orderId: String(order.orderId || order.order_id || ""), paymentTracking: order.paymentData?.transactions?.[0]?.transactionId || "", logisticStatus: order.status || "shipped", totalAmount: (order.value || 0) / 100, items: (order.items || []).map(i => ({ productId: String(i.productId || i.id), sku: String(i.id || i.sku), name: i.name, quantity: i.quantity, unitPrice: (i.sellingPrice || i.price || 0) / 100, discount: (i.manualDiscount || 0) / 100, sellerId: i.sellerId || "all" })), shipping: { provider: log.deliveryCompany || "Entrega", type: 1, price: (order.totals?.find(t => t.id === "Shipping")?.value || 0) / 100, estimative: log.shippingEstimateDate || "5 dias úteis" } };
-  }
-  // Tray
-  if (platform === "tray") {
-    const event = payload.type || payload.trigger || payload.event || "";
-    const map = { "order_created": "order.created", "order_paid": "order.created", "order_shipped": "order.shipped", "order_delivered": "order.shipped", "order_cancelled": "order.cancelled", "product_created": "product.sync", "product_updated": "product.sync" };
-    const eventType = map[event] || event;
-    if (eventType === "product.sync") { const p = payload.Product || payload.product || payload; return { eventType, needsApiFetch: true, productId: String(p.id || p.Id), product: { id: String(p.id || p.Id), sku: String(p.reference || p.sku || p.id), name: p.name || p.Name, description: (p.description || p.Description || "").replace(/<[^>]+>/g, ""), categoryId: String(p.category_id || p.CategoryId || ""), brand: p.brand || p.Brand || null, isActive: p.available === "1" || p.available === true, price: parseFloat(p.price || p.Price || 0), promotionalPrice: parseFloat(p.promotional_price || p.PromotionalPrice || 0), url: p.link || p.Url || null, images: (p.images || p.Images || []).map(i => ({ url: i.link || i.Url || i.url, description: i.alt || null })), weightInGrams: parseFloat(p.weight || p.Weight || 0) * 1000, stock: parseInt(p.stock || p.Estoque || 0) } }; }
-    const order = payload.Order || payload.order || payload;
-    return { eventType, orderId: String(order.id || order.Id || order.order_id || ""), paymentTracking: order.payment?.payment_method || order.PaymentMethod || "", logisticStatus: order.status || order.Status || "shipped", totalAmount: parseFloat(order.total || order.Total || 0), items: (order.ProductsSold || order.products || order.items || []).map(i => ({ productId: String(i.Product?.id || i.product_id || i.id), sku: String(i.Product?.reference || i.sku || i.id), name: i.Product?.name || i.name, quantity: parseInt(i.quantity || i.Quantity || 1), unitPrice: parseFloat(i.price || i.Price || 0), discount: parseFloat(i.discount || i.Discount || 0), sellerId: "all" })), shipping: { provider: order.shipping?.carrier || order.Carrier || "Entrega", type: 1, price: parseFloat(order.shipping?.cost || order.ShippingCost || 0), estimative: "5 dias úteis" } };
-  }
-  // Fallback
-  return { eventType: payload.type || payload.event || payload.event_type || "desconhecido", orderId: String(payload.order_id || payload.orderId || payload.id || ""), paymentTracking: "", logisticStatus: payload.status || "shipped", totalAmount: parseFloat(payload.total || 0), items: payload.items || [], shipping: { provider: "Entrega", type: 1, price: 0, estimative: "5 dias úteis" } };
-}
+// ─── Category ID mapping ────────────────────────────────────────────────────────
 
-// ─── Fluxo reverso das plataformas não-modularizadas ainda ───────────────────
-async function processReverseGeneric(platform, config, eventType, payload) {
-  if (platform === "shopify") {
-    const { store_url, api_token, api_version } = config;
-    const host = store_url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-    const base = `https://${host}/admin/api/${api_version || "2024-01"}`;
-    const headers = { "X-Shopify-Access-Token": api_token, "Content-Type": "application/json" };
-    if (eventType === "order.created") {
-      const items = payload.items || []; const results = [];
-      for (const item of items) {
-        const variantId = item.variant_id || item.variantId; const qty = parseInt(item.quantity || 1);
-        if (!variantId) continue;
-        try {
-          const lr = await fetch(`${base}/inventory_levels.json?variant_ids=${variantId}`, { headers });
-          const ld = await lr.json(); const level = ld.inventory_levels?.[0];
-          if (!level) { results.push({ variantId, status: "level_not_found" }); continue; }
-          const ar = await fetch(`${base}/inventory_levels/adjust.json`, { method: "POST", headers, body: JSON.stringify({ location_id: level.location_id, inventory_item_id: level.inventory_item_id, available_adjustment: -qty }) });
-          results.push({ variantId, status: ar.ok ? "stock_reduced" : "error" });
-        } catch (e) { results.push({ variantId, status: "error", detail: e.message }); }
-      }
-      return { action: "stock_deducted_from_suri_sale", results };
-    }
-    if (eventType === "order.shipped") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      const sr = await fetch(`${base}/orders.json?name=${orderId}&status=any&fields=id,name`, { headers });
-      const order = (await sr.json()).orders?.[0]; if (!order) throw new Error(`Pedido ${orderId} não encontrado na Shopify`);
-      const body = { fulfillment: { notify_customer: true, tracking_info: { ...(payload.tracking_number ? { number: payload.tracking_number } : {}), ...(payload.tracking_url ? { url: payload.tracking_url } : {}) } } };
-      const fr = await fetch(`${base}/orders/${order.id}/fulfillments.json`, { method: "POST", headers, body: JSON.stringify(body) });
-      if (!fr.ok) throw new Error(`Shopify fulfillment falhou HTTP ${fr.status}`);
-      return { action: "order_fulfilled", shopifyOrderId: order.id };
-    }
-    if (eventType === "order.cancelled") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      const sr = await fetch(`${base}/orders.json?name=${orderId}&status=any&fields=id`, { headers });
-      const order = (await sr.json()).orders?.[0]; if (!order) throw new Error(`Pedido ${orderId} não encontrado na Shopify`);
-      const cr = await fetch(`${base}/orders/${order.id}/cancel.json`, { method: "POST", headers, body: "{}" });
-      if (!cr.ok) throw new Error(`Shopify cancel falhou HTTP ${cr.status}`);
-      return { action: "order_cancelled", shopifyOrderId: order.id };
-    }
-    return { action: "no_reverse_action", reason: `Evento "${eventType}" sem mapeamento para Shopify` };
-  }
-  if (platform === "woocommerce") {
-    const { site_url, consumer_key, consumer_secret } = config;
-    const base = `${site_url.replace(/\/+$/, "")}/wp-json/wc/v3`;
-    const auth = Buffer.from(`${consumer_key}:${consumer_secret}`).toString("base64");
-    const headers = { "Authorization": `Basic ${auth}`, "Content-Type": "application/json" };
-    if (eventType === "order.created") {
-      const items = payload.items || []; const results = [];
-      for (const item of items) {
-        const productId = item.productId || item.product_id; const qty = parseInt(item.quantity || 1);
-        if (!productId) continue;
-        try {
-          const gr = await fetch(`${base}/products/${productId}?fields=id,stock_quantity`, { headers });
-          const prod = await gr.json();
-          const newStock = Math.max(0, (prod.stock_quantity || 0) - qty);
-          const ur = await fetch(`${base}/products/${productId}`, { method: "PUT", headers, body: JSON.stringify({ stock_quantity: newStock, manage_stock: true }) });
-          results.push({ productId, newStock, status: ur.ok ? "stock_reduced" : "error" });
-        } catch (e) { results.push({ productId, status: "error", detail: e.message }); }
-      }
-      return { action: "stock_deducted_from_suri_sale", results };
-    }
-    if (eventType === "order.shipped") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      const note = `Pedido enviado${payload.tracking_number ? ` — Rastreamento: ${payload.tracking_number}` : ""}`;
-      const r = await fetch(`${base}/orders/${orderId}`, { method: "PUT", headers, body: JSON.stringify({ status: "completed", customer_note: note }) });
-      if (!r.ok) throw new Error(`WooCommerce order update falhou HTTP ${r.status}`);
-      return { action: "order_completed" };
-    }
-    if (eventType === "order.cancelled") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      const r = await fetch(`${base}/orders/${orderId}`, { method: "PUT", headers, body: JSON.stringify({ status: "cancelled" }) });
-      if (!r.ok) throw new Error(`WooCommerce cancel falhou HTTP ${r.status}`);
-      return { action: "order_cancelled" };
-    }
-    return { action: "no_reverse_action", reason: `Evento "${eventType}" sem mapeamento para WooCommerce` };
-  }
-  if (platform === "vtex") {
-    const { account_name, app_key, app_token } = config;
-    const base = `https://${account_name}.vtexcommercestable.com.br/api`;
-    const headers = { "X-VTEX-API-AppKey": app_key, "X-VTEX-API-AppToken": app_token, "Content-Type": "application/json" };
-    if (eventType === "order.shipped") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      await fetch(`${base}/oms/pvt/orders/${orderId}/start-handling`, { method: "POST", headers });
-      const r = await fetch(`${base}/oms/pvt/orders/${orderId}/notify-invoice`, { method: "POST", headers, body: JSON.stringify({ type: "Output", trackingNumber: payload.tracking_number || "", trackingUrl: payload.tracking_url || "" }) });
-      if (!r.ok) throw new Error(`VTEX notify-invoice falhou HTTP ${r.status}`);
-      return { action: "order_shipped" };
-    }
-    if (eventType === "order.cancelled") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      const r = await fetch(`${base}/oms/pvt/orders/${orderId}/cancel`, { method: "POST", headers });
-      if (!r.ok) throw new Error(`VTEX cancel falhou HTTP ${r.status}`);
-      return { action: "order_cancelled" };
-    }
-    return { action: "no_reverse_action", reason: `Evento "${eventType}" sem mapeamento para VTEX` };
-  }
-  if (platform === "tray") {
-    const { api_address, access_token } = config;
-    const base = api_address.replace(/\/+$/, "");
-    const headers = { "Authorization": `Bearer ${access_token}`, "Content-Type": "application/json" };
-    if (eventType === "order.shipped") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      const r = await fetch(`${base}/orders/${orderId}`, { method: "PUT", headers, body: JSON.stringify({ Order: { status: "shipped", ...(payload.tracking_number ? { tracking_code: payload.tracking_number } : {}) } }) });
-      if (!r.ok) throw new Error(`Tray order update falhou HTTP ${r.status}`);
-      return { action: "order_shipped" };
-    }
-    if (eventType === "order.cancelled") {
-      const orderId = payload.orderId || payload.order_id; if (!orderId) throw new Error("orderId obrigatorio");
-      const r = await fetch(`${base}/orders/${orderId}`, { method: "PUT", headers, body: JSON.stringify({ Order: { status: "canceled" } }) });
-      if (!r.ok) throw new Error(`Tray cancel falhou HTTP ${r.status}`);
-      return { action: "order_cancelled" };
-    }
-    return { action: "no_reverse_action", reason: `Evento "${eventType}" sem mapeamento para Tray` };
-  }
-  return { action: "no_reverse_action", reason: `Plataforma "${platform}" sem suporte reverso` };
-}
-
-// ─── Fluxo reverso modular Nuvemshop + fallback genérico ─────────────────────
-async function processReverseEvent(platform, config, eventType, payload) {
-  if (platform === "nuvemshop") {
-    switch (eventType) {
-      case "order.created": return nuvemshopDeductStock(config, payload.items || []);
-      case "order.paid": return handleOrdersPaid(payload._suriEndpoint, payload._suriToken, payload.orderId, config);
-      case "order.shipped": return nuvemshopFulfillOrder(config, payload);
-      case "order.cancelled": return nuvemshopCancelOrder(config, payload);
-      case "order.note": return nuvemshopAddNote(config, payload);
-      case "product.stock_update": return nuvemshopUpdateStock(config, payload);
-      default: return { action: "no_reverse_action", reason: `Evento "${eventType}" sem mapeamento reverso para Nuvemshop` };
-    }
-  }
-  return processReverseGeneric(platform, config, eventType, payload);
-}
-
-async function getActiveSyncRules(userId, eventType) {
+async function buildCategoryIdMap(endpoint, token) {
   try {
-    const r = await pool.query("SELECT * FROM sync_rules WHERE user_id=$1 AND event=$2 AND active=true ORDER BY created_at ASC", [userId, eventType]);
-    return r.rows;
-  } catch { return []; }
-}
-
-
-// ── Rate limiting em memória por token (máx 60 req/min por token) ────────────
-const _rateLimitMap = new Map();
-function checkRateLimit(token, maxPerMinute = 60) {
-  const now = Date.now();
-  const windowMs = 60 * 1000;
-  if (!_rateLimitMap.has(token)) {
-    _rateLimitMap.set(token, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  const entry = _rateLimitMap.get(token);
-  if (now > entry.resetAt) {
-    entry.count = 1;
-    entry.resetAt = now + windowMs;
-    return true;
-  }
-  entry.count++;
-  if (entry.count > maxPerMinute) return false;
-  return true;
-}
-// Limpa entradas expiradas a cada 5 minutos
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of _rateLimitMap.entries()) {
-    if (now > val.resetAt) _rateLimitMap.delete(key);
-  }
-}, 5 * 60 * 1000);
-
-// ════════════════════════════════════════════════════════════════════════════
-// HANDLER PRINCIPAL
-// ════════════════════════════════════════════════════════════════════════════
-export default async function handler(req, res) {
-  if (setCors(req, res)) return;
-  try { await checkDb(); } catch (dbErr) { return res.status(500).json({ success: false, message: dbErr.message }); }
-  const path = getPath(req);
-  if (path === "/auth") return handleAuth(req, res);
-  if (path === "/chatbot" || path.startsWith("/chatbot?")) return handleChatbot(req, res);
-  if (path === "/webhooks" || path.startsWith("/webhooks?")) return handleWebhooks(req, res);
-  if (path === "/webhooks/poll" || path.startsWith("/webhooks/poll?")) return handleWebhooksPoll(req, res);
-  if (path === "/webhook" || path.startsWith("/webhook?")) return handleWebhook(req, res);
-  if (path === "/register-webhook" || path.startsWith("/register-webhook?")) return handleRegisterWebhook(req, res);
-  if (path === "/setup" || path.startsWith("/setup?")) return handleSetup(req, res);
-  if (path === "/platform-settings" || path.startsWith("/platform-settings?")) return handlePlatformSettings(req, res);
-  if (path === "/test-suri" || path.startsWith("/test-suri?")) return handleTestSuri(req, res);
-  if (path === "/test-ecommerce" || path.startsWith("/test-ecommerce?")) return handleTestEcommerce(req, res);
-  if (path === "/sync-catalog" || path.startsWith("/sync-catalog?")) return handleSyncCatalog(req, res);
-  return res.status(404).json({ success: false, message: `Rota não encontrada: ${path}` });
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// AUTH
-// ════════════════════════════════════════════════════════════════════════════
-async function handleAuth(req, res) {
-  if (req.method !== "POST") return res.status(405).end();
-  const { action } = req.query;
-  try {
-    if (action === "login") {
-      const { email, password } = req.body || {};
-      if (!email || !password) return res.status(400).json({ success: false, message: "email e password obrigatórios" });
-      // Rate limit de login: máx 10 tentativas/min por IP
-      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "unknown";
-      if (!checkRateLimit(`login:${ip}`, 10)) {
-        return res.status(429).json({ success: false, message: "Muitas tentativas de login. Tente novamente em 1 minuto.", retry_after: 60 });
-      }
-      const r = await pool.query("SELECT id,name,email,role,active,password,token FROM users WHERE email=$1", [email]);
-      const user = r.rows[0];
-      if (!user || !(await verifyPassword(password, user.password))) return res.status(401).json({ success: false, message: "Credenciais inválidas" });
-      if (!user.active) return res.status(403).json({ success: false, message: "Conta desativada" });
-      return res.status(200).json({ success: true, token: user.token, user: { id: user.id, name: user.name, email: user.email, role: user.role, active: user.active } });
+    const categories = await listCategories(endpoint, token);
+    const map = new Map();
+    for (const c of categories) {
+      const suriId = String(c.id || "");
+      if (!suriId) continue;
+      if (c.externalId) map.set(String(c.externalId), suriId);
+      map.set(suriId, suriId);
+      // Alguns campos alternativos de ID externo
+      if (c.providerId) map.set(String(c.providerId), suriId);
     }
-    if (action === "logout") {
-      const token = (req.headers.authorization || "").replace("Bearer ", "").trim();
-      if (!token) return res.status(400).json({ success: false, message: "Token não informado" });
-      const newToken = crypto.randomBytes(32).toString("hex");
-      await pool.query("UPDATE users SET token=$1, updated_at=NOW() WHERE token=$2", [newToken, token]);
-      return res.status(200).json({ success: true, message: "Logout realizado" });
-    }
-    if (action === "refresh") {
-      const token = (req.headers.authorization || "").replace("Bearer ", "").trim();
-      const newToken = crypto.randomBytes(32).toString("hex");
-      const r = await pool.query("UPDATE users SET token=$1, updated_at=NOW() WHERE token=$2 AND active=true RETURNING id,name,email,role", [newToken, token]);
-      if (!r.rows[0]) return res.status(401).json({ success: false, message: "Token inválido" });
-      return res.status(200).json({ success: true, token: newToken, user: r.rows[0] });
-    }
-    return res.status(400).json({ success: false, message: "action inválido. Use: login | logout | refresh" });
-  } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// CHATBOT
-// ════════════════════════════════════════════════════════════════════════════
-async function ensureChatbotRow(userId) {
-  const ex = await pool.query("SELECT webhook_token,chatbot_token FROM user_integrations WHERE user_id=$1", [userId]);
-  if (!ex.rows[0]) {
-    const wt = crypto.randomBytes(32).toString("hex"), ct = crypto.randomBytes(32).toString("hex");
-    await pool.query("INSERT INTO user_integrations (user_id,webhook_token,chatbot_token) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO NOTHING", [userId, wt, ct]);
-  } else if (!ex.rows[0].chatbot_token) {
-    const ct = crypto.randomBytes(32).toString("hex");
-    await pool.query("UPDATE user_integrations SET chatbot_token=$1 WHERE user_id=$2 AND chatbot_token IS NULL", [ct, userId]);
+    return map;
+  } catch (err) {
+    // Retorna mapa vazio — produto pode falhar por falta de categoria,
+    // mas o erro virá da Suri com mensagem clara
+    console.error("[CategoryMap] Falha ao listar categorias da Suri:", err.message);
+    return new Map();
   }
 }
-async function handleChatbot(req, res) {
-  try {
-    switch (req.method) {
-      case "GET": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const tid = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
-        await ensureChatbotRow(tid);
-        const r = await pool.query("SELECT chatbot_platform,chatbot_config,chatbot_active,chatbot_token,suri_endpoint,suri_token,created_at,updated_at FROM user_integrations WHERE user_id=$1", [tid]);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
-        return res.status(200).json({ success: true, chatbot: r.rows[0] });
-      }
-      case "PUT": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const tid = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
-        await ensureChatbotRow(tid);
-        const { chatbot_platform, chatbot_config } = req.body || {};
-        const fields = [], values = []; let idx = 1;
-        if (chatbot_platform !== undefined) { fields.push(`chatbot_platform=$${idx++}`); values.push(chatbot_platform); }
-        if (chatbot_config !== undefined) { fields.push(`chatbot_config=$${idx++}`); values.push(JSON.stringify(chatbot_config)); }
-        // Quando plataforma for Suri, espelha endpoint e token nas colunas dedicadas
-        if (chatbot_platform === "suri" || (chatbot_config && chatbot_config.endpoint)) {
-          const cfg = chatbot_config || {};
-          if (cfg.endpoint) { fields.push(`suri_endpoint=$${idx++}`); values.push(cfg.endpoint); }
-          if (cfg.token) { fields.push(`suri_token=$${idx++}`); values.push(cfg.token); }
-        }
-        if (!fields.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
-        fields.push("updated_at=NOW()"); values.push(tid);
-        const r = await pool.query(`UPDATE user_integrations SET ${fields.join(",")} WHERE user_id=$${idx} RETURNING chatbot_platform,chatbot_config,chatbot_active,chatbot_token,suri_endpoint,suri_token,suri_active,updated_at`, values);
-        return res.status(200).json({ success: true, message: "Configuração de chatbot salva", chatbot: r.rows[0] });
-      }
-      case "PATCH": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const tid = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
-        const { chatbot_active } = req.body || {};
-        if (chatbot_active === undefined) return res.status(400).json({ success: false, message: "Informe chatbot_active" });
-        // Sincroniza chatbot_active com suri_active para que o webhook forward funcione
-        const r = await pool.query(
-          "UPDATE user_integrations SET chatbot_active=$1, suri_active=$1, updated_at=NOW() WHERE user_id=$2 RETURNING chatbot_platform,chatbot_active,chatbot_token,suri_active,updated_at",
-          [chatbot_active, tid]
-        );
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
-        return res.status(200).json({ success: true, chatbot: r.rows[0] });
-      }
-      case "POST": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const tid = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
-        if (req.query.action !== "regenerate-token") return res.status(400).json({ success: false, message: "Ação inválida" });
-        const newToken = crypto.randomBytes(32).toString("hex");
-        const r = await pool.query("UPDATE user_integrations SET chatbot_token=$1,updated_at=NOW() WHERE user_id=$2 RETURNING chatbot_token,updated_at", [newToken, tid]);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
-        return res.status(200).json({ success: true, message: "Token do chatbot regenerado", chatbot_token: r.rows[0].chatbot_token });
-      }
-      case "DELETE": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const tid = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
-        await pool.query("UPDATE user_integrations SET chatbot_platform=NULL,chatbot_config=NULL,chatbot_active=false,updated_at=NOW() WHERE user_id=$1", [tid]);
-        return res.status(200).json({ success: true, message: "Configuração de chatbot removida" });
-      }
-      default: res.setHeader("Allow", ["GET", "PUT", "PATCH", "POST", "DELETE"]); return res.status(405).end();
-    }
-  } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
+
+function resolveCategoryId(externalCategoryId, categoryIdMap) {
+  if (!externalCategoryId) return null;
+  const key = String(externalCategoryId);
+  if (categoryIdMap.size === 0) return null;
+  return categoryIdMap.get(key) || null;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// WEBHOOKS (lista/status)
-// ════════════════════════════════════════════════════════════════════════════
-async function handleWebhooks(req, res) {
-  try {
-    switch (req.method) {
-      case "GET": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const { id, event_type, status, limit, since, after_id } = req.query;
-        const where = [], values = []; let idx = 1;
-        if (caller.role !== "admin") { where.push(`uw.user_id=$${idx++}`); values.push(caller.id); }
-        else if (req.query.user_id) { where.push(`uw.user_id=$${idx++}`); values.push(req.query.user_id); }
-        if (id) { where.push(`uw.id=$${idx++}`); values.push(id); }
-        if (event_type) { where.push(`uw.event_type=$${idx++}`); values.push(event_type); }
-        if (status) { where.push(`uw.status=$${idx++}`); values.push(status); }
-        if (since) { where.push(`uw.received_at>$${idx++}`); values.push(since); }
-        if (after_id) { where.push(`uw.id>$${idx++}`); values.push(after_id); }
-        const whereStr = where.length ? `WHERE ${where.join(" AND ")}` : "";
-        let maxRows = 500; if (limit) { const p = parseInt(limit, 10); if (!isNaN(p) && p > 0) maxRows = Math.min(p, 500); }
-        const r = await pool.query(`SELECT uw.id,uw.user_id,u.name AS user_name,u.email AS user_email,uw.event_type,uw.payload,uw.status,uw.error_message,uw.received_at FROM user_webhooks uw JOIN users u ON u.id=uw.user_id ${whereStr} ORDER BY uw.received_at DESC LIMIT $${idx}`, [...values, maxRows]);
-        if (id) { if (!r.rows[0]) return res.status(404).json({ success: false, message: "Evento não encontrado" }); return res.status(200).json({ success: true, webhook: r.rows[0] }); }
-        return res.status(200).json({ success: true, webhooks: r.rows, total: r.rowCount, server_time: new Date().toISOString() });
-      }
-      case "PATCH": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const { id } = req.query; if (!id) return res.status(400).json({ success: false, message: "id obrigatório" });
-        const { status, error_message } = req.body || {};
-        if (!["received", "processed", "error"].includes(status)) return res.status(400).json({ success: false, message: "status inválido" });
-        const ownerFilter = caller.role === "admin" ? "" : ` AND user_id=${caller.id}`;
-        const r = await pool.query(`UPDATE user_webhooks SET status=$1,error_message=$2 WHERE id=$3${ownerFilter} RETURNING id,status,error_message`, [status, error_message || null, id]);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Evento não encontrado" });
-        try { await pool.query("NOTIFY webhooks_changed, $1", [JSON.stringify({ id: r.rows[0].id, status: r.rows[0].status })]); } catch { }
-        return res.status(200).json({ success: true, message: "Status atualizado", webhook: r.rows[0] });
-      }
-      case "DELETE": {
-        const caller = await requireAuth(req, res); if (!caller) return;
-        const { id } = req.query;
-        if (id) {
-          const ownerFilter = caller.role === "admin" ? "" : ` AND user_id=${caller.id}`;
-          const r = await pool.query(`DELETE FROM user_webhooks WHERE id=$1${ownerFilter} RETURNING id`, [id]);
-          if (!r.rows[0]) return res.status(404).json({ success: false, message: "Evento não encontrado" });
-          try { await pool.query("NOTIFY webhooks_changed, $1", [JSON.stringify({ id: r.rows[0].id, action: "deleted" })]); } catch { }
-          return res.status(200).json({ success: true, message: "Evento apagado" });
-        }
-        if (caller.role === "admin" && req.query.user_id) await pool.query("DELETE FROM user_webhooks WHERE user_id=$1", [req.query.user_id]);
-        else if (caller.role === "admin") await pool.query("DELETE FROM user_webhooks");
-        else await pool.query("DELETE FROM user_webhooks WHERE user_id=$1", [caller.id]);
-        try { await pool.query("NOTIFY webhooks_changed, $1", [JSON.stringify({ action: "deleted_bulk" })]); } catch { }
-        return res.status(200).json({ success: true, message: "Eventos apagados" });
-      }
-      default: res.setHeader("Allow", ["GET", "PATCH", "DELETE"]); return res.status(405).end();
-    }
-  } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
-}
+// ─── Entry point ────────────────────────────────────────────────────────────────
 
-// ════════════════════════════════════════════════════════════════════════════
-// WEBHOOK RECEIVER — fluxo direto e reverso
-// ════════════════════════════════════════════════════════════════════════════
-async function handleWebhook(req, res) {
-  if (req.method === "GET") return res.status(200).json({ success: true, message: "Webhook endpoint ativo" });
+export async function processForwardEvent(endpoint, token, normalized, ecommerceConfig, ecommercePlatform) {
+  const { eventType } = normalized;
+  const resolvedStoreId = resolveStoreId(ecommerceConfig);
 
-  // Validação de tamanho de payload (máx 1MB)
-  const contentLength = parseInt(req.headers["content-length"] || "0", 10);
-  if (contentLength > 1_048_576) {
-    return res.status(413).json({ success: false, message: "Payload muito grande. Máximo permitido: 1MB." });
-  }
-  if (req.method !== "POST") { res.setHeader("Allow", ["GET", "POST"]); return res.status(405).end(); }
-  const { token } = req.query;
-  if (!token) return res.status(400).json({ success: false, message: "token obrigatório" });
+  switch (eventType) {
 
-  // Rate limiting: máx 60 requisições/min por token
-  if (!checkRateLimit(token, 60)) {
-    return res.status(429).json({ success: false, message: "Muitas requisições. Tente novamente em 1 minuto.", retry_after: 60 });
-  }
-
-  let integration;
-  try {
-    let r = await pool.query("SELECT ui.*,u.name AS user_name FROM user_integrations ui JOIN users u ON u.id=ui.user_id WHERE ui.webhook_token=$1", [token]);
-    if (!r.rows[0]) r = await pool.query("SELECT ui.*,u.name AS user_name FROM user_integrations ui JOIN users u ON u.id=ui.user_id WHERE ui.chatbot_token=$1", [token]);
-    if (!r.rows[0]) return res.status(404).json({ success: false, message: "Token inválido" });
-    integration = r.rows[0];
-  } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
-
-  const { user_id, suri_endpoint, suri_token, suri_active, ecommerce_platform, ecommerce_config, chatbot_platform, user_name } = integration;
-  const isForward = integration.webhook_token === token;
-  const rawPayload = req.body || {};
-  const userName = user_name || `ID ${user_id}`;
-
-  // Validação HMAC
-  if (isForward && ecommerce_config) {
-    const secret = ecommerce_config.webhook_secret || ecommerce_config.hmac_secret || null;
-    let valid = true;
-    if (ecommerce_platform === "nuvemshop") valid = validateNuvemshopHmac(req, secret);
-    else if (ecommerce_platform === "shopify") valid = validateShopifyHmac(req, secret);
-    else if (ecommerce_platform === "woocommerce") valid = validateWoocommerceSignature(req, secret);
-    if (!valid) return res.status(401).json({ success: false, message: "Assinatura do webhook inválida" });
-  }
-
-  // Deduplicação
-  if (isForward) {
-    const eventId = extractEventId(ecommerce_platform, rawPayload, req);
-    if (eventId && await isDuplicateEvent(user_id, ecommerce_platform, eventId))
-      return res.status(200).json({ success: true, message: "Evento duplicado ignorado", event_id: eventId, flow: "forward" });
-  }
-
-  const PLATFORM_LABELS = { shopify: "Shopify", woocommerce: "WooCommerce", nuvemshop: "Nuvemshop", vtex: "VTEX", tray: "Tray", suri: "Suri", chatbot: "Chatbot", ecommerce: "E-commerce" };
-  const activePlatform = isForward ? (ecommerce_platform || "ecommerce") : (chatbot_platform || "chatbot");
-  const platformLabel = PLATFORM_LABELS[activePlatform] || activePlatform;
-
-  // Normalização por módulo (Nuvemshop usa módulo, demais usam normalizeGenericWebhook)
-  let normalized;
-  try {
-    if (isForward) {
-      // A Nuvemshop envia o topic no header HTTP, não no body.
-      // Injetamos o topic no payload antes de normalizar.
-      const payloadForNormalize = ecommerce_platform === "nuvemshop"
-        ? {
-          ...rawPayload,
-          topic: rawPayload.topic
-            || req.headers["x-tiendanube-topic"]
-            || req.headers["x-nuvemshop-topic"]
-            || req.headers["x-linkedstore-topic"]
-            || rawPayload.event
-            || "",
-        }
-        : rawPayload;
-      normalized = ecommerce_platform === "nuvemshop"
-        ? normalizeNuvemshopWebhook(payloadForNormalize)
-        : normalizeGenericWebhook(ecommerce_platform, rawPayload);
-    } else {
-      // Fluxo reverso: webhook vindo da Suri (ex: OrdersPaid)
-      // O payload da Suri usa PascalCase: { HookEvent, OrderId, Status }
-      const hookEvent = rawPayload.HookEvent || rawPayload.hookEvent || "";
-      const suriEventMap = {
-        "OrdersPaid": "order.paid",
-        "OrdersCreated": "order.created",
-        "OrdersShipped": "order.shipped",
-        "OrdersCancelled": "order.cancelled",
-      };
-      const mappedEvent = suriEventMap[hookEvent]
-        || rawPayload.type || rawPayload.event || rawPayload.event_type || hookEvent || "desconhecido";
-      normalized = {
-        eventType: mappedEvent,
-        orderId: String(rawPayload.OrderId || rawPayload.orderId || rawPayload.order_id || rawPayload.id || ""),
-        hookEvent,
-        // Injeta credenciais da Suri para uso em processReverseEvent (ex: order.paid → baixa de estoque)
-        _suriEndpoint: suri_endpoint || null,
-        _suriToken: suri_token || null,
-        ...rawPayload,
-      };
-    }
-  } catch {
-    normalized = { eventType: rawPayload.type || rawPayload.event || "desconhecido", orderId: "", items: [], shipping: { provider: "Entrega", type: 1, price: 0, estimative: "5 dias úteis" } };
-  }
-  const eventType = normalized.eventType;
-
-  // Salvar webhook no banco com event_id para deduplicação futura
-  const eventId = isForward ? extractEventId(ecommerce_platform, rawPayload, req) : null;
-  const payloadToSave = eventId ? { ...rawPayload, _event_id: `${ecommerce_platform}:${eventId}` } : rawPayload;
-  let webhookId;
-  try {
-    const ins = await pool.query("INSERT INTO user_webhooks (user_id,event_type,payload,status) VALUES ($1,$2,$3,'received') RETURNING id", [user_id, eventType, JSON.stringify(payloadToSave)]);
-    webhookId = ins.rows[0].id;
-    await pool.query(`DELETE FROM user_webhooks WHERE user_id=$1 AND id NOT IN (SELECT id FROM user_webhooks WHERE user_id=$1 ORDER BY received_at DESC LIMIT 100)`, [user_id]).catch(() => { });
-  } catch (err) { return res.status(500).json({ success: false, message: "Erro ao salvar: " + err.message }); }
-
-  // ── FLUXO DIRETO: E-commerce → Suri ────────────────────────────────────
-  if (isForward) {
-    if (!suri_active || !suri_endpoint || !suri_token) return res.status(200).json({ success: true, message: "Evento registrado. Suri não configurada ou inativa.", event_type: eventType, webhook_id: webhookId, flow: "forward" });
-    try {
-      // processForwardEvent usa módulos chatbot/suri — busca produto via API quando necessário
-      const result = await processForwardEvent(suri_endpoint, suri_token, normalized, ecommerce_config, ecommerce_platform);
-      if (result?.action === "no_mapping") {
-        await pool.query("UPDATE user_webhooks SET status='processed',error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
-        return res.status(200).json({ success: true, message: "Evento registrado sem processamento", event_type: eventType, webhook_id: webhookId, flow: "forward" });
-      }
-      await pool.query("UPDATE user_webhooks SET status='processed',error_message=NULL WHERE id=$1", [webhookId]);
-      await pool.query("SELECT pg_notify('webhooks_changed',$1)", [JSON.stringify({ id: webhookId, status: "processed", event_type: eventType })]);
-      return res.status(200).json({ success: true, message: "Evento processado com sucesso", event_type: eventType, platform: ecommerce_platform, webhook_id: webhookId, flow: "forward", suri_result: result });
-    } catch (err) {
-      await pool.query("UPDATE user_webhooks SET status='error',error_message=$1 WHERE id=$2", [err.message, webhookId]);
-      await pool.query("SELECT pg_notify('webhooks_changed',$1)", [JSON.stringify({ id: webhookId, status: "error", event_type: eventType })]);
+    case "product.sync": {
+      // 1) Busca o produto atualizado via API (nunca usa o payload do webhook)
+      let product;
       try {
-        const t = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        await pool.query("INSERT INTO notifications (type,title,message,target_role,target_user_id) VALUES ('error',$1,$2,'user',$3)", [`Erro na integração ${platformLabel}`, `Evento "${eventType}" falhou em ${t}.\n\nDetalhe: ${err.message}`, user_id]);
-        await pool.query("INSERT INTO notifications (type,title,message,target_role) VALUES ('integration_error',$1,$2,'admin')", [`Erro de integração — ${platformLabel}`, `Perfil: ${userName}\nPlataforma: ${platformLabel}\nEvento: ${eventType}\nHorário: ${t}\n\nDetalhe: ${err.message}`]);
-        await pool.query("SELECT pg_notify('notifications_changed','new')").catch(() => { });
-      } catch { }
-      return res.status(200).json({ success: false, message: "Evento registrado mas falhou ao processar na Suri", event_type: eventType, platform: ecommerce_platform, webhook_id: webhookId, flow: "forward", error: err.message });
-    }
-  }
-
-  // ── FLUXO REVERSO: Suri → E-commerce ───────────────────────────────────
-  if (!ecommerce_platform || !ecommerce_config) {
-    await pool.query("UPDATE user_webhooks SET status='processed',error_message=$1 WHERE id=$2", ["E-commerce não configurado", webhookId]);
-    return res.status(200).json({ success: true, message: "Evento registrado. E-commerce não configurado.", event_type: eventType, webhook_id: webhookId, flow: "reverse" });
-  }
-  const skipRuleCheck = eventType === "order.created" || eventType === "order.paid";
-  if (!skipRuleCheck) {
-    const rules = await getActiveSyncRules(user_id, eventType);
-    if (rules.length === 0) {
-      await pool.query("UPDATE user_webhooks SET status='processed',error_message=$1 WHERE id=$2", [`Sem sync_rule ativa para "${eventType}"`, webhookId]);
-      return res.status(200).json({ success: true, message: `Evento registrado. Nenhuma regra ativa para "${eventType}".`, event_type: eventType, webhook_id: webhookId, flow: "reverse" });
-    }
-  }
-  try {
-    const result = await processReverseEvent(ecommerce_platform, ecommerce_config, eventType, {
-      ...normalized,
-      _suriEndpoint: suri_endpoint,
-      _suriToken: suri_token,
-    });
-    await pool.query("UPDATE user_webhooks SET status='processed',error_message=NULL WHERE id=$1", [webhookId]);
-    await pool.query("SELECT pg_notify('webhooks_changed',$1)", [JSON.stringify({ id: webhookId, status: "processed", event_type: eventType })]);
-    return res.status(200).json({ success: true, message: "Evento reverso processado", event_type: eventType, platform: ecommerce_platform, webhook_id: webhookId, flow: "reverse", ecommerce_result: result });
-  } catch (err) {
-    await pool.query("UPDATE user_webhooks SET status='error',error_message=$1 WHERE id=$2", [err.message, webhookId]);
-    await pool.query("SELECT pg_notify('webhooks_changed',$1)", [JSON.stringify({ id: webhookId, status: "error", event_type: eventType })]);
-    try {
-      const t = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      await pool.query("INSERT INTO notifications (type,title,message,target_role,target_user_id) VALUES ('error',$1,$2,'user',$3)", [`Erro no retorno ao e-commerce`, `Evento "${eventType}" falhou em ${t}.\n\nDetalhe: ${err.message}`, user_id]);
-      await pool.query("INSERT INTO notifications (type,title,message,target_role) VALUES ('integration_error',$1,$2,'admin')", [`Erro de integração reversa`, `Perfil: ${userName}\nPlataforma: ${ecommerce_platform}\nEvento: ${eventType}\nHorário: ${t}\n\nDetalhe: ${err.message}`]);
-      await pool.query("SELECT pg_notify('notifications_changed','new')").catch(() => { });
-    } catch { }
-    return res.status(200).json({ success: false, message: "Falhou no retorno ao e-commerce", event_type: eventType, webhook_id: webhookId, flow: "reverse", error: err.message });
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// WEBHOOKS LONG POLL
-// ════════════════════════════════════════════════════════════════════════════
-async function handleWebhooksPoll(req, res) {
-  if (req.method !== "GET") { res.setHeader("Allow", ["GET"]); return res.status(405).end(); }
-  const caller = await requireAuth(req, res); if (!caller) return;
-  const afterId = req.query.after_id ? parseInt(req.query.after_id, 10) : null;
-  const timeout = 20000;
-  const buildQuery = () => {
-    const where = [], values = []; let idx = 1;
-    if (caller.role !== "admin") { where.push(`uw.user_id=$${idx++}`); values.push(caller.id); }
-    else if (req.query.user_id) { where.push(`uw.user_id=$${idx++}`); values.push(req.query.user_id); }
-    if (req.query.status) { where.push(`uw.status=$${idx++}`); values.push(req.query.status); }
-    if (req.query.event_type) { where.push(`uw.event_type=$${idx++}`); values.push(req.query.event_type); }
-    if (afterId !== null) { where.push(`uw.id>$${idx++}`); values.push(afterId); }
-    const whereStr = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    return { sql: `SELECT uw.id,uw.user_id,u.name AS user_name,u.email AS user_email,uw.event_type,uw.payload,uw.status,uw.error_message,uw.received_at FROM user_webhooks uw JOIN users u ON u.id=uw.user_id ${whereStr} ORDER BY uw.received_at DESC LIMIT 100`, values };
-  };
-  const { sql, values } = buildQuery();
-  const immediate = await pool.query(sql, values).catch(() => ({ rows: [] }));
-  if (immediate.rows.length > 0) return res.status(200).json({ success: true, webhooks: immediate.rows, has_new: true, server_time: new Date().toISOString() });
-  let client; let resolved = false;
-  const respond = (webhooks) => { if (resolved) return; resolved = true; res.status(200).json({ success: true, webhooks, has_new: webhooks.length > 0, server_time: new Date().toISOString() }); };
-  try {
-    client = await pool.connect();
-    await client.query(`CREATE OR REPLACE FUNCTION notify_webhook_change() RETURNS trigger AS $$ BEGIN PERFORM pg_notify('webhooks_changed',NEW.id::text); RETURN NEW; END; $$ LANGUAGE plpgsql`);
-    await client.query(`DROP TRIGGER IF EXISTS webhook_insert_notify ON user_webhooks; CREATE TRIGGER webhook_insert_notify AFTER INSERT OR UPDATE ON user_webhooks FOR EACH ROW EXECUTE FUNCTION notify_webhook_change()`);
-    await client.query("LISTEN webhooks_changed");
-    const timer = setTimeout(async () => { try { await client.query("UNLISTEN webhooks_changed"); client.release(); } catch { } respond([]); }, timeout);
-    client.on("notification", async () => { clearTimeout(timer); try { await client.query("UNLISTEN webhooks_changed"); client.release(); } catch { } const { sql: s2, values: v2 } = buildQuery(); const fresh = await pool.query(s2, v2).catch(() => ({ rows: [] })); respond(fresh.rows); });
-    req.on("close", () => { clearTimeout(timer); resolved = true; try { client.query("UNLISTEN webhooks_changed").then(() => client.release()).catch(() => { }); } catch { } });
-  } catch (err) { if (client) { try { client.release(); } catch { } } if (!resolved) respond([]); }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// REGISTER WEBHOOK
-// ════════════════════════════════════════════════════════════════════════════
-async function registerShopify(config, webhookUrl) {
-  const { store_url, api_token, api_version } = config;
-  if (!store_url || !api_token) throw new Error("store_url e api_token são obrigatórios");
-  const base = `https://${store_url.replace(/^https?:\/\//, "")}/admin/api/${api_version || "2024-01"}`;
-  const headers = { "Content-Type": "application/json", "X-Shopify-Access-Token": api_token };
-  const topics = ["orders/create", "orders/fulfilled", "orders/cancelled", "products/create", "products/update"];
-  const results = [];
-  for (const topic of topics) { const r = await fetch(`${base}/webhooks.json`, { method: "POST", headers, body: JSON.stringify({ webhook: { topic, address: webhookUrl, format: "json" } }) }); const data = await r.json(); results.push(!r.ok ? { topic, status: r.status === 422 && JSON.stringify(data).includes("already") ? "already_exists" : "error", detail: data.errors || data } : { topic, status: "created", id: data.webhook?.id }); }
-  return { success: true, message: `${results.filter(r => r.status !== "error").length}/${topics.length} webhooks registrados na Shopify`, details: results };
-}
-async function registerWoocommerce(config, webhookUrl) {
-  const { site_url, consumer_key, consumer_secret } = config;
-  if (!site_url || !consumer_key || !consumer_secret) throw new Error("site_url, consumer_key e consumer_secret são obrigatórios");
-  const base = `${site_url.replace(/\/+$/, "")}/wp-json/wc/v3`;
-  const auth = Buffer.from(`${consumer_key}:${consumer_secret}`).toString("base64");
-  const headers = { "Content-Type": "application/json", "Authorization": `Basic ${auth}` };
-  const topics = [{ name: "Pedido Criado", topic: "order.created" }, { name: "Pedido Atualizado", topic: "order.updated" }, { name: "Pedido Deletado", topic: "order.deleted" }, { name: "Produto Criado", topic: "product.created" }, { name: "Produto Atualizado", topic: "product.updated" }];
-  const results = [];
-  for (const { name, topic } of topics) { const r = await fetch(`${base}/webhooks`, { method: "POST", headers, body: JSON.stringify({ name, status: "active", topic, delivery_url: webhookUrl }) }); const data = await r.json(); results.push(r.ok ? { topic, status: "created", id: data.id } : { topic, status: "error", detail: data.message || data }); }
-  return { success: true, message: `${results.filter(r => r.status === "created").length}/${topics.length} webhooks registrados no WooCommerce`, details: results };
-}
-async function registerVtex(config, webhookUrl) {
-  const { account_name, app_key, app_token } = config;
-  if (!account_name || !app_key || !app_token) throw new Error("account_name, app_key e app_token são obrigatórios");
-  const base = `https://${account_name}.vtexcommercestable.com.br/api`;
-  const headers = { "Content-Type": "application/json", "X-VTEX-API-AppKey": app_key, "X-VTEX-API-AppToken": app_token };
-  const r = await fetch(`${base}/orders/hook/config`, { method: "POST", headers, body: JSON.stringify({ filter: { type: "FromWorkflow", status: ["payment-approved", "invoiced", "canceled"] }, hook: { headers: { "x-coderise-token": "webhook" }, url: webhookUrl } }) });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`VTEX Hook API → HTTP ${r.status}: ${JSON.stringify(data)}`);
-  return { success: true, message: "Hook de pedidos configurado na VTEX com sucesso", details: data };
-}
-async function registerTray(config, webhookUrl) {
-  const { api_address, access_token } = config;
-  if (!api_address || !access_token) throw new Error("api_address e access_token são obrigatórios");
-  const base = api_address.replace(/\/+$/, "");
-  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${access_token}` };
-  const triggers = ["order_created", "order_paid", "order_shipped", "order_cancelled", "product_created", "product_updated"];
-  const results = [];
-  for (const trigger of triggers) { const r = await fetch(`${base}/web_hooks`, { method: "POST", headers, body: JSON.stringify({ web_hook: { url: webhookUrl, trigger, active: "true" } }) }); const data = await r.json().catch(() => ({})); results.push(r.ok ? { trigger, status: "created", id: data.web_hook?.id } : { trigger, status: "error", detail: data.message || data }); }
-  return { success: true, message: `${results.filter(r => r.status === "created").length}/${triggers.length} webhooks registrados na Tray`, details: results };
-}
-async function handleRegisterWebhook(req, res) {
-  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
-  const caller = await requireAuth(req, res); if (!caller) return;
-  try {
-    const r = await pool.query("SELECT * FROM user_integrations WHERE user_id=$1", [caller.id]);
-    if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada. Salve as configurações primeiro." });
-    const { ecommerce_platform, ecommerce_config, webhook_token } = r.rows[0];
-    if (!ecommerce_platform) return res.status(400).json({ success: false, message: "Nenhuma plataforma de e-commerce configurada" });
-    if (!ecommerce_config) return res.status(400).json({ success: false, message: "Configure e salve as credenciais da plataforma primeiro" });
-    const host = req.headers.host || req.headers["x-forwarded-host"] || "";
-    const protocol = req.headers["x-forwarded-proto"] || "https";
-    const webhookUrl = `${protocol}://${host}/webhook?token=${webhook_token}`;
-    let result;
-    switch (ecommerce_platform) {
-      case "shopify": result = await registerShopify(ecommerce_config, webhookUrl); break;
-      case "woocommerce": result = await registerWoocommerce(ecommerce_config, webhookUrl); break;
-      case "nuvemshop": result = await registerNuvemshopWebhooks(ecommerce_config, webhookUrl); break;
-      case "vtex": result = await registerVtex(ecommerce_config, webhookUrl); break;
-      case "tray": result = await registerTray(ecommerce_config, webhookUrl); break;
-      default: return res.status(400).json({ success: false, message: `Registro automático não disponível para '${ecommerce_platform}'. URL: ${webhookUrl}` });
-    }
-    return res.status(200).json({ success: true, ...result, webhook_url: webhookUrl });
-  } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// SETUP
-// ════════════════════════════════════════════════════════════════════════════
-async function handleSetup(req, res) {
-  if (req.method !== "GET") return res.status(405).end();
-  if (!isAdminSecret(req)) return res.status(401).json({ success: false, message: "Não autorizado" });
-  try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(20) NOT NULL DEFAULT 'user', active BOOLEAN NOT NULL DEFAULT true, token VARCHAR(64) UNIQUE, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW())`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS user_integrations (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ecommerce_platform VARCHAR(50), ecommerce_config JSONB, ecommerce_active BOOLEAN NOT NULL DEFAULT false, webhook_token VARCHAR(64) UNIQUE NOT NULL, chatbot_platform VARCHAR(50), chatbot_config JSONB, chatbot_active BOOLEAN NOT NULL DEFAULT false, chatbot_token VARCHAR(64) UNIQUE, suri_endpoint TEXT, suri_token TEXT, suri_active BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW(), UNIQUE(user_id))`);
-    for (const sql of [
-      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_platform VARCHAR(50)`,
-      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_config JSONB`,
-      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_active BOOLEAN NOT NULL DEFAULT false`,
-      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_token VARCHAR(64) UNIQUE`,
-      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS webhook_secret TEXT`,
-    ]) { await pool.query(sql).catch(() => { }); }
-    const noToken = await pool.query("SELECT user_id FROM user_integrations WHERE chatbot_token IS NULL");
-    for (const row of noToken.rows) { await pool.query("UPDATE user_integrations SET chatbot_token=$1 WHERE user_id=$2 AND chatbot_token IS NULL", [crypto.randomBytes(32).toString("hex"), row.user_id]); }
-    await pool.query(`CREATE TABLE IF NOT EXISTS sync_rules (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, event VARCHAR(100) NOT NULL, active BOOLEAN NOT NULL DEFAULT true, message_template TEXT, delay_minutes INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW())`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS user_webhooks (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, event_type VARCHAR(100), payload JSONB, status VARCHAR(20) DEFAULT 'received', error_message TEXT, received_at TIMESTAMP NOT NULL DEFAULT NOW())`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, type VARCHAR(30) NOT NULL, title VARCHAR(100) NOT NULL, message TEXT NOT NULL, image_url TEXT, target_role VARCHAR(20) DEFAULT 'all', target_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, scheduled_at TIMESTAMP, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW())`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT NOW())`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, hidden BOOLEAN NOT NULL DEFAULT false, read_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (notification_id, user_id))`);
-    // Índices de performance
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_webhooks_event_id ON user_webhooks ((payload->>'_event_id')) WHERE payload->>'_event_id' IS NOT NULL`).catch(() => { });
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_webhooks_user_status ON user_webhooks (user_id, status, received_at DESC)`).catch(() => { });
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_webhooks_user_event ON user_webhooks (user_id, event_type)`).catch(() => { });
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_integrations_webhook_token ON user_integrations (webhook_token) WHERE webhook_token IS NOT NULL`).catch(() => { });
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_integrations_chatbot_token ON user_integrations (chatbot_token) WHERE chatbot_token IS NOT NULL`).catch(() => { });
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_token ON users (token) WHERE token IS NOT NULL`).catch(() => { });
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)`).catch(() => { });
-    const adminToken = crypto.randomBytes(32).toString("hex");
-    await pool.query(`INSERT INTO users (name,email,password,role,token) VALUES ('Administrador','admin@plataforma.com','admin123','admin',$1) ON CONFLICT (email) DO NOTHING`, [adminToken]);
-    const userToken = crypto.randomBytes(32).toString("hex");
-    await pool.query(`INSERT INTO users (name,email,password,role,token) VALUES ('Usuário Teste','teste@plataforma.com','teste123','user',$1) ON CONFLICT (email) DO NOTHING`, [userToken]);
-    const testUser = await pool.query("SELECT id FROM users WHERE email='teste@plataforma.com'");
-    if (testUser.rows[0]) { const wt = crypto.randomBytes(32).toString("hex"), ct = crypto.randomBytes(32).toString("hex"); await pool.query(`INSERT INTO user_integrations (user_id,webhook_token,chatbot_token) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO NOTHING`, [testUser.rows[0].id, wt, ct]); }
-    const admin = await pool.query("SELECT id,email,token FROM users WHERE email='admin@plataforma.com'");
-    const user = await pool.query("SELECT id,email,token FROM users WHERE email='teste@plataforma.com'");
-    return res.status(200).json({ success: true, message: "Tabelas criadas/migradas com sucesso!", tables: ["users", "user_integrations", "sync_rules", "user_webhooks", "notifications", "notification_reads"], seeds: { admin: admin.rows[0], user: user.rows[0] } });
-  } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// TEST SURI
-// ════════════════════════════════════════════════════════════════════════════
-async function handleTestSuri(req, res) {
-  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
-  const caller = await requireAuth(req, res); if (!caller) return;
-  const { endpoint, token } = req.body || {};
-  if (!endpoint || typeof endpoint !== "string" || !endpoint.trim()) return res.status(400).json({ success: false, message: "URL do Chatbot é obrigatória." });
-  if (!token || typeof token !== "string" || !token.trim()) return res.status(400).json({ success: false, message: "Token de Integração é obrigatório." });
-  let base;
-  try { base = new URL(endpoint.trim().replace(/\/$/, "")); } catch { return res.status(400).json({ success: false, message: `URL inválida: "${endpoint}".` }); }
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const tokenClean = token.trim();
-  if (!uuidRegex.test(tokenClean)) return res.status(400).json({ success: false, message: "Formato de token inválido. Deve ser um UUID." });
-  const notifyErr = async (msg) => {
-    try {
-      const t = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      const uRow = await pool.query("SELECT name FROM users WHERE id=$1", [caller.id]);
-      await pool.query("INSERT INTO notifications (type,title,message,target_role) VALUES ('integration_error',$1,$2,'admin')", [`Falha no teste de conexão — Suri`, `Perfil: ${uRow.rows[0]?.name || `ID ${caller.id}`}\nURL: ${base?.hostname || endpoint}\nHorário: ${t}\n\nDetalhe: ${msg}`]);
-      await pool.query("SELECT pg_notify('notifications_changed','new')").catch(() => { });
-    } catch { }
-  };
-  let httpStatus, body;
-  try {
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 10000);
-    const up = await fetch(`${base.origin}/api/shop/stores`, { method: "GET", headers: { Authorization: `Bearer ${tokenClean}`, Accept: "application/json", "Content-Type": "application/json" }, signal: controller.signal });
-    clearTimeout(timer); httpStatus = up.status;
-    const text = await up.text(); try { body = JSON.parse(text); } catch { body = { raw: text }; }
-  } catch (err) {
-    const msg = err.name === "AbortError" ? `Timeout: "${base.hostname}" não respondeu em 10s.` : `Não foi possível conectar em "${base.hostname}": ${err.message}`;
-    await notifyErr(msg); return res.status(502).json({ success: false, message: msg });
-  }
-  if (httpStatus === 401 || httpStatus === 403) { await notifyErr(`Token inválido (HTTP ${httpStatus}).`); return res.status(200).json({ success: false, httpStatus, message: `Token inválido ou sem permissão (HTTP ${httpStatus}).` }); }
-  if (httpStatus === 404) { await notifyErr("Rota não encontrada (HTTP 404)."); return res.status(200).json({ success: false, httpStatus, message: "Rota não encontrada (HTTP 404). Verifique a URL." }); }
-  if (httpStatus < 200 || httpStatus >= 300) { await notifyErr(`HTTP ${httpStatus}.`); return res.status(200).json({ success: false, httpStatus, message: `Servidor retornou HTTP ${httpStatus}.` }); }
-  if (body?.raw) { await notifyErr(`Body inesperado (não JSON).`); return res.status(200).json({ success: false, httpStatus, message: "A URL respondeu mas não retornou JSON válido. Verifique o endpoint da Suri.", debug: String(body.raw).slice(0, 300) }); }
-  // A Suri pode retornar lojas em vários formatos: array direto, { data: [...] }, { stores: [...] }, { data: { stores: [...] } }
-  let rawStores = [];
-  if (Array.isArray(body)) {
-    rawStores = body;
-  } else if (Array.isArray(body?.data)) {
-    rawStores = body.data;
-  } else if (Array.isArray(body?.stores)) {
-    rawStores = body.stores;
-  } else if (Array.isArray(body?.data?.stores)) {
-    rawStores = body.data.stores;
-  } else if (body && typeof body === "object") {
-    // Último recurso: procura qualquer array dentro do objeto
-    const firstArray = Object.values(body).find(v => Array.isArray(v));
-    if (firstArray) rawStores = firstArray;
-  }
-  const stores = rawStores.map(s => ({
-    id: String(s.id || s.storeId || s.store_id || ""),
-    name: s.name || s.storeName || s.store_name || s.description || `Loja ${s.id || ""}`,
-  })).filter(s => s.id);
-  const count = stores.length;
-  return res.status(200).json({
-    success: true,
-    httpStatus,
-    message: count > 0 ? `Conexão bem-sucedida! ${count} loja(s) encontrada(s).` : "Conexão com a Suri realizada com sucesso! Nenhuma loja retornada pela API.",
-    stores,
-    ...(count === 0 ? { debug_raw: JSON.stringify(body).slice(0, 400) } : {}),
-  });
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// TEST ECOMMERCE
-// ════════════════════════════════════════════════════════════════════════════
-async function handleTestEcommerce(req, res) {
-  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
-  const caller = await requireAuth(req, res); if (!caller) return;
-  const { platform, config } = req.body || {};
-  if (!platform || !config) return res.status(400).json({ success: false, message: "platform e config são obrigatórios." });
-  const LABELS = { shopify: "Shopify", woocommerce: "WooCommerce", nuvemshop: "Nuvemshop", vtex: "VTEX", tray: "Tray" };
-  const label = LABELS[platform] || platform;
-  const notifyErr = async (msg) => {
-    try {
-      const t = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      const uRow = await pool.query("SELECT name FROM users WHERE id=$1", [caller.id]);
-      await pool.query("INSERT INTO notifications (type,title,message,target_role) VALUES ('integration_error',$1,$2,'admin')", [`Falha no teste — ${label}`, `Perfil: ${uRow.rows[0]?.name || `ID ${caller.id}`}\nPlataforma: ${label}\nHorário: ${t}\n\nDetalhe: ${msg}`]);
-      await pool.query("SELECT pg_notify('notifications_changed','new')").catch(() => { });
-    } catch { }
-  };
-  try {
-    let result;
-    switch (platform) {
-      case "nuvemshop": {
-        const { store_id, access_token } = config;
-        if (!store_id || !access_token) throw new Error("store_id e access_token são obrigatórios.");
-        const r = await fetch(`https://api.tiendanube.com/v1/${store_id}/store`, { headers: { "Authentication": `bearer ${access_token}`, "User-Agent": "CodeRise Integration (suporte@coderise.com.br)", "Content-Type": "application/json" }, signal: AbortSignal.timeout(10000) });
-        const body = await r.json().catch(() => ({}));
-        if (r.status === 401 || r.status === 403) throw new Error(`Token inválido (HTTP ${r.status}).`);
-        if (r.status === 404) throw new Error(`Loja não encontrada. Verifique o Store ID "${store_id}".`);
-        if (!r.ok) throw new Error(`Nuvemshop retornou HTTP ${r.status}`);
-        const storeName = body.name?.pt || body.name?.es || Object.values(body.name || {})[0] || body.business_name || "—";
-        result = { store: storeName, plan: body.plan_name || null, stores: [{ id: String(store_id), name: storeName }] };
-        break;
+        product = await fetchProductFromEcommerce(ecommercePlatform, ecommerceConfig, normalized.productId);
+      } catch (err) {
+        throw new Error(`Falha ao buscar produto #${normalized.productId} na ${ecommercePlatform}: ${err.message}`);
       }
-      case "shopify": {
-        const { store_url, api_token, api_version } = config;
-        if (!store_url || !api_token) throw new Error("store_url e api_token são obrigatórios.");
-        const host = store_url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-        const r = await fetch(`https://${host}/admin/api/${api_version || "2024-01"}/shop.json`, { headers: { "X-Shopify-Access-Token": api_token }, signal: AbortSignal.timeout(10000) });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(`Shopify retornou HTTP ${r.status}`);
-        result = { store: body.shop?.name || "—", plan: body.shop?.plan_name || null };
-        break;
+
+      if (!product) {
+        throw new Error(`Produto #${normalized.productId} não encontrado na ${ecommercePlatform}.`);
       }
-      case "woocommerce": {
-        const { site_url, consumer_key, consumer_secret } = config;
-        if (!site_url || !consumer_key || !consumer_secret) throw new Error("site_url, consumer_key e consumer_secret são obrigatórios.");
-        const auth = Buffer.from(`${consumer_key}:${consumer_secret}`).toString("base64");
-        const r = await fetch(`${site_url.replace(/\/+$/, "")}/wp-json/wc/v3/system_status`, { headers: { "Authorization": `Basic ${auth}` }, signal: AbortSignal.timeout(10000) });
-        if (!r.ok) throw new Error(`WooCommerce retornou HTTP ${r.status}.`);
-        result = { store: site_url, plan: null };
-        break;
+
+      // 2) Monta mapa de categorias Suri para resolver o ID correto
+      const categoryIdMap = await buildCategoryIdMap(endpoint, token);
+      let resolvedCategoryId = resolveCategoryId(product.categoryId, categoryIdMap);
+
+      // 3) Categoria ainda não existe na Suri → sincroniza on-the-fly
+      if (product.categoryId && !resolvedCategoryId) {
+        console.log(`[ProductSync] Categoria externa #${product.categoryId} não encontrada na Suri — sincronizando...`);
+        const catResult = await syncCategoryFromEcommerce(
+          endpoint, token, ecommercePlatform, ecommerceConfig,
+          product.categoryId, resolvedStoreId
+        );
+        resolvedCategoryId = catResult?.suriId || catResult?.categoryId || null;
+        if (!resolvedCategoryId) {
+          throw new Error(
+            `Produto #${product.id}: categoria externa #${product.categoryId} não pôde ser sincronizada na Suri. ` +
+            `Crie a categoria manualmente na Suri antes de sincronizar este produto.`
+          );
+        }
       }
-      case "vtex": {
-        const { account_name, app_key, app_token } = config;
-        if (!account_name || !app_key || !app_token) throw new Error("account_name, app_key e app_token são obrigatórios.");
-        const r = await fetch(`https://${account_name}.vtexcommercestable.com.br/api/catalog_system/pub/category/tree/1`, { headers: { "X-VTEX-API-AppKey": app_key, "X-VTEX-API-AppToken": app_token }, signal: AbortSignal.timeout(10000) });
-        if (!r.ok) throw new Error(`VTEX retornou HTTP ${r.status}.`);
-        result = { store: account_name, plan: "VTEX" };
-        break;
-      }
-      case "tray": {
-        const { api_address, access_token } = config;
-        if (!api_address || !access_token) throw new Error("api_address e access_token são obrigatórios.");
-        const r = await fetch(`${api_address.replace(/\/+$/, "")}/store`, { headers: { "Authorization": `Bearer ${access_token}` }, signal: AbortSignal.timeout(10000) });
-        if (!r.ok) throw new Error(`Tray retornou HTTP ${r.status}.`);
-        result = { store: api_address, plan: null };
-        break;
-      }
-      default: return res.status(400).json({ success: false, message: `Teste não disponível para "${platform}".` });
+
+      // 4) Injeta categoryId resolvido e sincroniza
+      const productToSync = { ...product, categoryId: resolvedCategoryId };
+      return syncProduct(endpoint, token, productToSync, resolvedStoreId);
     }
-    return res.status(200).json({ success: true, message: `Conexão com ${label} bem-sucedida!${result.store ? ` Loja: ${result.store}.` : ""}`, ...result });
-  } catch (err) {
-    const msg = err.name === "TimeoutError" ? `Timeout: ${label} não respondeu em 10s.` : err.message;
-    await notifyErr(msg); return res.status(200).json({ success: false, message: msg });
-  }
-}
 
-// ════════════════════════════════════════════════════════════════════════════
-// PLATFORM SETTINGS
-// ════════════════════════════════════════════════════════════════════════════
-async function handlePlatformSettings(req, res) {
-  const caller = await requireAuth(req, res); if (!caller) return;
-  await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT NOW())`).catch(() => { });
-  if (req.method === "GET") {
-    const r = await pool.query("SELECT key,value FROM platform_settings WHERE key LIKE 'platform:%'");
-    const platforms = {};
-    for (const row of r.rows) platforms[row.key.replace("platform:", "")] = row.value === "true";
-    return res.status(200).json({ success: true, platforms });
-  }
-  if (req.method === "PATCH") {
-    if (caller.role !== "admin") return res.status(403).json({ success: false, message: "Acesso negado" });
-    const { platforms } = req.body || {};
-    if (!platforms || typeof platforms !== "object" || !Object.keys(platforms).length) return res.status(400).json({ success: false, message: "Informe o objeto 'platforms'" });
-    for (const [name, enabled] of Object.entries(platforms)) { await pool.query("INSERT INTO platform_settings (key,value,updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (key) DO UPDATE SET value=$2,updated_at=NOW()", [`platform:${name}`, String(Boolean(enabled))]); }
-    const r = await pool.query("SELECT key,value FROM platform_settings WHERE key LIKE 'platform:%'");
-    const result = {};
-    for (const row of r.rows) result[row.key.replace("platform:", "")] = row.value === "true";
-    return res.status(200).json({ success: true, message: "Configurações salvas", platforms: result });
-  }
-  res.setHeader("Allow", ["GET", "PATCH"]); return res.status(405).end();
-}
+    case "product.deleted":
+      return deactivateProduct(endpoint, token, normalized.productId);
 
-// ════════════════════════════════════════════════════════════════════════════
-// SYNC CATALOG
-// Lê categorias + produtos do e-commerce e cria/atualiza na Suri.
-// Não persiste resultados no banco — retorna tudo na resposta.
-// ════════════════════════════════════════════════════════════════════════════
-async function handleSyncCatalog(req, res) {
-  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
-  const caller = await requireAuth(req, res); if (!caller) return;
-
-  // Busca credenciais do usuário
-  let intRow, chatRow;
-  try {
-    intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id=$1", [caller.id]);
-    chatRow = await pool.query("SELECT suri_endpoint, suri_token FROM user_integrations WHERE user_id=$1", [caller.id]);
-  } catch (dbErr) {
-    return res.status(500).json({ success: false, message: `Erro ao buscar credenciais: ${dbErr.message}` });
-  }
-
-  if (!intRow.rows[0]) return res.status(400).json({ success: false, message: "Integração com e-commerce não configurada." });
-
-  const platform = intRow.rows[0].ecommerce_platform;
-  const ecomConfig = intRow.rows[0].ecommerce_config || {};
-  const suriEndpoint = chatRow.rows[0]?.suri_endpoint;
-  const suriToken = chatRow.rows[0]?.suri_token;
-
-  if (!platform) return res.status(400).json({ success: false, message: "Plataforma de e-commerce não configurada." });
-  if (!suriEndpoint || !suriToken) return res.status(400).json({ success: false, message: "Chatbot (Suri) não configurado. Salve as credenciais na aba Chatbot." });
-  if (platform !== "nuvemshop") return res.status(400).json({ success: false, message: `Sincronização em massa ainda não suportada para "${platform}". Use Nuvemshop.` });
-
-  const { store_id, access_token } = ecomConfig;
-  if (!store_id || !access_token) return res.status(400).json({ success: false, message: "store_id e access_token da Nuvemshop não encontrados na configuração." });
-
-  // Resolve storeId via store mapping
-  function resolveStoreId(ecConfig) {
-    if (!ecConfig?._store_mappings) return null;
-    let mappings;
-    try { mappings = typeof ecConfig._store_mappings === "string" ? JSON.parse(ecConfig._store_mappings) : ecConfig._store_mappings; } catch { return null; }
-    if (!Array.isArray(mappings) || mappings.length === 0) return null;
-    const ecommerceStoreId = String(ecConfig.store_id || "");
-    if (ecommerceStoreId) {
-      const match = mappings.find(m => String(m.ecommerceStoreId) === ecommerceStoreId);
-      if (match?.chatbotStoreId) return String(match.chatbotStoreId);
-    }
-    return mappings[0]?.chatbotStoreId ? String(mappings[0].chatbotStoreId) : null;
-  }
-
-  const resolvedStoreId = resolveStoreId(ecomConfig);
-  const results = [];
-  const summary = { categories_created: 0, categories_updated: 0, products_created: 0, products_updated: 0, errors: 0 };
-
-  try {
-    // ── 1. Sincroniza Categorias ──────────────────────────────────────────
-    // categoryIdMap: nuvemshop_id → suri_id (para resolver categoryId dos produtos)
-    const categoryIdMap = new Map();
-    try {
-      const { fetchCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
-      const { syncCategory, listCategories: listSuriCategories } = await import("./_lib/chatbot/suri/categories.js");
-      const categories = await fetchCategories(ecomConfig);
-      for (const cat of categories) {
+    case "category.sync": {
+      let category = normalized.category;
+      if (normalized.needsApiFetch && normalized.categoryId && ecommerceConfig) {
         try {
-          const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
-          // r.suriId = ID interno que a Suri atribuiu à categoria
-          if (r.suriId) categoryIdMap.set(String(cat.id), String(r.suriId));
-          results.push({ type: r.action, entity: "category", id: cat.id, name: cat.name, storeId: r.storeId });
-          if (r.action === "category_created") summary.categories_created++;
-          else if (r.action === "category_updated") summary.categories_updated++;
+          category = await fetchCategoryFromEcommerce(ecommercePlatform, ecommerceConfig, normalized.categoryId);
         } catch (err) {
-          results.push({ type: "error", entity: "category", id: cat.id, name: cat.name, message: err.message });
-          summary.errors++;
+          throw new Error(`Falha ao buscar categoria #${normalized.categoryId} na ${ecommercePlatform}: ${err.message}`);
         }
       }
-      // Complementa o mapa com categorias já existentes na Suri (sincronizações anteriores)
-      if (categoryIdMap.size < categories.length) {
-        try {
-          const suriCats = await listSuriCategories(suriEndpoint, suriToken);
-          for (const sc of suriCats) {
-            const extId = sc.externalId || sc.id;
-            if (extId && sc.id && !categoryIdMap.has(String(extId))) {
-              categoryIdMap.set(String(extId), String(sc.id));
-            }
-          }
-        } catch { /* silencioso — mapa parcial ainda ajuda */ }
-      }
-    } catch (err) {
-      results.push({ type: "error", entity: "categories_fetch", message: `Erro ao buscar/sincronizar categorias: ${err.message}` });
-      summary.errors++;
+      if (!category) throw new Error(`Categoria #${normalized.categoryId} não encontrada na ${ecommercePlatform}.`);
+      if (!category.name) throw new Error(`Categoria #${category.id} sem nome — verifique os dados na plataforma.`);
+      return syncCategory(endpoint, token, category, resolvedStoreId);
     }
 
-    // ── 2. Sincroniza Produtos (paginado) ─────────────────────────────────
-    try {
-      const { normalizeProduct } = await import("./_lib/ecommerce/nuvemshop/products.js");
-      const { syncProduct } = await import("./_lib/chatbot/suri/products.js");
+    case "category.deleted":
+      return {
+        action: "category_delete_ignored",
+        categoryId: normalized.categoryId,
+        storeId: resolvedStoreId,
+        note: "Remoção de categoria não propagada à Suri (operação não suportada via webhook).",
+      };
 
-      let page = 1;
-      const perPage = 50; // menor page size = menos chance de timeout por página
-      let hasMore = true;
+    case "order.created":
+      return createOrder(endpoint, token, normalized);
 
-      while (hasMore) {
-        let rawProducts = [];
-        try {
-          const qs = new URLSearchParams({ page: String(page), per_page: String(perPage) }).toString();
-          const r = await fetch(`https://api.tiendanube.com/v1/${store_id}/products?${qs}`, {
-            headers: {
-              "Authentication": `bearer ${access_token}`,
-              "User-Agent": "CodeRise Integration (suporte@coderise.com.br)",
-              "Content-Type": "application/json",
-            },
-            signal: AbortSignal.timeout(20000),
-          });
-          if (!r.ok) {
-            const errBody = await r.text().catch(() => "");
-            throw new Error(`Nuvemshop GET /products → HTTP ${r.status}: ${errBody.slice(0, 200)}`);
-          }
-          rawProducts = await r.json();
-        } catch (fetchErr) {
-          results.push({ type: "error", entity: "products_fetch", page, message: fetchErr.message });
-          summary.errors++;
-          break;
-        }
+    case "order.shipped":
+      return shipOrder(endpoint, token, normalized);
 
-        if (!Array.isArray(rawProducts) || rawProducts.length === 0) { hasMore = false; break; }
+    case "order.partially_shipped":
+      return partiallyShipOrder(endpoint, token, normalized);
 
-        for (const raw of rawProducts) {
-          let product;
-          try { product = normalizeProduct(raw); } catch (normErr) {
-            results.push({ type: "error", entity: "product_normalize", id: String(raw.id || "?"), message: normErr.message });
-            summary.errors++;
-            continue;
-          }
-          try {
-            const r = await syncProduct(suriEndpoint, suriToken, product, resolvedStoreId, categoryIdMap);
-            results.push({ type: r.action, entity: "product", id: product.id, name: product.name, storeId: r.storeId });
-            if (r.action === "product_created") summary.products_created++;
-            else if (r.action === "product_updated") summary.products_updated++;
-          } catch (syncErr) {
-            results.push({ type: "error", entity: "product", id: product.id, name: product.name, message: syncErr.message });
-            summary.errors++;
-          }
-        }
+    case "order.cancelled":
+      return cancelOrder(endpoint, token, normalized);
 
-        hasMore = rawProducts.length === perPage;
-        page++;
-      }
-    } catch (err) {
-      results.push({ type: "error", entity: "products_fetch", message: `Erro geral ao sincronizar produtos: ${err.message}` });
-      summary.errors++;
-    }
+    default:
+      return { action: "no_mapping", eventType };
+  }
+}
 
-    return res.status(200).json({ success: true, summary, results, resolvedStoreId, platform });
+// ─── Helpers internos ──────────────────────────────────────────────────────────
 
+async function syncCategoryFromEcommerce(endpoint, token, platform, config, categoryId, resolvedStoreId) {
+  try {
+    const category = await fetchCategoryFromEcommerce(platform, config, categoryId);
+    if (!category || !category.name) return null;
+    return await syncCategory(endpoint, token, category, resolvedStoreId);
   } catch (err) {
-    // Garante que sempre retorna JSON válido mesmo em falha inesperada
-    return res.status(200).json({ success: false, message: err.message || "Erro inesperado na sincronização.", summary, results });
+    console.error(`[CategorySync] Falha ao sincronizar categoria #${categoryId}:`, err.message);
+    return null;
+  }
+}
+
+async function fetchCategoryFromEcommerce(platform, config, categoryId) {
+  switch (platform) {
+    case "nuvemshop": {
+      const { fetchCategory } = await import("../../ecommerce/nuvemshop/categories.js");
+      return fetchCategory(config, categoryId);
+    }
+    default:
+      throw new Error(`Busca de categoria via API não implementada para plataforma: ${platform}`);
+  }
+}
+
+async function fetchProductFromEcommerce(platform, config, productId) {
+  switch (platform) {
+    case "nuvemshop": {
+      const { fetchAndNormalizeProduct } = await import("../../ecommerce/nuvemshop/products.js");
+      return fetchAndNormalizeProduct(config, productId);
+    }
+    case "shopify": {
+      const { fetchAndNormalizeProduct } = await import("../../ecommerce/shopify/products.js");
+      return fetchAndNormalizeProduct(config, productId);
+    }
+    case "woocommerce": {
+      const { fetchAndNormalizeProduct } = await import("../../ecommerce/woocommerce/products.js");
+      return fetchAndNormalizeProduct(config, productId);
+    }
+    case "vtex": {
+      const { fetchAndNormalizeProduct } = await import("../../ecommerce/vtex/products.js");
+      return fetchAndNormalizeProduct(config, productId);
+    }
+    case "tray": {
+      const { fetchAndNormalizeProduct } = await import("../../ecommerce/tray/products.js");
+      return fetchAndNormalizeProduct(config, productId);
+    }
+    default:
+      throw new Error(`Busca via API não implementada para plataforma: ${platform}`);
   }
 }
