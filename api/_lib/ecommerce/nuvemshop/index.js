@@ -71,54 +71,12 @@ export function normalizeWebhook(payload) {
 
   // ── Produto criado/atualizado ─────────────────────────────────────────────
   if (eventType === "product.sync") {
+    // SEMPRE busca via API para garantir estoque atualizado.
+    // O payload do webhook pode ter stock desatualizado (cache interno da Nuvemshop).
+    // fetchAndNormalizeProduct busca GET /products/{id} + GET /products/{id}/variants
+    // em paralelo, garantindo os dados mais recentes de todas as variantes.
     const p = payload.product || payload;
-    const hasFullData = p.variants && p.variants.length > 0 && (p.name || p.sku);
-    if (hasFullData) {
-      const variants = (p.variants || []).map(v => {
-        const rawSku = v.sku != null ? String(v.sku).trim() : "";
-        const safeSku = rawSku && rawSku !== "null" && rawSku !== "undefined" ? rawSku : String(p.id);
-        return {
-          sku: safeSku,
-          price: parseFloat(v.price || 0),
-          promotionalPrice: parseFloat(v.promotional_price || 0),
-          weightInGrams: parseFloat(v.weight || 0) * 1000,
-          dimensions: {
-            heightInCm: parseFloat(v.height || 0),
-            widthInCm: parseFloat(v.width || 0),
-            lengthInCm: parseFloat(v.depth || 0),
-          },
-          stock: parseInt(v.stock || 0),
-          attributes: Object.entries(v.values || {}).map(([name, value]) => ({
-            name, value: String(value),
-          })),
-          imageUrl: v.image?.src || null,
-        };
-      });
-      const v0 = variants[0] || {};
-      return {
-        eventType,
-        needsApiFetch: false,
-        product: {
-          id: String(p.id),
-          sku: v0.sku || String(p.id),
-          name: p.name?.pt || p.name?.es || Object.values(p.name || {})[0] || "",
-          description: (p.description?.pt || p.description?.es || "").replace(/<[^>]+>/g, ""),
-          categoryId: String(p.categories?.[0]?.id || ""),
-          brand: p.brand || null,
-          isActive: !!p.published_at,
-          price: v0.price || 0,
-          promotionalPrice: v0.promotionalPrice || 0,
-          url: p.canonical_url || null,
-          images: (p.images || []).map(i => ({ url: i.src, description: i.alt || null })),
-          weightInGrams: v0.weightInGrams || 0,
-          dimensions: v0.dimensions || { heightInCm: 0, widthInCm: 0, lengthInCm: 0 },
-          stock: v0.stock || 0,
-          variants,
-        },
-      };
-    }
-    // Sem dados completos — busca via API
-    return { eventType, productId: String(p.id), needsApiFetch: true };
+    return { eventType, productId: String(p.id || payload.id), needsApiFetch: true };
   }
 
   // ── Pedidos ───────────────────────────────────────────────────────────────
