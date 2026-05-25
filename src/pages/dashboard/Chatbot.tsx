@@ -6,29 +6,79 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug, ShoppingCart, AlertTriangle, CheckCheck, RefreshCcw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection, type StoreItem } from '@/services/api';
-import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
+import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection, getIntegrations, type StoreItem } from '@/services/api';
+import { CHATBOT_FIELDS, ECOMMERCE_FIELDS, type ChatbotPlatform } from '@/types';
 import { usePlatformSettingsStore } from '@/store/platformSettings';
+import { useAuthStore } from '@/store/auth';
 import gsap from 'gsap';
 import { useGsapStagger } from '@/hooks/use-gsap';
 
 // ── Tópicos suportados pela Suri ─────────────────────────────────────────────
 const SURI_TOPICS = [
-  { value: 'OrdersCreated', label: 'Pedido Criado', desc: 'Novo pedido realizado na loja' },
-  { value: 'OrdersPaid', label: 'Pedido Pago', desc: 'Pagamento confirmado' },
-  { value: 'OrdersCanceled', label: 'Pedido Cancelado', desc: 'Pedido cancelado pelo cliente ou loja' },
-  { value: 'OrderLogisticUpdate', label: 'Atualização Logística', desc: 'Rastreamento / status de envio atualizado' },
+  { value: 'OrdersCreated',      label: 'Pedido Criado',          desc: 'Novo pedido realizado na loja' },
+  { value: 'OrdersPaid',         label: 'Pedido Pago',            desc: 'Pagamento confirmado' },
+  { value: 'OrdersCanceled',     label: 'Pedido Cancelado',        desc: 'Pedido cancelado pelo cliente ou loja' },
+  { value: 'OrderLogisticUpdate',label: 'Atualização Logística',   desc: 'Rastreamento / status de envio atualizado' },
 ];
+
+// ── Eventos de webhook por plataforma de e-commerce ──────────────────────────
+const ECOMMERCE_WEBHOOK_EVENTS: Record<string, { topic: string; label: string; isProduct: boolean }[]> = {
+  shopify: [
+    { topic: 'orders/create',    label: 'Pedido Criado',          isProduct: false },
+    { topic: 'orders/fulfilled', label: 'Pedido Enviado',          isProduct: false },
+    { topic: 'orders/cancelled', label: 'Pedido Cancelado',        isProduct: false },
+    { topic: 'products/create',  label: 'Produto Criado',          isProduct: true  },
+    { topic: 'products/update',  label: 'Produto Atualizado',      isProduct: true  },
+  ],
+  woocommerce: [
+    { topic: 'order.created',   label: 'Pedido Criado',           isProduct: false },
+    { topic: 'order.updated',   label: 'Pedido Atualizado',       isProduct: false },
+    { topic: 'order.deleted',   label: 'Pedido Deletado',         isProduct: false },
+    { topic: 'product.created', label: 'Produto Criado',          isProduct: true  },
+    { topic: 'product.updated', label: 'Produto Atualizado',      isProduct: true  },
+  ],
+  nuvemshop: [
+    { topic: 'order/created',   label: 'Pedido Criado',           isProduct: false },
+    { topic: 'order/paid',      label: 'Pedido Pago',             isProduct: false },
+    { topic: 'order/fulfilled', label: 'Pedido Enviado',          isProduct: false },
+    { topic: 'order/cancelled', label: 'Pedido Cancelado',        isProduct: false },
+    { topic: 'product/created', label: 'Produto Criado',          isProduct: true  },
+    { topic: 'product/updated', label: 'Produto Atualizado',      isProduct: true  },
+  ],
+  vtex: [
+    { topic: 'payment-approved', label: 'Pagamento Aprovado',     isProduct: false },
+    { topic: 'invoiced',         label: 'Pedido Faturado/Enviado',isProduct: false },
+    { topic: 'canceled',         label: 'Pedido Cancelado',        isProduct: false },
+    { topic: 'product-updated',  label: 'Produto Atualizado',     isProduct: true  },
+  ],
+  tray: [
+    { topic: 'order_created',  label: 'Pedido Criado',            isProduct: false },
+    { topic: 'order_paid',     label: 'Pedido Pago',              isProduct: false },
+    { topic: 'order_shipped',  label: 'Pedido Enviado',           isProduct: false },
+    { topic: 'order_cancelled',label: 'Pedido Cancelado',         isProduct: false },
+    { topic: 'product_created',label: 'Produto Criado',           isProduct: true  },
+    { topic: 'product_updated',label: 'Produto Atualizado',       isProduct: true  },
+  ],
+};
+
+interface RegisterResult {
+  success: boolean;
+  message: string;
+  webhook_url?: string;
+  details?: Array<{ topic?: string; event?: string; trigger?: string; status: string; id?: string | number; detail?: unknown }>;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Chatbot = () => {
   const [platform, setPlatform] = useState<ChatbotPlatform | ''>('');
   const { isPlatformEnabled } = usePlatformSettingsStore();
+  const { token: authToken } = useAuthStore();
   const [config, setConfig] = useState<Record<string, string>>({});
   const [chatbotActive, setChatbotActive] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -47,41 +97,44 @@ const Chatbot = () => {
     'OrdersCreated', 'OrdersPaid', 'OrdersCanceled', 'OrderLogisticUpdate',
   ]);
 
+  // E-commerce webhook registration (na tela do chatbot)
+  const [ecommercePlatform, setEcommercePlatform] = useState<string>('');
+  const [ecommerceWebhookToken, setEcommerceWebhookToken] = useState('');
+  const [registering, setRegistering] = useState(false);
+  const [registerResult, setRegisterResult] = useState<RegisterResult | null>(null);
+  const [showResult, setShowResult] = useState(false);
+
+  // Sync de produtos
+  const [syncing, setSyncing] = useState(false);
+
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { toast } = useToast();
 
   // ── GSAP ──────────────────────────────────────────────────────────────────
   const containerRef = useGsapStagger<HTMLDivElement>([loading], { stagger: 0.1, y: 20, delay: 0.05 });
   const suriCardRef = useRef<HTMLDivElement>(null);
+  const ecommerceWebhookRef = useRef<HTMLDivElement>(null);
 
-  // ── Load — usa /chatbot separado do /integrations ─────────────────────────
+  // ── Load ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    getChatbot()
-      .then((res) => {
-        const c = (res as any).chatbot;
+    Promise.all([getChatbot(), getIntegrations()])
+      .then(([chatbotRes, intRes]) => {
+        const c = (chatbotRes as any).chatbot;
         if (c) {
           const savedPlatform = c.chatbot_platform || '';
           setPlatform(savedPlatform as ChatbotPlatform);
-
           const savedConfig = c.chatbot_config || {};
           setConfig(savedConfig);
           setChatbotActive(c.chatbot_active || false);
-
           const token = c.chatbot_token || '';
           setChatbotToken(token);
-          setChatbotWebhookUrl(
-            token ? `${window.location.origin}/webhook?token=${token}` : ''
-          );
-
-          // Restaura tópicos salvos
+          setChatbotWebhookUrl(token ? `${window.location.origin}/webhook?token=${token}` : '');
           if (savedConfig.suri_topics) {
             try {
               const t = JSON.parse(savedConfig.suri_topics);
               if (Array.isArray(t) && t.length > 0) setSelectedTopics(t);
             } catch { /* usa default */ }
           }
-
-          // Restore last known connection status from saved config
           if (savedConfig._connection_status) {
             setConnectionStatus(savedConfig._connection_status as 'success' | 'error');
             setConnectionMsg(savedConfig._connection_msg || '');
@@ -89,20 +142,33 @@ const Chatbot = () => {
             setConnectionStatus('success');
           }
         }
+        const integration = (intRes as any).integration;
+        if (integration) {
+          setEcommercePlatform(integration.ecommerce_platform || '');
+          setEcommerceWebhookToken(integration.webhook_token || '');
+        }
       })
       .finally(() => setLoading(false));
   }, []);
 
-  // Anima seção Suri ao aparecer
+  // Anima seção ao aparecer
   useEffect(() => {
     if (platform === 'suri' && suriCardRef.current) {
-      gsap.fromTo(
-        suriCardRef.current,
+      gsap.fromTo(suriCardRef.current,
         { opacity: 0, y: 18, scale: 0.98 },
         { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: 'power3.out' }
       );
     }
   }, [platform]);
+
+  useEffect(() => {
+    if (ecommercePlatform && ecommerceWebhookRef.current) {
+      gsap.fromTo(ecommerceWebhookRef.current,
+        { opacity: 0, y: 14 },
+        { opacity: 1, y: 0, duration: 0.45, ease: 'power3.out' }
+      );
+    }
+  }, [ecommercePlatform]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const copy = (text: string, field: string) => {
@@ -117,7 +183,7 @@ const Chatbot = () => {
       prev.includes(value) ? prev.filter((t) => t !== value) : [...prev, value]
     );
 
-  // ── Regenera token dedicado do chatbot via POST /chatbot ──────────────────
+  // ── Regenera token ────────────────────────────────────────────────────────
   const handleRegenerateToken = async () => {
     try {
       const res = await regenerateChatbotToken();
@@ -136,55 +202,39 @@ const Chatbot = () => {
     }
   };
 
-  // ── Teste de conexão: via backend (evita CORS + valida body real) ─────────
+  // ── Teste de conexão ──────────────────────────────────────────────────────
   const handleTest = async () => {
     const endpoint = config.endpoint?.trim() || '';
     const token = config.token?.trim() || '';
-
     if (!endpoint || !token) {
-      toast({
-        title: 'Campos obrigatórios',
-        description: 'Preencha a URL do Chatbot e o Token de Integração antes de testar.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Campos obrigatórios', description: 'Preencha a URL do Chatbot e o Token de Integração.', variant: 'destructive' });
       return;
     }
-
     setTesting(true);
     setConnectionStatus('idle');
-
     try {
       const result = await testSuriConnection(endpoint, token);
-
       if (result.success) {
         setConnectionStatus('success');
         const msg = result.message || `HTTP ${result.httpStatus}`;
         setConnectionMsg(msg);
         setConfig((prev) => {
           const updated = { ...prev, _connection_status: 'success', _connection_msg: msg };
-          // Auto-persist so status survives page reload without requiring manual Save
-          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'success' } }).catch(() => { });
+          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'success' } }).catch(() => {});
           return updated;
         });
         if (result.stores && result.stores.length > 0) setEcommerceStores(result.stores);
-        toast({
-          title: `✅ Conexão bem-sucedida!  Loja: ${result.stores}`,
-          description: result.message || `HTTP ${result.httpStatus}`,
-        });
+        toast({ title: `✅ Conexão bem-sucedida!  Loja: ${result.stores}`, description: result.message || `HTTP ${result.httpStatus}` });
       } else {
         setConnectionStatus('error');
         const msg = result.message || 'Verifique a URL e o Token de Integração.';
         setConnectionMsg(msg);
         setConfig((prev) => {
           const updated = { ...prev, _connection_status: 'error', _connection_msg: msg };
-          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => { });
+          updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => {});
           return updated;
         });
-        toast({
-          title: '❌ Falha na conexão',
-          description: result.message || 'Verifique a URL e o Token de Integração.',
-          variant: 'destructive',
-        });
+        toast({ title: '❌ Falha na conexão', description: msg, variant: 'destructive' });
       }
     } catch (err: unknown) {
       setConnectionStatus('error');
@@ -192,40 +242,24 @@ const Chatbot = () => {
       setConnectionMsg(msg);
       setConfig((prev) => {
         const updated = { ...prev, _connection_status: 'error', _connection_msg: msg };
-        updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => { });
+        updateChatbot({ chatbot_platform: platform, chatbot_config: { ...updated, _connection_status: 'error' } }).catch(() => {});
         return updated;
       });
-      toast({
-        title: '❌ Erro ao testar conexão',
-        description: msg,
-        variant: 'destructive',
-      });
+      toast({ title: '❌ Erro ao testar conexão', description: msg, variant: 'destructive' });
     } finally {
       setTesting(false);
     }
   };
 
-  // ── Salva via PUT /chatbot — separado do e-commerce ───────────────────────
+  // ── Salva ─────────────────────────────────────────────────────────────────
   const handleSave = async () => {
-    if (!platform) {
-      toast({ title: 'Selecione uma plataforma', variant: 'destructive' });
-      return;
-    }
+    if (!platform) { toast({ title: 'Selecione uma plataforma', variant: 'destructive' }); return; }
     setSaving(true);
     try {
-      // Monta config incluindo tópicos quando for Suri
       const finalConfig: Record<string, string> = { ...config };
-      if (platform === 'suri') {
-        finalConfig.suri_topics = JSON.stringify(selectedTopics);
-      }
-
-      // Persist connection status alongside config so it survives page reload
+      if (platform === 'suri') finalConfig.suri_topics = JSON.stringify(selectedTopics);
       finalConfig._connection_status = connectionStatus !== 'idle' ? connectionStatus : '';
-      await updateChatbot({
-        chatbot_platform: platform,
-        chatbot_config: finalConfig,
-      });
-
+      await updateChatbot({ chatbot_platform: platform, chatbot_config: finalConfig });
       toast({ title: 'Configuração de chatbot salva!' });
     } catch (err: unknown) {
       toast({ title: 'Erro ao salvar', description: err instanceof Error ? err.message : '', variant: 'destructive' });
@@ -234,7 +268,7 @@ const Chatbot = () => {
     }
   };
 
-  // ── Toggle ativo via PATCH /chatbot ───────────────────────────────────────
+  // ── Toggle ─────────────────────────────────────────────────────────────────
   const handleToggle = async () => {
     try {
       await patchChatbot(!chatbotActive);
@@ -245,9 +279,58 @@ const Chatbot = () => {
     }
   };
 
+  // ── Registrar webhook do e-commerce (nesta tela) ──────────────────────────
+  const handleRegisterEcommerceWebhook = async () => {
+    setRegistering(true);
+    setRegisterResult(null);
+    try {
+      const token = authToken || '';
+      const res = await fetch('/register-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      });
+      const data: RegisterResult = await res.json();
+      setRegisterResult(data);
+      setShowResult(true);
+      if (data.success) {
+        toast({ title: '✅ Webhook do e-commerce registrado!' });
+      } else {
+        toast({ title: 'Atenção', description: data.message, variant: 'destructive' });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      setRegisterResult({ success: false, message: msg });
+      setShowResult(true);
+      toast({ title: 'Erro ao registrar webhook', description: msg, variant: 'destructive' });
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  // ── Sincronizar produtos agora ────────────────────────────────────────────
+  const handleSyncProducts = async () => {
+    setSyncing(true);
+    try {
+      const token = authToken || '';
+      const res = await fetch('/sync-catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: '✅ Produtos sincronizados!', description: data.message || 'Catálogo atualizado na loja do chatbot.' });
+      } else {
+        toast({ title: 'Falha na sincronização', description: data.message, variant: 'destructive' });
+      }
+    } catch (err: unknown) {
+      toast({ title: 'Erro ao sincronizar', description: err instanceof Error ? err.message : 'Erro desconhecido', variant: 'destructive' });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const fields = platform ? CHATBOT_FIELDS[platform]?.fields ?? [] : [];
 
-  // cURL gerado para registro na Suri
   const curlCommand = chatbotWebhookUrl
     ? `curl -X POST "${config.endpoint || '<URL_DO_CHATBOT>'}/webhook/subscribe" \\
   -H "Content-Type: application/json" \\
@@ -258,6 +341,13 @@ const Chatbot = () => {
     "topics": ${JSON.stringify(selectedTopics)}
   }'`
     : '';
+
+  const ecommerceEvents = ecommercePlatform ? (ECOMMERCE_WEBHOOK_EVENTS[ecommercePlatform] || []) : [];
+  const ecommerceWebhookUrl = ecommerceWebhookToken
+    ? `${window.location.origin}/webhook?token=${ecommerceWebhookToken}`
+    : '';
+  const ecommerceLabel = ecommercePlatform ? ECOMMERCE_FIELDS[ecommercePlatform as keyof typeof ECOMMERCE_FIELDS]?.label || ecommercePlatform : '';
+  const supportsAutoRegister = ['shopify', 'woocommerce', 'nuvemshop', 'vtex', 'tray'].includes(ecommercePlatform);
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
@@ -309,7 +399,6 @@ const Chatbot = () => {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-
           <div className="space-y-2">
             <Label>Plataforma</Label>
             <Select
@@ -331,7 +420,6 @@ const Chatbot = () => {
             </Select>
           </div>
 
-          {/* Campos dinâmicos com labels amigáveis para Suri */}
           {fields.map((field) => {
             const isSuriEndpoint = platform === 'suri' && field.key === 'endpoint';
             const isSuriToken = platform === 'suri' && field.key === 'token';
@@ -346,11 +434,9 @@ const Chatbot = () => {
                 <Input
                   type={field.type || 'text'}
                   placeholder={
-                    isSuriEndpoint
-                      ? 'https://cbm-wap-babysuri-xxx.azurewebsites.net/'
-                      : isSuriToken
-                        ? '5b28a0a8-d399-4295-a2d1-a9f8484887a1'
-                        : (field.placeholder || '')
+                    isSuriEndpoint ? 'https://cbm-wap-babysuri-xxx.azurewebsites.net/' :
+                    isSuriToken ? '5b28a0a8-d399-4295-a2d1-a9f8484887a1' :
+                    (field.placeholder || '')
                   }
                   value={config[field.key] || ''}
                   onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
@@ -361,7 +447,6 @@ const Chatbot = () => {
 
           {platform && (
             <div className="flex flex-wrap gap-3 pt-2">
-              {/* Botão Testar Conexão */}
               <Button
                 variant="outline"
                 onClick={handleTest}
@@ -384,8 +469,6 @@ const Chatbot = () => {
                   <><Plug className="mr-2 h-4 w-4" />Testar Conexão</>
                 )}
               </Button>
-
-              {/* Botão Salvar */}
               <Button onClick={handleSave} disabled={saving || testing}>
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Salvar
@@ -393,14 +476,12 @@ const Chatbot = () => {
             </div>
           )}
 
-          {/* Mensagem de status da conexão — só aparece após testar */}
           {connectionStatus !== 'idle' && connectionMsg && (
             <p className={`text-xs mt-1 ${connectionStatus === 'success' ? 'text-green-500' : 'text-destructive'}`}>
               {connectionMsg}
             </p>
           )}
 
-          {/* Lista de lojas encontradas após teste bem-sucedido */}
           {connectionStatus === 'success' && ecommerceStores.length > 0 && (
             <div className="mt-3 rounded-lg border bg-muted/30 p-3 space-y-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Lojas encontradas</p>
@@ -417,7 +498,110 @@ const Chatbot = () => {
         </CardContent>
       </Card>
 
-      {/* ── Seção exclusiva da Suri ── */}
+      {/* ══════════════════════════════════════════════════════════════════════
+          SEÇÃO: WEBHOOK DO E-COMMERCE (novo)
+      ══════════════════════════════════════════════════════════════════════ */}
+      {ecommercePlatform && (
+        <div ref={ecommerceWebhookRef} style={{ opacity: 0 }} className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Separator className="flex-1" />
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider px-2 flex items-center gap-1.5">
+              <ShoppingCart className="h-3.5 w-3.5" /> Webhook do E-commerce ({ecommerceLabel})
+            </span>
+            <Separator className="flex-1" />
+          </div>
+
+          {/* Endpoints e eventos por plataforma */}
+          <Card className="border-[#2f7bb9]/25 bg-gradient-to-br from-[#2f7bb9]/5 to-[#26316a]/5">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="h-4 w-4 text-[#2f7bb9]" />
+                <CardTitle className="text-base">Eventos do Webhook — {ecommerceLabel}</CardTitle>
+              </div>
+              <CardDescription>
+                Estes são os eventos que o webhook desta plataforma envia. Eventos de produto acionam
+                sincronização automática do catálogo com o chatbot.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* URL do webhook */}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">URL do Webhook do E-commerce</Label>
+                <div className="flex gap-2">
+                  <Input value={ecommerceWebhookUrl || 'Configure o e-commerce primeiro'} readOnly className="font-mono text-xs bg-muted/50" />
+                  <Button variant="outline" size="icon"
+                    onClick={() => ecommerceWebhookUrl && copy(ecommerceWebhookUrl, 'ecommerce-url')}
+                    disabled={!ecommerceWebhookUrl}>
+                    {copiedField === 'ecommerce-url'
+                      ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Tabela de eventos */}
+              {ecommerceEvents.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Eventos suportados</p>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {ecommerceEvents.map((ev) => (
+                      <div key={ev.topic}
+                        className={`flex items-start gap-2.5 rounded-lg border p-2.5 ${ev.isProduct
+                          ? 'border-amber-400/40 bg-amber-50/40 dark:bg-amber-950/20'
+                          : 'border-border/50 bg-muted/20'}`}>
+                        <div className={`mt-0.5 h-2 w-2 rounded-full flex-shrink-0 ${ev.isProduct ? 'bg-amber-400' : 'bg-[#2f7bb9]'}`} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-tight">{ev.label}</p>
+                          <code className="text-[10px] text-muted-foreground/70 font-mono">{ev.topic}</code>
+                          {ev.isProduct && (
+                            <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
+                              <RefreshCcw className="h-2.5 w-2.5" /> Aciona sync de produtos
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground flex items-start gap-1.5 pt-1">
+                    <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
+                    Eventos marcados em amarelo disparam um GET de produtos e atualizam automaticamente o catálogo no chatbot.
+                  </p>
+                </div>
+              )}
+
+              {/* Botões de ação */}
+              <div className="flex flex-wrap gap-3 pt-2">
+                {supportsAutoRegister && (
+                  <Button onClick={handleRegisterEcommerceWebhook} disabled={registering || !ecommerceWebhookUrl} variant="outline">
+                    {registering
+                      ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Registrando...</>
+                      : <><Zap className="mr-2 h-4 w-4" />Registrar Webhook na {ecommerceLabel}</>}
+                  </Button>
+                )}
+                <Button onClick={handleSyncProducts} disabled={syncing || !ecommerceWebhookUrl} variant="outline"
+                  className="border-amber-400/50 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30">
+                  {syncing
+                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sincronizando...</>
+                    : <><RefreshCw className="mr-2 h-4 w-4" />Sincronizar Produtos Agora</>}
+                </Button>
+              </div>
+
+              {!supportsAutoRegister && ecommercePlatform && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Registro automático não disponível para plataformas customizadas. Configure o webhook manualmente usando a URL acima.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          SEÇÃO EXCLUSIVA DA SURI
+      ══════════════════════════════════════════════════════════════════════ */}
       {platform === 'suri' && (
         <div ref={suriCardRef} style={{ opacity: 0 }} className="space-y-4">
 
@@ -451,7 +635,7 @@ const Chatbot = () => {
             ))}
           </div>
 
-          {/* ── URL do Webhook do chatbot ── */}
+          {/* URL do Webhook do chatbot */}
           <Card className="border-[#2f7bb9]/25 bg-gradient-to-br from-[#2f7bb9]/5 to-[#26316a]/5">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
@@ -472,11 +656,9 @@ const Chatbot = () => {
                   readOnly
                   className="font-mono text-xs bg-muted/50"
                 />
-                <Button
-                  variant="outline" size="icon"
+                <Button variant="outline" size="icon"
                   onClick={() => chatbotWebhookUrl && copy(chatbotWebhookUrl, 'url')}
-                  disabled={!chatbotWebhookUrl}
-                >
+                  disabled={!chatbotWebhookUrl}>
                   {copiedField === 'url'
                     ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                     : <Copy className="h-4 w-4" />}
@@ -489,7 +671,7 @@ const Chatbot = () => {
             </CardContent>
           </Card>
 
-          {/* ── Token dedicado do chatbot ── */}
+          {/* Token dedicado do chatbot */}
           <Card className="border-[#56388e]/25 bg-gradient-to-br from-[#56388e]/5 to-[#2f7bb9]/5">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
@@ -505,16 +687,10 @@ const Chatbot = () => {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex gap-2">
-                <Input
-                  value={chatbotToken || 'Nenhum token gerado'}
-                  readOnly
-                  className="font-mono text-xs bg-muted/50"
-                />
-                <Button
-                  variant="outline" size="icon"
+                <Input value={chatbotToken || 'Nenhum token gerado'} readOnly className="font-mono text-xs bg-muted/50" />
+                <Button variant="outline" size="icon"
                   onClick={() => chatbotToken && copy(chatbotToken, 'token')}
-                  disabled={!chatbotToken}
-                >
+                  disabled={!chatbotToken}>
                   {copiedField === 'token'
                     ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                     : <Copy className="h-4 w-4" />}
@@ -531,7 +707,7 @@ const Chatbot = () => {
             </CardContent>
           </Card>
 
-          {/* ── Tópicos do Webhook ── */}
+          {/* Tópicos do Webhook */}
           <Card className="border-[#26316a]/25 bg-gradient-to-br from-[#26316a]/5 to-[#56388e]/5">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Tópicos do Webhook</CardTitle>
@@ -571,7 +747,7 @@ const Chatbot = () => {
             </CardContent>
           </Card>
 
-          {/* ── cURL de registro ── */}
+          {/* cURL de registro */}
           <Card className="border-border/50">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
@@ -626,6 +802,70 @@ const Chatbot = () => {
 
         </div>
       )}
+
+      {/* Modal resultado do registro do e-commerce */}
+      <Dialog open={showResult} onOpenChange={setShowResult}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {registerResult?.success
+                ? <><CheckCheck className="h-5 w-5 text-green-500" /> Webhook Registrado</>
+                : <><AlertTriangle className="h-5 w-5 text-destructive" /> Resultado do Registro</>
+              }
+            </DialogTitle>
+          </DialogHeader>
+
+          {registerResult && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">{registerResult.message}</p>
+
+              {registerResult.webhook_url && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">URL registrada:</p>
+                  <code className="text-xs bg-muted rounded p-2 block break-all">
+                    {registerResult.webhook_url}
+                  </code>
+                </div>
+              )}
+
+              {registerResult.details && registerResult.details.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Detalhes por evento
+                  </p>
+                  <div className="space-y-1">
+                    {registerResult.details.map((d, i) => {
+                      const label = d.topic || d.event || d.trigger || `evento ${i + 1}`;
+                      const isOk = d.status === 'created' || d.status === 'already_exists';
+                      return (
+                        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                          <span className="font-mono text-xs">{label}</span>
+                          <Badge
+                            variant={((isOk ? 'outline' : 'destructive') as BadgeVariant)}
+                            className={isOk ? 'border-success text-success text-xs' : 'text-xs'}
+                          >
+                            {d.status === 'already_exists' ? 'já existe' : d.status}
+                            {d.id ? ` #${d.id}` : ''}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {!registerResult.success && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Verifique se as credenciais do e-commerce estão corretas em <strong>Configuração de E-commerce</strong>.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
