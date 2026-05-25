@@ -565,12 +565,7 @@ const Chatbot = () => {
                       : <><Zap className="mr-2 h-4 w-4" />Registrar Webhook</>}
                   </Button>
                 )}
-                <Button onClick={handleSyncProducts} disabled={syncing || !ecommerceWebhookUrl} variant="outline"
-                  className="border-amber-400/50 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30">
-                  {syncing
-                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sincronizando...</>
-                    : <><RefreshCw className="mr-2 h-4 w-4" />Sincronizar Produtos Agora</>}
-                </Button>
+
               </div>
 
               {!supportsAutoRegister && ecommercePlatform && (

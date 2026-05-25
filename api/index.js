@@ -29,6 +29,7 @@ export default async function handler(req, res) {
   if (path === "/setup" || path.startsWith("/setup?")) return handleSetup(req, res);
   if (path === "/test-suri" || path.startsWith("/test-suri?")) return handleTestSuri(req, res);
   if (path === "/test-ecommerce" || path.startsWith("/test-ecommerce?")) return handleTestEcommerce(req, res);
+  if (path === "/sync-catalog"   || path.startsWith("/sync-catalog?"))   return handleSyncCatalog(req, res);
 
   return res.status(404).json({ success: false, message: `Rota não encontrada: ${path}` });
 }
@@ -839,4 +840,239 @@ async function handleTestEcommerce(req, res) {
       : err.message;
     return res.status(200).json({ success: false, message: msg });
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SYNC CATALOG — Nuvemshop → Suri
+// Lê todas as categorias e produtos da Nuvemshop e faz upsert na Suri
+// usando os store mappings configurados pelo usuário.
+// ════════════════════════════════════════════════════════════════════════════
+async function handleSyncCatalog(req, res) {
+  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
+
+  const caller = await requireAuth(req, res);
+  if (!caller) return;
+
+  let integration;
+  try {
+    const r = await pool.query(
+      `SELECT ecommerce_platform, ecommerce_config, suri_endpoint, suri_token, suri_active
+       FROM user_integrations WHERE user_id = $1`,
+      [caller.id]
+    );
+    integration = r.rows[0];
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Erro ao buscar configurações: " + err.message });
+  }
+
+  if (!integration) {
+    return res.status(400).json({ success: false, message: "Integração não configurada." });
+  }
+
+  const { ecommerce_platform, ecommerce_config, suri_endpoint, suri_token, suri_active } = integration;
+
+  if (ecommerce_platform !== "nuvemshop") {
+    return res.status(400).json({ success: false, message: "Sincronização de catálogo disponível apenas para Nuvemshop." });
+  }
+
+  const cfg = ecommerce_config || {};
+  const { store_id, access_token } = cfg;
+
+  if (!store_id || !access_token) {
+    return res.status(400).json({ success: false, message: "Credenciais da Nuvemshop não configuradas (store_id / access_token)." });
+  }
+
+  if (!suri_active || !suri_endpoint || !suri_token) {
+    return res.status(400).json({ success: false, message: "Chatbot (Suri) não configurado ou inativo." });
+  }
+
+  // Resolve store mapping: ecommerce store_id → suri storeId
+  let resolvedSuriStoreId = null;
+  try {
+    const mappings = cfg._store_mappings ? JSON.parse(cfg._store_mappings) : [];
+    const match = mappings.find(m => String(m.ecommerceStoreId) === String(store_id));
+    if (match) resolvedSuriStoreId = String(match.chatbotStoreId);
+  } catch { /* fallback: usa null */ }
+
+  const NS_BASE = `https://api.tiendanube.com/v1/${store_id}`;
+  const NS_HEADERS = {
+    "Authentication": `bearer ${access_token}`,
+    "User-Agent": "CodeRise Integration (suporte@coderise.com.br)",
+    "Content-Type": "application/json",
+  };
+
+  const SURI_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Authorization": `Bearer ${suri_token}`,
+  };
+
+  const summary = { categories_created: 0, categories_updated: 0, products_created: 0, products_updated: 0, errors: 0 };
+  const errors = [];
+
+  // ── Helper: chamada à API da Nuvemshop ──────────────────────────────────
+  async function nsGet(path) {
+    const r = await fetch(`${NS_BASE}${path}`, { headers: NS_HEADERS, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error(`Nuvemshop GET ${path} → HTTP ${r.status}`);
+    return r.json();
+  }
+
+  // ── Helper: chamada à API da Suri ───────────────────────────────────────
+  async function suriCall(method, path, body) {
+    const r = await fetch(`${suri_endpoint}${path}`, {
+      method,
+      headers: SURI_HEADERS,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`Suri ${method} ${path} → HTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);
+    return data;
+  }
+
+  // ── 1. Sincroniza Categorias ─────────────────────────────────────────────
+  try {
+    const nsCategories = await nsGet("/categories");
+    const suriCategoriesRaw = await suriCall("GET", "/api/shop/categories").catch(() => []);
+    const suriCategories = Array.isArray(suriCategoriesRaw) ? suriCategoriesRaw : (suriCategoriesRaw?.data || suriCategoriesRaw?.categories || []);
+
+    for (const cat of nsCategories) {
+      const catId = String(cat.id);
+      const catName = cat.name?.pt || cat.name?.es || Object.values(cat.name || {})[0] || `Categoria ${catId}`;
+      const payload = {
+        id: catId,
+        name: catName,
+        description: "",
+        parentId: cat.parent ? String(cat.parent) : null,
+        ...(resolvedSuriStoreId ? { storeId: resolvedSuriStoreId } : {}),
+      };
+      const existing = suriCategories.find(c => c.externalId === catId || c.id === catId);
+      try {
+        if (existing) {
+          await suriCall("PUT", `/api/shop/categories/${existing.id}`, { ...payload, id: existing.id });
+          summary.categories_updated++;
+        } else {
+          await suriCall("POST", "/api/shop/categories", payload);
+          summary.categories_created++;
+        }
+      } catch (err) {
+        summary.errors++;
+        errors.push({ type: "category", id: catId, error: err.message });
+      }
+    }
+  } catch (err) {
+    summary.errors++;
+    errors.push({ type: "categories_fetch", error: err.message });
+  }
+
+  // ── 2. Sincroniza Produtos (com paginação) ───────────────────────────────
+  let page = 1;
+  let hasMore = true;
+  const PER_PAGE = 50;
+
+  while (hasMore) {
+    let products;
+    try {
+      products = await nsGet(`/products?page=${page}&per_page=${PER_PAGE}&fields=id,name,description,published,price,promotional_price,canonical_url,images,categories,variants`);
+    } catch (err) {
+      summary.errors++;
+      errors.push({ type: "products_fetch", page, error: err.message });
+      break;
+    }
+
+    if (!Array.isArray(products) || products.length === 0) { hasMore = false; break; }
+
+    for (const p of products) {
+      const productId = String(p.id);
+      try {
+        // Busca variantes completas para ter estoque atualizado
+        let variants = [];
+        try {
+          const rawVariants = await nsGet(`/products/${productId}/variants`);
+          variants = Array.isArray(rawVariants) ? rawVariants : [];
+        } catch { /* usa variants do produto se falhar */ }
+
+        if (variants.length === 0 && p.variants) variants = p.variants;
+
+        const catId = String(p.categories?.[0]?.id || "");
+        const productName = p.name?.pt || p.name?.es || Object.values(p.name || {})[0] || `Produto ${productId}`;
+        const description = (p.description?.pt || p.description?.es || "").replace(/<[^>]+>/g, "");
+        const basePrice = parseFloat(p.price || 0);
+        const promPrice = parseFloat(p.promotional_price || 0);
+
+        function buildSku(skuValue, fallbackId) {
+          const s = skuValue != null ? String(skuValue).trim() : "";
+          return s && s !== "null" && s !== "undefined" ? s : String(fallbackId);
+        }
+
+        const variantSkus = variants.map(v => buildSku(v.sku, productId));
+        const allSkusSame = variantSkus.length > 1 && variantSkus.every(s => s === variantSkus[0]);
+
+        const dimensions = variants.length > 0
+          ? variants.map((v, idx) => {
+            const sku = allSkusSame ? `${variantSkus[idx]}-${idx + 1}` : buildSku(v.sku, productId);
+            const stockQty = v.stock ?? 0;
+            const vPrice = parseFloat(v.price || basePrice);
+            const vPromPrice = parseFloat(v.promotional_price || promPrice || 0);
+            return {
+              sku,
+              dimensions: Object.fromEntries((v.values || []).map(a => [String(a.es || a.pt || a.name || ""), String(a.es || a.pt || a.name || "")])),
+              price: vPrice,
+              promotionalPrice: vPromPrice,
+              priceTables: {},
+              stocks: resolvedSuriStoreId ? [{ storeId: resolvedSuriStoreId, stockQuantity: stockQty }] : [{ stockQuantity: stockQty }],
+              measurements: { weightInGrams: parseFloat(v.weight || 0) * 1000, heightInCm: parseFloat(v.height || 0), widthInCm: parseFloat(v.width || 0), lengthInCm: parseFloat(v.depth || 0) },
+              image: { providerId: null, url: v.image?.src || p.images?.[0]?.src || null, description: null },
+            };
+          })
+          : [{
+            sku: buildSku(p.sku || productId, productId),
+            dimensions: {},
+            price: basePrice,
+            promotionalPrice: promPrice,
+            priceTables: {},
+            stocks: resolvedSuriStoreId ? [{ storeId: resolvedSuriStoreId, stockQuantity: 0 }] : [{ stockQuantity: 0 }],
+            measurements: { weightInGrams: 0, heightInCm: 0, widthInCm: 0, lengthInCm: 0 },
+            image: { providerId: null, url: p.images?.[0]?.src || null, description: null },
+          }];
+
+        const suriProduct = {
+          id: productId,
+          name: productName,
+          description,
+          categoryId: catId || null,
+          isActive: !!p.published_at,
+          images: (p.images || []).map(i => ({ providerId: null, url: i.src, description: null })),
+          dimensions,
+          ...(resolvedSuriStoreId ? { storeId: resolvedSuriStoreId } : {}),
+        };
+
+        try {
+          await suriCall("PUT", `/api/shop/products/${productId}`, suriProduct);
+          summary.products_updated++;
+        } catch (err) {
+          if (err.message.includes("404")) {
+            await suriCall("POST", "/api/shop/products", suriProduct);
+            summary.products_created++;
+          } else {
+            throw err;
+          }
+        }
+      } catch (err) {
+        summary.errors++;
+        errors.push({ type: "product", id: productId, error: err.message });
+      }
+    }
+
+    hasMore = products.length === PER_PAGE;
+    page++;
+  }
+
+  const totalSynced = summary.categories_created + summary.categories_updated + summary.products_created + summary.products_updated;
+  return res.status(200).json({
+    success: true,
+    message: `Sincronização concluída. ${totalSynced} item(s) sincronizado(s), ${summary.errors} erro(s).`,
+    summary,
+    errors: errors.slice(0, 50), // retorna no máximo 50 erros para não sobrecarregar a resposta
+  });
 }
