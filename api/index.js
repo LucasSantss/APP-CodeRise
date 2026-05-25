@@ -218,7 +218,27 @@ function normalizeWoocommerce(payload) {
 }
 function normalizeNuvemshop(payload) {
   const topic=payload.topic||payload.event||"";
-  const statusMap={"orders/created":"order.created","orders/paid":"order.created","orders/fulfilled":"order.shipped","orders/cancelled":"order.cancelled","products/created":"product.sync","products/updated":"product.sync"};
+  const statusMap={
+    // Order events
+    "order/created":"order.created","order/paid":"order.created","order/updated":"order.created",
+    "order/packed":"order.shipped","order/fulfilled":"order.shipped","order/cancelled":"order.cancelled",
+    "order/pending":"order.created","order/voided":"order.cancelled",
+    "order/custom_fields_updated":"order.created","order/edited":"order.created",
+    // Fulfillment events
+    "fulfillment/updated":"order.shipped",
+    "fulfillment_order/status_updated":"order.shipped",
+    "fulfillment_order/tracking_event_created":"order.shipped",
+    "fulfillment_order/tracking_event_updated":"order.shipped",
+    "fulfillment_order/tracking_event_deleted":"order.shipped",
+    // Product events (real API format uses singular + slash)
+    "product/created":"product.sync","product/updated":"product.sync","product/deleted":"product.sync",
+    "product_variant/custom_fields_updated":"product.sync",
+    // Category events
+    "category/created":"product.sync","category/updated":"product.sync","category/deleted":"product.sync",
+    // Legacy plural format (fallback)
+    "orders/created":"order.created","orders/paid":"order.created","orders/fulfilled":"order.shipped","orders/cancelled":"order.cancelled",
+    "products/created":"product.sync","products/updated":"product.sync",
+  };
   const eventType=statusMap[topic]||topic;
   if (eventType==="product.sync") { const p=payload.product||payload,v=p.variants?.[0]||{}; return { eventType, product:{id:String(p.id),sku:String(v.sku||p.id),name:p.name?.pt||p.name?.es||Object.values(p.name||{})[0]||"",description:((p.description?.pt||p.description?.es||"")).replace(/<[^>]+>/g,""),categoryId:String(p.categories?.[0]?.id||""),brand:p.brand||null,isActive:!!p.published_at,price:parseFloat(v.price||p.price||0),promotionalPrice:parseFloat(v.promotional_price||p.promotional_price||0),url:p.canonical_url||null,images:(p.images||[]).map(i=>({url:i.src,description:i.alt||null})),weightInGrams:parseFloat(v.weight||0)*1000,dimensions:{heightInCm:parseFloat(v.height||0),widthInCm:parseFloat(v.width||0),lengthInCm:parseFloat(v.depth||0)}} }; }
   const order=payload.order||payload;
@@ -475,10 +495,48 @@ async function registerNuvemshop(config, webhookUrl) {
   if (!store_id||!access_token) throw new Error("store_id e access_token são obrigatórios");
   const base=`https://api.tiendanube.com/v1/${store_id}`;
   const headers={"Content-Type":"application/json","Authentication":`bearer ${access_token}`,"User-Agent":"CodeRise Integration (suporte@coderise.com.br)"};
-  const events=["order/created","order/paid","order/fulfilled","order/cancelled","product/created","product/updated"];
+  const events=[
+    // App
+    "app/uninstalled","app/suspended","app/resumed",
+    // Category
+    "category/created","category/updated","category/deleted",
+    // Order
+    "order/created","order/updated","order/paid","order/packed",
+    "order/fulfilled","order/cancelled","order/custom_fields_updated",
+    "order/edited","order/pending","order/voided",
+    // Product
+    "product/created","product/updated","product/deleted",
+    // Product Variant
+    "product_variant/custom_fields_updated",
+    // Domain
+    "domain/updated",
+    // Order Custom Field
+    "order_custom_field/created","order_custom_field/updated","order_custom_field/deleted",
+    // Product Variant Custom Field
+    "product_variant_custom_field/created","product_variant_custom_field/updated","product_variant_custom_field/deleted",
+    // Fulfillment
+    "fulfillment/updated",
+    // Fulfillment Order
+    "fulfillment_order/status_updated",
+    "fulfillment_order/tracking_event_created",
+    "fulfillment_order/tracking_event_updated",
+    "fulfillment_order/tracking_event_deleted",
+    // Location
+    "location/created","location/updated","location/deleted",
+  ];
   const results=[];
-  for (const event of events) { const r=await fetch(`${base}/webhooks`,{method:"POST",headers,body:JSON.stringify({event,url:webhookUrl})}); const data=await r.json(); results.push(r.ok?{event,status:"created",id:data.id}:{event,status:"error",detail:data.description||data}); }
-  return { success:true, message:`${results.filter(r=>r.status==="created").length}/${events.length} webhooks registrados na Nuvemshop`, details:results };
+  for (const event of events) {
+    const r=await fetch(`${base}/webhooks`,{method:"POST",headers,body:JSON.stringify({event,url:webhookUrl})});
+    const data=await r.json().catch(()=>({}));
+    if (!r.ok) {
+      const alreadyExists=r.status===422&&JSON.stringify(data).toLowerCase().includes("already");
+      results.push({event,status:alreadyExists?"already_exists":"error",detail:data.description||data});
+    } else {
+      results.push({event,status:"created",id:data.id});
+    }
+  }
+  const ok=results.filter(r=>r.status==="created"||r.status==="already_exists").length;
+  return { success:true, message:`${ok}/${events.length} webhooks registrados na Nuvemshop`, details:results };
 }
 async function registerVtex(config, webhookUrl) {
   const { account_name, app_key, app_token } = config;
