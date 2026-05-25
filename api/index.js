@@ -88,7 +88,7 @@ async function handleChatbot(req, res) {
         const caller = await requireAuth(req, res); if (!caller) return;
         const targetId = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
         await ensureChatbotRow(targetId);
-        const r = await pool.query("SELECT chatbot_platform, chatbot_config, chatbot_active, chatbot_token, created_at, updated_at FROM user_integrations WHERE user_id = $1", [targetId]);
+        const r = await pool.query("SELECT chatbot_platform, chatbot_config, chatbot_active, chatbot_token, suri_endpoint, suri_token, suri_active, created_at, updated_at FROM user_integrations WHERE user_id = $1", [targetId]);
         if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
         return res.status(200).json({ success: true, chatbot: r.rows[0] });
       }
