@@ -328,7 +328,49 @@ async function handleWebhook(req, res) {
     if (uRow.rows[0]) userName = uRow.rows[0].name;
   } catch {}
 
-  const rawPayload = req.body || {};
+  let rawPayload = req.body || {};
+
+  // Nuvemshop envia apenas {id, event, store_id} — sem dados do produto/pedido.
+  // É necessário fazer um GET na API para buscar os dados completos antes de normalizar.
+  if (ecommerce_platform === "nuvemshop" && rawPayload.id && rawPayload.event) {
+    try {
+      const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [user_id]);
+      const cfg = intRow.rows[0]?.ecommerce_config || {};
+      const { store_id, access_token } = cfg;
+      if (store_id && access_token) {
+        const headers = {
+          "Content-Type": "application/json",
+          "Authentication": `bearer ${access_token}`,
+          "User-Agent": "CodeRise Integration (suporte@coderise.com.br)",
+        };
+        const base = `https://api.tiendanube.com/v1/${store_id}`;
+        const ev = rawPayload.event || "";
+        let fetchUrl = null;
+        if (ev.startsWith("product")) {
+          fetchUrl = `${base}/products/${rawPayload.id}`;
+        } else if (ev.startsWith("order")) {
+          fetchUrl = `${base}/orders/${rawPayload.id}`;
+        } else if (ev.startsWith("category")) {
+          fetchUrl = `${base}/categories/${rawPayload.id}`;
+        }
+        if (fetchUrl) {
+          const r = await fetch(fetchUrl, { headers });
+          if (r.ok) {
+            const fullData = await r.json();
+            // Merge: mantém event/store_id originais e injeta dados completos
+            if (ev.startsWith("product")) {
+              rawPayload = { ...rawPayload, product: fullData };
+            } else if (ev.startsWith("order")) {
+              rawPayload = { ...rawPayload, order: fullData };
+            } else {
+              rawPayload = { ...rawPayload, ...fullData };
+            }
+          }
+        }
+      }
+    } catch { /* continua com payload original se o fetch falhar */ }
+  }
+
   let normalized;
   try { normalized = normalizePayload(ecommerce_platform, rawPayload); }
   catch { normalized = { eventType: rawPayload.type||rawPayload.event||"desconhecido", orderId:"", items:[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} }; }
