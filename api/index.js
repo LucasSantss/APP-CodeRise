@@ -28,6 +28,7 @@ export default async function handler(req, res) {
   if (path === "/register-webhook" || path.startsWith("/register-webhook?")) return handleRegisterWebhook(req, res);
   if (path === "/setup" || path.startsWith("/setup?")) return handleSetup(req, res);
   if (path === "/test-suri" || path.startsWith("/test-suri?")) return handleTestSuri(req, res);
+  if (path === "/test-ecommerce" || path.startsWith("/test-ecommerce?")) return handleTestEcommerce(req, res);
 
   return res.status(404).json({ success: false, message: `Rota não encontrada: ${path}` });
 }
@@ -711,4 +712,131 @@ async function handleTestSuri(req, res) {
   if (!hasValidBody||body?.raw!==undefined) { await notifyAdminError(`Servidor respondeu HTTP ${httpStatus} mas body inesperado.`); return res.status(200).json({success:false,httpStatus,message:`Servidor respondeu HTTP ${httpStatus} mas body inesperado. Verifique a URL.`,debug:String(body?.raw||"").slice(0,200)}); }
   const storeCount=Array.isArray(body)?body.length:Array.isArray(body?.data)?body.data.length:null;
   return res.status(200).json({success:true,httpStatus,message:storeCount!==null?`Conexão bem-sucedida! ${storeCount} loja(s) encontrada(s).`:"Conexão com a Suri realizada com sucesso!"});
+}
+// ─── handleTestEcommerce ──────────────────────────────────────────────────────
+
+async function handleTestEcommerce(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
+    return res.status(405).end();
+  }
+  const caller = await requireAuth(req, res);
+  if (!caller) return;
+
+  const { platform, config } = req.body || {};
+  if (!platform || !config)
+    return res.status(400).json({ success: false, message: "platform e config são obrigatórios." });
+
+  const LABELS = {
+    shopify: "Shopify", woocommerce: "WooCommerce", nuvemshop: "Nuvemshop",
+    vtex: "VTEX", tray: "Tray", custom: "Custom",
+  };
+  const label = LABELS[platform] || platform;
+
+  try {
+    let result = {};
+
+    if (platform === "nuvemshop") {
+      const { store_id, access_token } = config;
+      if (!store_id || !access_token)
+        throw new Error("store_id e access_token são obrigatórios.");
+
+      const r = await fetch(`https://api.tiendanube.com/v1/${store_id}/store`, {
+        headers: {
+          "Authentication": `bearer ${access_token}`,
+          "User-Agent": "CodeRise Integration (suporte@coderise.com.br)",
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      const body = await r.json().catch(() => ({}));
+
+      if (r.status === 401 || r.status === 403)
+        throw new Error(`Token inválido ou sem permissão (HTTP ${r.status}). Verifique o Access Token.`);
+      if (r.status === 404)
+        throw new Error(`Loja não encontrada (HTTP 404). Verifique o Store ID "${store_id}".`);
+      if (!r.ok)
+        throw new Error(`Nuvemshop retornou HTTP ${r.status}: ${JSON.stringify(body).slice(0, 200)}`);
+
+      const storeName = body.name?.pt || body.name?.es || Object.values(body.name || {})[0] || body.business_name || "—";
+      result = {
+        store: storeName,
+        plan: body.plan_name || null,
+        country: body.country || null,
+        stores: [{ id: String(store_id), name: storeName }],
+      };
+
+    } else if (platform === "shopify") {
+      const { store_url, api_token, api_version } = config;
+      if (!store_url || !api_token) throw new Error("store_url e api_token são obrigatórios.");
+      const version = api_version || "2024-01";
+      const host = store_url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+      const r = await fetch(`https://${host}/admin/api/${version}/shop.json`, {
+        headers: { "X-Shopify-Access-Token": api_token, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`Shopify HTTP ${r.status}: ${JSON.stringify(body).slice(0, 200)}`);
+      const shop = body.shop || {};
+      result = { store: shop.name || "—", plan: shop.plan_name || null, country: shop.country_name || null, stores: [{ id: String(shop.id || store_url), name: shop.name || store_url }] };
+
+    } else if (platform === "woocommerce") {
+      const { site_url, consumer_key, consumer_secret } = config;
+      if (!site_url || !consumer_key || !consumer_secret)
+        throw new Error("site_url, consumer_key e consumer_secret são obrigatórios.");
+      const base = site_url.replace(/\/+$/, "");
+      const auth = Buffer.from(`${consumer_key}:${consumer_secret}`).toString("base64");
+      const r = await fetch(`${base}/wp-json/wc/v3/system_status`, {
+        headers: { "Authorization": `Basic ${auth}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`WooCommerce HTTP ${r.status}: ${JSON.stringify(body).slice(0, 200)}`);
+      const env = body.environment || {};
+      result = { store: env.site_url || site_url, plan: `WC ${env.version || ""}`.trim(), country: null, stores: [{ id: site_url, name: env.site_url || site_url }] };
+
+    } else if (platform === "vtex") {
+      const { account_name, app_key, app_token } = config;
+      if (!account_name || !app_key || !app_token)
+        throw new Error("account_name, app_key e app_token são obrigatórios.");
+      const r = await fetch(
+        `https://${account_name}.vtexcommercestable.com.br/api/catalog_system/pub/category/tree/1`,
+        { headers: { "X-VTEX-API-AppKey": app_key, "X-VTEX-API-AppToken": app_token }, signal: AbortSignal.timeout(10000) }
+      );
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`VTEX HTTP ${r.status}: ${JSON.stringify(body).slice(0, 200)}`);
+      result = { store: account_name, plan: "VTEX", country: null, stores: [{ id: account_name, name: account_name }] };
+
+    } else if (platform === "tray") {
+      const { api_address, access_token } = config;
+      if (!api_address || !access_token) throw new Error("api_address e access_token são obrigatórios.");
+      const base = api_address.replace(/\/+$/, "");
+      const r = await fetch(`${base}/store`, {
+        headers: { "Authorization": `Bearer ${access_token}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`Tray HTTP ${r.status}: ${JSON.stringify(body).slice(0, 200)}`);
+      const store = body.Store || body.store || {};
+      result = { store: store.name || api_address, plan: null, country: null, stores: [{ id: String(store.id || api_address), name: store.name || api_address }] };
+
+    } else {
+      return res.status(400).json({ success: false, message: `Teste automático não disponível para "${platform}".` });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Conexão com ${label} realizada com sucesso!${result.store ? ` Loja: ${result.store}.` : ""}`,
+      store: result.store || null,
+      plan: result.plan || null,
+      country: result.country || null,
+      stores: result.stores || [],
+    });
+
+  } catch (err) {
+    const msg = err.name === "TimeoutError"
+      ? `Timeout: "${label}" não respondeu em 10 segundos.`
+      : err.message;
+    return res.status(200).json({ success: false, message: msg });
+  }
 }
