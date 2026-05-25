@@ -6,10 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug, ShoppingCart, AlertTriangle, CheckCheck, RefreshCcw } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug, ShoppingCart, AlertTriangle, RefreshCcw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection, getIntegrations, type StoreItem } from '@/services/api';
 import { CHATBOT_FIELDS, ECOMMERCE_FIELDS, type ChatbotPlatform } from '@/types';
@@ -66,13 +65,6 @@ const ECOMMERCE_WEBHOOK_EVENTS: Record<string, { topic: string; label: string; i
   ],
 };
 
-interface RegisterResult {
-  success: boolean;
-  message: string;
-  webhook_url?: string;
-  details?: Array<{ topic?: string; event?: string; trigger?: string; status: string; id?: string | number; detail?: unknown }>;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Chatbot = () => {
@@ -101,8 +93,6 @@ const Chatbot = () => {
   const [ecommercePlatform, setEcommercePlatform] = useState<string>('');
   const [ecommerceWebhookToken, setEcommerceWebhookToken] = useState('');
   const [registering, setRegistering] = useState(false);
-  const [registerResult, setRegisterResult] = useState<RegisterResult | null>(null);
-  const [showResult, setShowResult] = useState(false);
 
   // Sync de produtos
   const [syncing, setSyncing] = useState(false);
@@ -282,26 +272,22 @@ const Chatbot = () => {
   // ── Registrar webhook do e-commerce (nesta tela) ──────────────────────────
   const handleRegisterEcommerceWebhook = async () => {
     setRegistering(true);
-    setRegisterResult(null);
     try {
       const token = authToken || '';
       const res = await fetch('/register-webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       });
-      const data: RegisterResult = await res.json();
-      setRegisterResult(data);
-      setShowResult(true);
+      const data = await res.json();
       if (data.success) {
-        toast({ title: '✅ Webhook do e-commerce registrado!' });
+        const registered = data.details?.filter((d: any) => d.status === 'created' || d.status === 'already_exists').length ?? 0;
+        const total = data.details?.length ?? 0;
+        toast({ title: '✅ Webhook registrado!', description: `${registered}/${total} eventos configurados.` });
       } else {
         toast({ title: 'Atenção', description: data.message, variant: 'destructive' });
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
-      setRegisterResult({ success: false, message: msg });
-      setShowResult(true);
-      toast({ title: 'Erro ao registrar webhook', description: msg, variant: 'destructive' });
+      toast({ title: 'Erro ao registrar webhook', description: err instanceof Error ? err.message : 'Erro desconhecido', variant: 'destructive' });
     } finally {
       setRegistering(false);
     }
@@ -315,6 +301,7 @@ const Chatbot = () => {
       const res = await fetch('/sync-catalog', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ platform: ecommercePlatform }),
       });
       const data = await res.json();
       if (data.success) {
@@ -575,7 +562,7 @@ const Chatbot = () => {
                   <Button onClick={handleRegisterEcommerceWebhook} disabled={registering || !ecommerceWebhookUrl} variant="outline">
                     {registering
                       ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Registrando...</>
-                      : <><Zap className="mr-2 h-4 w-4" />Registrar Webhook na {ecommerceLabel}</>}
+                      : <><Zap className="mr-2 h-4 w-4" />Registrar Webhook</>}
                   </Button>
                 )}
                 <Button onClick={handleSyncProducts} disabled={syncing || !ecommerceWebhookUrl} variant="outline"
@@ -803,69 +790,6 @@ const Chatbot = () => {
         </div>
       )}
 
-      {/* Modal resultado do registro do e-commerce */}
-      <Dialog open={showResult} onOpenChange={setShowResult}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {registerResult?.success
-                ? <><CheckCheck className="h-5 w-5 text-green-500" /> Webhook Registrado</>
-                : <><AlertTriangle className="h-5 w-5 text-destructive" /> Resultado do Registro</>
-              }
-            </DialogTitle>
-          </DialogHeader>
-
-          {registerResult && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">{registerResult.message}</p>
-
-              {registerResult.webhook_url && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">URL registrada:</p>
-                  <code className="text-xs bg-muted rounded p-2 block break-all">
-                    {registerResult.webhook_url}
-                  </code>
-                </div>
-              )}
-
-              {registerResult.details && registerResult.details.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Detalhes por evento
-                  </p>
-                  <div className="space-y-1">
-                    {registerResult.details.map((d, i) => {
-                      const label = d.topic || d.event || d.trigger || `evento ${i + 1}`;
-                      const isOk = d.status === 'created' || d.status === 'already_exists';
-                      return (
-                        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
-                          <span className="font-mono text-xs">{label}</span>
-                          <Badge
-                            variant={((isOk ? 'outline' : 'destructive') as BadgeVariant)}
-                            className={isOk ? 'border-success text-success text-xs' : 'text-xs'}
-                          >
-                            {d.status === 'already_exists' ? 'já existe' : d.status}
-                            {d.id ? ` #${d.id}` : ''}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {!registerResult.success && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    Verifique se as credenciais do e-commerce estão corretas em <strong>Configuração de E-commerce</strong>.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
