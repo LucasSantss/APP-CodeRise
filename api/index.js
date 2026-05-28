@@ -404,9 +404,25 @@ async function handleChatbot(req, res) {
         const caller = await requireAuth(req, res); if (!caller) return;
         const tid = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
         await ensureChatbotRow(tid);
-        const r = await pool.query("SELECT chatbot_platform,chatbot_config,chatbot_active,chatbot_token,suri_endpoint,suri_token,created_at,updated_at FROM user_integrations WHERE user_id=$1", [tid]);
+        let r;
+        try {
+          r = await pool.query("SELECT chatbot_platform,chatbot_config,chatbot_active,chatbot_token,suri_endpoint,suri_token,created_at,updated_at FROM user_integrations WHERE user_id=$1", [tid]);
+        } catch (colErr) {
+          // Fallback para bancos antigos sem as colunas suri_*
+          r = await pool.query("SELECT chatbot_platform,chatbot_config,chatbot_active,chatbot_token,created_at,updated_at FROM user_integrations WHERE user_id=$1", [tid]);
+          if (r.rows[0]) {
+            const cfg = r.rows[0].chatbot_config || {};
+            r.rows[0].suri_endpoint = cfg.endpoint || null;
+            r.rows[0].suri_token    = cfg.token    || null;
+            r.rows[0].suri_active   = r.rows[0].chatbot_active || false;
+          }
+        }
         if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
-        return res.status(200).json({ success: true, chatbot: r.rows[0] });
+        // Garante que suri_endpoint/token estejam preenchidos mesmo em bancos antigos
+        const row = r.rows[0];
+        if (!row.suri_endpoint && row.chatbot_config?.endpoint) row.suri_endpoint = row.chatbot_config.endpoint;
+        if (!row.suri_token    && row.chatbot_config?.token)    row.suri_token    = row.chatbot_config.token;
+        return res.status(200).json({ success: true, chatbot: row });
       }
       case "PUT": {
         const caller = await requireAuth(req, res); if (!caller) return;
@@ -419,12 +435,22 @@ async function handleChatbot(req, res) {
         // Quando plataforma for Suri, espelha endpoint e token nas colunas dedicadas
         if (chatbot_platform === "suri" || (chatbot_config && chatbot_config.endpoint)) {
           const cfg = chatbot_config || {};
+          // suri_endpoint e suri_token só adicionados se colunas existirem
           if (cfg.endpoint) { fields.push(`suri_endpoint=$${idx++}`); values.push(cfg.endpoint); }
-          if (cfg.token) { fields.push(`suri_token=$${idx++}`); values.push(cfg.token); }
+          if (cfg.token)    { fields.push(`suri_token=$${idx++}`);    values.push(cfg.token); }
         }
         if (!fields.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
         fields.push("updated_at=NOW()"); values.push(tid);
-        const r = await pool.query(`UPDATE user_integrations SET ${fields.join(",")} WHERE user_id=$${idx} RETURNING chatbot_platform,chatbot_config,chatbot_active,chatbot_token,suri_endpoint,suri_token,suri_active,updated_at`, values);
+        let r;
+        try {
+          r = await pool.query(`UPDATE user_integrations SET ${fields.join(",")} WHERE user_id=$${idx} RETURNING chatbot_platform,chatbot_config,chatbot_active,chatbot_token,suri_endpoint,suri_token,suri_active,updated_at`, values);
+        } catch (colErr) {
+          // Fallback: remove campos suri_* dos fields e tenta novamente
+          const safeFields = fields.filter(f => !f.startsWith("suri_"));
+          const safeValues = values.filter((_, i) => !fields[i]?.startsWith("suri_"));
+          if (safeFields.length === 0) safeFields.push(`updated_at=NOW()`);
+          r = await pool.query(`UPDATE user_integrations SET ${safeFields.join(",")} WHERE user_id=$${safeValues.length + 1} RETURNING chatbot_platform,chatbot_config,chatbot_active,chatbot_token,updated_at`, [...safeValues, values[values.length-1]]);
+        }
         return res.status(200).json({ success: true, message: "Configuração de chatbot salva", chatbot: r.rows[0] });
       }
       case "PATCH": {
@@ -805,6 +831,11 @@ async function handleSetup(req, res) {
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_active BOOLEAN NOT NULL DEFAULT false`,
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_token VARCHAR(64) UNIQUE`,
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS webhook_secret TEXT`,
+      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS suri_endpoint TEXT`,
+      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS suri_token TEXT`,
+      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS suri_active BOOLEAN NOT NULL DEFAULT false`,
+      `ALTER TABLE user_webhooks ADD COLUMN IF NOT EXISTS error_message TEXT`,
+      `ALTER TABLE user_webhooks ADD COLUMN IF NOT EXISTS received_at TIMESTAMP NOT NULL DEFAULT NOW()`,
     ]) { await pool.query(sql).catch(() => { }); }
     const noToken = await pool.query("SELECT user_id FROM user_integrations WHERE chatbot_token IS NULL");
     for (const row of noToken.rows) { await pool.query("UPDATE user_integrations SET chatbot_token=$1 WHERE user_id=$2 AND chatbot_token IS NULL", [crypto.randomBytes(32).toString("hex"), row.user_id]); }
