@@ -121,6 +121,18 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 300
+    },
+    "api/users.js": {
+      "maxDuration": 30
+    },
+    "api/integrations.js": {
+      "maxDuration": 30
+    },
+    "api/notifications.js": {
+      "maxDuration": 30
+    },
+    "api/sync-rules.js": {
+      "maxDuration": 30
     }
   }
 }
