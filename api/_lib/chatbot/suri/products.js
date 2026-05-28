@@ -30,44 +30,32 @@ function toSuriFormat(product, storeId) {
     return { providerId: null, url: validUrl, description: null };
   }
 
-  // Para produtos com múltiplas variantes, cada uma pode ter um SKU diferente.
-  // Se todas as variantes têm o mesmo SKU (ou o SKU é o ID do produto como fallback),
-  // diferenciamos pelo índice para que a Suri não trate como produto único.
-  const variantSkus = (product.variants || []).map(v => buildSku(v.sku, product.id));
-  const allSkusSame = variantSkus.length > 1 && variantSkus.every(s => s === variantSkus[0]);
-
   const dimensions = (product.variants && product.variants.length > 0)
-    ? product.variants.map((v, idx) => {
-      // Garante SKU único por variante quando todas coincidem
-      const sku = allSkusSame
-        ? `${variantSkus[idx]}-${idx + 1}`
-        : buildSku(v.sku || product.sku, product.id);
-
-      // Estoque real da variante (vem atualizado do endpoint /variants)
-      const stockQty = v.stock ?? product.stock ?? 0;
-
-      return {
-        sku,
+    ? product.variants.map(v => {
+      const variantObj = {
+        sku: buildSku(v.sku || product.sku, product.id),
         dimensions: Object.fromEntries(
           (v.attributes || []).map(a => [String(a.name), String(a.value)])
         ),
         price: v.price ?? product.price,
         promotionalPrice: v.promotionalPrice ?? product.promotionalPrice ?? 0,
         priceTables: {},
-        stocks: buildStocks(storeId, stockQty),
+        stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
         measurements: {
           weightInGrams: v.weightInGrams || product.weightInGrams || 0,
           heightInCm: v.dimensions?.heightInCm || product.dimensions?.heightInCm || 0,
-          widthInCm:  v.dimensions?.widthInCm  || product.dimensions?.widthInCm  || 0,
+          widthInCm: v.dimensions?.widthInCm || product.dimensions?.widthInCm || 0,
           lengthInCm: v.dimensions?.lengthInCm || product.dimensions?.lengthInCm || 0,
           unitsPerPackage: 1,
         },
+        // Atributos da variação (ex: [{ name: "Cor", value: "Azul" }, { name: "Tamanho", value: "M" }])
         attributes: (v.attributes || []).map(a => ({
-          name:  String(a.name  || ""),
+          name: String(a.name || ""),
           value: String(a.value || ""),
         })),
         image: buildImage(v.imageUrl),
       };
+      return variantObj;
     })
     : [{
       sku: buildSku(product.sku, product.id),
@@ -80,7 +68,7 @@ function toSuriFormat(product, storeId) {
       measurements: {
         weightInGrams: product.weightInGrams || 0,
         heightInCm: product.dimensions?.heightInCm || 0,
-        widthInCm:  product.dimensions?.widthInCm  || 0,
+        widthInCm: product.dimensions?.widthInCm || 0,
         lengthInCm: product.dimensions?.lengthInCm || 0,
         unitsPerPackage: 1,
       },
@@ -158,20 +146,35 @@ function toSuriFormat(product, storeId) {
 /**
  * Sincroniza um produto na Suri.
  *
- * Estratégia: verifica se o produto já existe (GET), faz PUT se sim, POST se não.
- * O categoryId deve chegar já resolvido para o ID interno da Suri
- * (resolução feita em suri/index.js via buildCategoryIdMap).
+ * Estratégia: POST primeiro (criar). Se a Suri indicar que o produto
+ * já existe (HTTP 409, ou HTTP 400/422 com "already exists" / "duplicate"),
+ * faz PUT (atualizar). Isso evita o erro de validação do campo `brand`
+ * que ocorria quando se tentava PUT em produtos ainda não criados.
  *
  * @param {string} endpoint
  * @param {string} token
- * @param {object} product         - produto normalizado com categoryId já resolvido
+ * @param {object} product  - produto normalizado
  * @param {string|null} resolvedStoreId - ID da loja Suri resolvido via store mapping.
  *   Se null, usa getFirstStoreId como fallback.
+ * @param {Map<string,string>|null} categoryIdMap - mapa nuvemshop_id → suri_id para categorias.
  */
-export async function syncProduct(endpoint, token, product, resolvedStoreId = null) {
+export async function syncProduct(endpoint, token, product, resolvedStoreId = null, categoryIdMap = null) {
   const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token) || "141301072";
 
-  const suriPayload = toSuriFormat(product, storeId);
+  // Resolve o categoryId para o ID interno da Suri.
+  // Se não houver mapeamento, envia null para evitar rejeição por ID de outra plataforma.
+  const resolvedCategoryId = (() => {
+    if (!product.categoryId) return null;
+    if (categoryIdMap && categoryIdMap.size > 0) {
+      const mapped = categoryIdMap.get(String(product.categoryId));
+      return mapped || null;
+    }
+    // Sem mapa disponível: não envia o ID externo pois a Suri vai rejeitar
+    return null;
+  })();
+
+  const productWithResolvedCategory = { ...product, categoryId: resolvedCategoryId };
+  const suriPayload = toSuriFormat(productWithResolvedCategory, storeId);
 
   // 1) Verifica se o produto já existe na Suri pelo ID
   let exists = false;
