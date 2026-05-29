@@ -68,15 +68,21 @@ export async function processForwardEvent(endpoint, token, normalized, ecommerce
   switch (eventType) {
 
     case "product.sync": {
-      // PASSO 1 — Busca produto atualizado na API (nunca usa payload do webhook)
+      // PASSO 1 — Busca produto atualizado na API da plataforma e-commerce.
+      // O nuvemshop/index.js sempre envia needsApiFetch:true — mas por segurança
+      // o fetch acontece sempre, independente desse flag.
+      const productIdToFetch = normalized.productId || normalized.product?.id;
+      if (!productIdToFetch) {
+        throw new Error(`product.sync sem productId no payload: ${JSON.stringify(normalized).slice(0, 200)}`);
+      }
       let product;
       try {
-        product = await fetchProductFromEcommerce(ecommercePlatform, ecommerceConfig, normalized.productId);
+        product = await fetchProductFromEcommerce(ecommercePlatform, ecommerceConfig, productIdToFetch);
       } catch (err) {
-        throw new Error(`GET produto #${normalized.productId} na ${ecommercePlatform} falhou: ${err.message}`);
+        throw new Error(`GET produto #${productIdToFetch} na ${ecommercePlatform} falhou: ${err.message}`);
       }
       if (!product) {
-        throw new Error(`Produto #${normalized.productId} não encontrado na ${ecommercePlatform}.`);
+        throw new Error(`Produto #${productIdToFetch} não encontrado na ${ecommercePlatform}.`);
       }
 
       // PASSO 2 — Monta mapa categoryId-nuvemshop → suriId interno

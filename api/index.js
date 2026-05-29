@@ -569,7 +569,14 @@ async function handleWebhook(req, res) {
     integration = r.rows[0];
   } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
 
-  const { user_id, suri_endpoint, suri_token, suri_active, ecommerce_platform, ecommerce_config, chatbot_platform, user_name } = integration;
+  // Resolve suri_endpoint e suri_token com fallback para chatbot_config
+  // (bancos antigos podem não ter as colunas suri_* — credenciais ficam em chatbot_config)
+  const chatbot_cfg = integration.chatbot_config || {};
+  const suri_endpoint = integration.suri_endpoint || chatbot_cfg.endpoint || null;
+  const suri_token    = integration.suri_token    || chatbot_cfg.token    || null;
+  // suri_active: considera ativo se tiver endpoint+token válidos (fallback para chatbot_active)
+  const suri_active   = !!(integration.suri_active ?? integration.chatbot_active ?? (suri_endpoint && suri_token));
+  const { user_id, ecommerce_platform, ecommerce_config, chatbot_platform, user_name } = integration;
   const isForward = integration.webhook_token === token;
   const rawPayload = req.body || {};
   const userName = user_name || `ID ${user_id}`;
@@ -654,7 +661,8 @@ async function handleWebhook(req, res) {
 
   // ── FLUXO DIRETO: E-commerce → Suri ────────────────────────────────────
   if (isForward) {
-    if (!suri_active || !suri_endpoint || !suri_token) return res.status(200).json({ success: true, message: "Evento registrado. Suri não configurada ou inativa.", event_type: eventType, webhook_id: webhookId, flow: "forward" });
+    // Bloqueia apenas se realmente não houver endpoint ou token — ignora suri_active para não bloquear bancos sem a coluna
+    if (!suri_endpoint || !suri_token) return res.status(200).json({ success: true, message: "Evento registrado. Suri não configurada (endpoint ou token ausentes).", event_type: eventType, webhook_id: webhookId, flow: "forward" });
     try {
       // processForwardEvent usa módulos chatbot/suri — busca produto via API quando necessário
       const result = await processForwardEvent(suri_endpoint, suri_token, normalized, ecommerce_config, ecommerce_platform);
