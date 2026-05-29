@@ -80,9 +80,12 @@ function toSuriFormat(product, storeId) {
     sku: buildSku(product.sku, product.id),
     categoryId: product.categoryId || null,
     subcategoryId: null,
-    // A Suri espera um objeto ShopBrand, não uma string simples.
-    // Enviar o nome como string causa HTTP 400 — campo mantido como null.
-    brand: null,
+    // A Suri espera brand como objeto ShopBrand: { name: "..." }
+    // Nunca enviar como string pura (HTTP 400).
+    // Se não houver brand, omitir o campo completamente (null também causa erro).
+    ...(product.brand && product.brand !== "null"
+      ? { brand: { name: String(product.brand) } }
+      : {}),
     sellerId: "all",
     sellerName: null,
     isActive: product.isActive,
