@@ -8,7 +8,7 @@ import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, RefreshCw, Eye } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
 
@@ -39,14 +39,30 @@ const filterByDate = (events: WebhookEvent[], period: string) => {
   return events.filter((e) => new Date(e.received_at) >= cutoff);
 };
 
+const SourceBadge = ({ source }: { source?: string }) => {
+  if (source === 'chatbot') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <MessageSquare className="h-3 w-3" /> Chatbot
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <ShoppingCart className="h-3 w-3" /> E-commerce
+    </span>
+  );
+};
+
 const UserLogs = () => {
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [loading, setLoading]   = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter]     = useState('all');
   const [dateFilter, setDateFilter]     = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [selected, setSelected] = useState<WebhookEvent | null>(null);
-
+  const [lastWebhookId, setLastWebhookId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,24 +70,35 @@ const UserLogs = () => {
       const params: Record<string, string> = {};
       if (statusFilter !== 'all') params.status = statusFilter;
       if (typeFilter !== 'all') params.event_type = typeFilter;
+      if (sourceFilter !== 'all') params.source = sourceFilter;
       const res = await getWebhooks(params);
-      setWebhooks((res as any).webhooks || []);
+      const lista: WebhookEvent[] = (res as any).webhooks || [];
+      setWebhooks(lista);
+      // Sincroniza lastWebhookId com o maior ID já carregado
+      if (lista.length > 0) {
+        const maxId = Math.max(...lista.map(w => w.id));
+        setLastWebhookId(prev => (prev === null || maxId > prev) ? maxId : prev);
+      }
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, typeFilter]);
+  }, [statusFilter, typeFilter, sourceFilter]);
 
   useEffect(() => { load(); }, [load]);
 
   const { user } = useAuthStore();
-  const [lastWebhookId, setLastWebhookId] = useState<number | null>(null);
   useLongPoll<WebhookEvent>(
     '/webhooks/poll',
     (items) => {
-      setLastWebhookId(items[0].id);
+      // Filtra localmente pelo source se o filtro estiver ativo
+      const filtered = sourceFilter !== 'all'
+        ? items.filter(e => (e as any).source === sourceFilter)
+        : items;
+      if (filtered.length === 0) return;
+      setLastWebhookId(filtered[0].id);
       setWebhooks(prev => {
         const ids  = new Set(prev.map(e => e.id));
-        const novos = items.filter(e => !ids.has(e.id));
+        const novos = filtered.filter(e => !ids.has(e.id));
         return novos.length > 0 ? [...novos, ...prev] : prev;
       });
     },
@@ -114,6 +141,15 @@ const UserLogs = () => {
                 </SelectContent>
               </Select>
 
+              <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <SelectTrigger className="w-[150px]"><SelectValue placeholder="Origem" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as origens</SelectItem>
+                  <SelectItem value="ecommerce">E-commerce</SelectItem>
+                  <SelectItem value="chatbot">Chatbot</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger className="w-[180px]"><SelectValue placeholder="Tipo" /></SelectTrigger>
                 <SelectContent>
@@ -152,6 +188,7 @@ const UserLogs = () => {
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
+                  <TableHead className="min-w-[120px]">Origem</TableHead>
                   <TableHead className="min-w-[160px]">Tipo</TableHead>
                   <TableHead className="min-w-[100px]">Status</TableHead>
                   <TableHead className="min-w-[200px]">Erro</TableHead>
@@ -162,13 +199,13 @@ const UserLogs = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                       Nenhum evento no período selecionado
                     </TableCell>
                   </TableRow>
@@ -179,6 +216,9 @@ const UserLogs = () => {
                     onClick={() => setSelected(w)}
                   >
                     <TableCell className="text-xs text-muted-foreground font-mono w-12">#{w.id}</TableCell>
+                    <TableCell className="min-w-[120px]">
+                      <SourceBadge source={(w as any).source} />
+                    </TableCell>
                     <TableCell className="min-w-[160px]">
                       <Badge variant="outline" className="text-xs">{w.event_type || 'desconhecido'}</Badge>
                     </TableCell>
@@ -243,6 +283,10 @@ const UserLogs = () => {
                   >
                     {selected.status}
                   </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Origem:</span>{' '}
+                  <SourceBadge source={(selected as any).source} />
                 </div>
                 <div className="col-span-2">
                   <span className="text-muted-foreground">Recebido em:</span>{' '}
