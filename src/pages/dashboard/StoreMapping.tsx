@@ -216,7 +216,7 @@ const StoreMapping = () => {
         authToken = useAuthStore.getState().token || '';
       } catch { /* fallback */ }
 
-      const res = await fetch(`${API_BASE}/api/sync-catalog`, {
+      const res = await fetch(`${API_BASE}/sync-catalog`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
