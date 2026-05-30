@@ -89,9 +89,10 @@ const StoreMapping = () => {
           if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); setEcommerceStatus('ok'); } catch { /* ignore */ } }
         }
         if (c) {
-          setSuriEndpoint(c.suri_endpoint || '');
-          setSuriToken(c.suri_token || '');
           const ccfg = c.chatbot_config || {};
+          // Credenciais da Suri: coluna direta ou fallback do chatbot_config
+          setSuriEndpoint(c.suri_endpoint || ccfg.endpoint || '');
+          setSuriToken(c.suri_token    || ccfg.token    || '');
           setChatbotConfig(ccfg);
           if (ccfg._chatbot_stores) { try { setChatbotStores(JSON.parse(ccfg._chatbot_stores)); setChatbotStatus('ok'); } catch { /* ignore */ } }
         }

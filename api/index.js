@@ -91,9 +91,19 @@ async function handleChatbot(req, res) {
         const caller = await requireAuth(req, res); if (!caller) return;
         const targetId = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
         await ensureChatbotRow(targetId);
-        const r = await pool.query("SELECT chatbot_platform, chatbot_config, chatbot_active, chatbot_token, created_at, updated_at FROM user_integrations WHERE user_id = $1", [targetId]);
+        let r;
+        try {
+          r = await pool.query("SELECT chatbot_platform, chatbot_config, chatbot_active, chatbot_token, suri_endpoint, suri_token, suri_active, created_at, updated_at FROM user_integrations WHERE user_id = $1", [targetId]);
+        } catch {
+          r = await pool.query("SELECT chatbot_platform, chatbot_config, chatbot_active, chatbot_token, created_at, updated_at FROM user_integrations WHERE user_id = $1", [targetId]);
+        }
         if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
-        return res.status(200).json({ success: true, chatbot: r.rows[0] });
+        // Fallback: lê endpoint/token do chatbot_config se colunas suri_* estiverem vazias
+        const row = r.rows[0];
+        const ccfg = row.chatbot_config || {};
+        if (!row.suri_endpoint && ccfg.endpoint) row.suri_endpoint = ccfg.endpoint;
+        if (!row.suri_token    && ccfg.token)    row.suri_token    = ccfg.token;
+        return res.status(200).json({ success: true, chatbot: row });
       }
       case "PUT": {
         const caller = await requireAuth(req, res); if (!caller) return;
@@ -311,7 +321,11 @@ async function handleWebhook(req, res) {
     if (!r.rows[0]) return res.status(404).json({ success: false, message: "Token inválido" });
     integration = r.rows[0];
   } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
-  const { user_id, suri_endpoint, suri_token, suri_active, ecommerce_platform, chatbot_platform } = integration;
+  const chatbot_cfg_wh = integration.chatbot_config || {};
+  const suri_endpoint = integration.suri_endpoint || chatbot_cfg_wh.endpoint || null;
+  const suri_token    = integration.suri_token    || chatbot_cfg_wh.token    || null;
+  const suri_active   = !!(integration.suri_active ?? integration.chatbot_active ?? (suri_endpoint && suri_token));
+  const { user_id, ecommerce_platform, chatbot_platform } = integration;
 
   // Descobre se veio pelo token de chatbot ou ecommerce
   const isViaWebhookToken = integration.webhook_token === token;
