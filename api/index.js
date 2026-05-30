@@ -32,6 +32,7 @@ export default async function handler(req, res) {
   if (path === "/setup" || path.startsWith("/setup?")) return handleSetup(req, res);
   if (path === "/test-suri" || path.startsWith("/test-suri?")) return handleTestSuri(req, res);
   if (path === "/test-ecommerce" || path.startsWith("/test-ecommerce?")) return handleTestEcommerce(req, res);
+  if (path === "/sync-catalog" || path.startsWith("/sync-catalog?")) return handleSyncCatalog(req, res);
 
   return res.status(404).json({ success: false, message: `Rota não encontrada: ${path}` });
 }
@@ -845,4 +846,114 @@ async function handleTestEcommerce(req, res) {
       : err.message;
     return res.status(200).json({ success: false, message: msg });
   }
+}
+// ════════════════════════════════════════════════════════════════════════════
+// SYNC CATALOG
+// Lê todas as categorias e produtos do e-commerce e sincroniza na Suri.
+// Chamado manualmente pelo usuário na tela de Lojas.
+// ════════════════════════════════════════════════════════════════════════════
+async function handleSyncCatalog(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
+    return res.status(405).end();
+  }
+
+  const caller = await requireAuth(req, res);
+  if (!caller) return;
+  const userId = caller.id;
+
+  // Busca credenciais do usuário
+  const row = await pool.query(
+    "SELECT ecommerce_platform, ecommerce_config, chatbot_config, suri_endpoint, suri_token FROM user_integrations WHERE user_id=$1",
+    [userId]
+  ).then(r => r.rows[0]).catch(() => null);
+
+  if (!row) return res.status(404).json({ success: false, message: "Integração não encontrada." });
+
+  const platform = row.ecommerce_platform;
+  const ecommerceConfig = row.ecommerce_config || {};
+  const chatbotCfg = row.chatbot_config || {};
+  const suriEndpoint = row.suri_endpoint || chatbotCfg.endpoint || null;
+  const suriToken    = row.suri_token    || chatbotCfg.token    || null;
+
+  if (!platform || !ecommerceConfig.store_id) {
+    return res.status(400).json({ success: false, message: "E-commerce não configurado. Configure a plataforma antes de sincronizar." });
+  }
+  if (!suriEndpoint || !suriToken) {
+    return res.status(400).json({ success: false, message: "Chatbot não configurado. Configure a Suri antes de sincronizar." });
+  }
+
+  // Por ora, suporte completo para Nuvemshop
+  if (platform !== "nuvemshop") {
+    return res.status(400).json({ success: false, message: `Sincronização de catálogo ainda não disponível para ${platform}.` });
+  }
+
+  const { store_id, access_token } = ecommerceConfig;
+  const { processForwardEvent } = await import("./_lib/chatbot/suri/index.js");
+
+  const results = { categories: [], products: [], errors: [] };
+
+  // ── 1. Sincronizar categorias ─────────────────────────────────────────────
+  try {
+    const { listCategories: listNuvemshopCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
+    const categories = await listNuvemshopCategories(ecommerceConfig);
+
+    for (const cat of categories) {
+      try {
+        const normalized = {
+          eventType: "category.sync",
+          category: cat,
+          needsApiFetch: false,
+        };
+        const result = await processForwardEvent(suriEndpoint, suriToken, normalized, ecommerceConfig, platform);
+        results.categories.push({ id: cat.id, name: cat.name, action: result.action || "synced" });
+      } catch (err) {
+        results.errors.push({ type: "category", id: cat.id, name: cat.name, error: err.message });
+      }
+    }
+  } catch (err) {
+    results.errors.push({ type: "categories_list", error: `Falha ao listar categorias: ${err.message}` });
+  }
+
+  // ── 2. Sincronizar produtos (paginado — até 250 por página) ───────────────
+  try {
+    const { listProducts } = await import("./_lib/ecommerce/nuvemshop/client.js");
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const batch = await listProducts(store_id, access_token, { page, per_page: 50 });
+      if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
+
+      for (const p of batch) {
+        try {
+          const normalized = {
+            eventType: "product.sync",
+            productId: String(p.id),
+            needsApiFetch: true,  // sempre busca dados atualizados incluindo variantes
+          };
+          const result = await processForwardEvent(suriEndpoint, suriToken, normalized, ecommerceConfig, platform);
+          results.products.push({ id: p.id, name: p.name?.pt || String(p.id), action: result.action || "synced" });
+        } catch (err) {
+          results.errors.push({ type: "product", id: p.id, name: p.name?.pt || String(p.id), error: err.message });
+        }
+      }
+
+      // Nuvemshop pagina com até 200 resultados por página; para ao receber menos de per_page
+      if (batch.length < 50) { hasMore = false; } else { page++; }
+    }
+  } catch (err) {
+    results.errors.push({ type: "products_list", error: `Falha ao listar produtos: ${err.message}` });
+  }
+
+  const totalSynced = results.categories.length + results.products.length;
+  const totalErrors = results.errors.length;
+
+  return res.status(200).json({
+    success: totalErrors === 0 || totalSynced > 0,
+    message: `Sincronização concluída: ${results.categories.length} categoria(s), ${results.products.length} produto(s)${totalErrors > 0 ? `, ${totalErrors} erro(s)` : ""}.`,
+    categories: results.categories,
+    products: results.products,
+    errors: results.errors,
+  });
 }
