@@ -954,7 +954,7 @@ async function handleSyncCatalog(req, res) {
   const { listProducts } = await import("./_lib/ecommerce/nuvemshop/client.js");
   const { normalizeProduct } = await import("./_lib/ecommerce/nuvemshop/products.js");
   const { syncProduct } = await import("./_lib/chatbot/suri/products.js");
-  const { syncCategory } = await import("./_lib/chatbot/suri/categories.js");
+  const { syncCategory, listCategories } = await import("./_lib/chatbot/suri/categories.js");
 
   // Resolve store mapping
   let resolvedStoreId = null;
@@ -965,6 +965,7 @@ async function handleSyncCatalog(req, res) {
   } catch { /* sem mapeamento */ }
 
   const allResults = [];
+  const categoryIdMap = new Map(); // nuvemshop_id → suri_id
 
   // Helper: executa em paralelo com limite de concorrência
   async function runConcurrent(items, fn, concurrency = 5) {
@@ -973,13 +974,14 @@ async function handleSyncCatalog(req, res) {
     for (const chunk of chunks) await Promise.all(chunk.map(fn));
   }
 
-  // 1. Categorias em paralelo
+  // 1. Categorias em paralelo — coleta o mapa nuvemshop_id → suri_id
   try {
     const cats = await fetchNuvemCategories(ecommerceConfig);
     await runConcurrent(cats, async (cat) => {
       try {
         const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
         const action = r?.action || "category_updated";
+        if (r?.suriId) categoryIdMap.set(String(cat.id), String(r.suriId));
         allResults.push({ type: action, entity: "category", id: String(cat.id), name: cat.name, storeId: resolvedStoreId });
       } catch (err) {
         allResults.push({ type: "error", entity: "category", id: String(cat.id), name: cat.name, storeId: resolvedStoreId, message: err.message });
@@ -987,6 +989,16 @@ async function handleSyncCatalog(req, res) {
     }, 5);
   } catch (err) {
     allResults.push({ type: "error", entity: "category", message: err.message });
+  }
+
+  // Se o mapa ficou vazio (ex: categorias já existiam e suriId não veio), busca da Suri
+  if (categoryIdMap.size === 0) {
+    try {
+      const suriCats = await listCategories(suriEndpoint, suriToken);
+      for (const c of suriCats) {
+        if (c.externalId) categoryIdMap.set(String(c.externalId), String(c.id));
+      }
+    } catch { /* ignora — syncProduct usará null */ }
   }
 
   // 2. Busca todos os produtos primeiro (paginado), depois sincroniza em paralelo
@@ -1007,7 +1019,7 @@ async function handleSyncCatalog(req, res) {
   await runConcurrent(allRawProducts, async (raw) => {
     try {
       const normalized = normalizeProduct(raw);
-      const r = await syncProduct(suriEndpoint, suriToken, normalized, resolvedStoreId);
+      const r = await syncProduct(suriEndpoint, suriToken, normalized, resolvedStoreId, categoryIdMap);
       const action = r?.action || "product_updated";
       allResults.push({ type: action, entity: "product", id: String(raw.id), name: normalized.name || String(raw.id), storeId: resolvedStoreId });
     } catch (err) {
