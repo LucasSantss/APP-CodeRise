@@ -951,14 +951,14 @@ async function handleSyncCatalog(req, res) {
 
   const { store_id, access_token } = ecommerceConfig;
   const { processForwardEvent } = await import("./_lib/chatbot/suri/index.js");
-  const { listCategories: listNuvemCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
+  const { fetchCategories: fetchNuvemCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
   const { listProducts } = await import("./_lib/ecommerce/nuvemshop/client.js");
 
   const results = { categories: [], products: [], errors: [] };
 
   // 1. Categorias
   try {
-    const cats = await listNuvemCategories(ecommerceConfig);
+    const cats = await fetchNuvemCategories(ecommerceConfig);
     for (const cat of cats) {
       try {
         const r = await processForwardEvent(suriEndpoint, suriToken,
