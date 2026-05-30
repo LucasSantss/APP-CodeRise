@@ -984,8 +984,8 @@ async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId)
     return { action: "skipped", reason: "Credenciais da Nuvemshop não configuradas" };
   }
 
-  // Busca o pedido na Suri via GET /api/shop/orders/:id usando o campo Id do payload
-  const suriOrderId = normalized.suriOrderId || normalized.orderId;
+  // Usa OrderId (numérico) para buscar na Suri — o campo Id tem prefixo "cb" que deve ser ignorado
+  const suriOrderId = normalized.orderId || normalized.suriOrderId;
   if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
 
   let suriOrder;
