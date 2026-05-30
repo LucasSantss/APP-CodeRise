@@ -968,7 +968,6 @@ async function handlePlatformSettings(req, res) {
 // SYNC CATALOG — sincroniza categorias e produtos do e-commerce na Suri
 // ─── Suri OrdersPaid → deduz estoque na Nuvemshop ───────────────────────────
 async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId) {
-  const { searchOrders } = await import("./_lib/chatbot/suri/client.js");
   const { getProductVariants, updateVariantStock } = await import("./_lib/ecommerce/nuvemshop/client.js");
 
   // Busca credenciais da Nuvemshop para este usuário
@@ -985,26 +984,26 @@ async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId)
     return { action: "skipped", reason: "Credenciais da Nuvemshop não configuradas" };
   }
 
-  // Busca o pedido na Suri pelo OrderId
-  const orderId = normalized.suriOrderId || normalized.orderId;
-  if (!orderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
+  // Busca o pedido na Suri via GET /api/shop/orders/:id usando o campo Id do payload
+  const suriOrderId = normalized.suriOrderId || normalized.orderId;
+  if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
 
   let suriOrder;
   try {
-    const res = await searchOrders(suriEndpoint, suriToken, orderId);
-    // searchOrders retorna { data: [...] } ou array direto
-    const orders = Array.isArray(res) ? res : (res?.data || res?.orders || []);
-    suriOrder = orders[0];
+    const { request } = await import("./_lib/chatbot/suri/client.js");
+    suriOrder = await request(suriEndpoint, suriToken, "GET", `/api/shop/orders/${suriOrderId}`);
   } catch (err) {
     throw new Error(`Erro ao buscar pedido na Suri: ${err.message}`);
   }
 
-  if (!suriOrder) throw new Error(`Pedido ${orderId} não encontrado na Suri`);
+  if (!suriOrder) throw new Error(`Pedido ${suriOrderId} não encontrado na Suri`);
 
-  const items = suriOrder.items || suriOrder.Items || suriOrder.products || [];
-  if (!items.length) return { action: "skipped", reason: "Pedido sem itens" };
+  // A Suri pode retornar { data: {...} } ou o objeto diretamente
+  const orderData = suriOrder?.data || suriOrder;
+  const items = orderData?.items || orderData?.Items || orderData?.products || orderData?.Products || [];
+  if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
 
-  const results = [];
+  const stockResults = [];
   for (const item of items) {
     const productId = String(item.productId || item.ProductId || item.product_id || "");
     const sku       = String(item.sku || item.Sku || item.SKU || "");
@@ -1019,20 +1018,20 @@ async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId)
         : null;
 
       if (!variant) {
-        results.push({ productId, sku, status: "variant_not_found" });
+        stockResults.push({ productId, sku, status: "variant_not_found" });
         continue;
       }
 
       const currentStock = variant.stock ?? 0;
       const newStock     = Math.max(0, currentStock - qty);
       await updateVariantStock(store_id, access_token, productId, variant.id, newStock);
-      results.push({ productId, sku, variantId: variant.id, previousStock: currentStock, newStock, deducted: currentStock - newStock });
+      stockResults.push({ productId, sku, variantId: variant.id, previousStock: currentStock, newStock, deducted: currentStock - newStock });
     } catch (err) {
-      results.push({ productId, sku, status: "error", error: err.message });
+      stockResults.push({ productId, sku, status: "error", error: err.message });
     }
   }
 
-  return { action: "stock_deducted", orderId, items: results };
+  return { action: "stock_deducted", orderId: suriOrderId, items: stockResults };
 }
 
 // POST /sync-catalog
