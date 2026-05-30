@@ -308,21 +308,31 @@ async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk
 async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
 async function processProductSync(ep, tk, n) {
   const { syncProduct } = await import("./_lib/chatbot/suri/products.js");
-  const { syncCategory, listCategories } = await import("./_lib/chatbot/suri/categories.js");
+  const { listCategories } = await import("./_lib/chatbot/suri/categories.js");
   const { normalizeProduct } = await import("./_lib/ecommerce/nuvemshop/products.js");
 
-  // n.product já vem com variantes atualizadas (buscadas no handleWebhook)
+  // n.product vem no formato raw da Nuvemshop (com variantes atualizadas)
   const product = n.product ? normalizeProduct(n.product) : null;
   if (!product) throw new Error("Produto não encontrado no payload do webhook");
 
-  // Monta categoryIdMap buscando categorias da Suri pelo externalId
+  // Monta categoryIdMap: tenta externalId, id e name como chaves
   const categoryIdMap = new Map();
   try {
     const suriCats = await listCategories(ep, tk);
     for (const c of suriCats) {
-      if (c.externalId) categoryIdMap.set(String(c.externalId), String(c.id));
+      const suriId = String(c.id);
+      // mapeia por externalId (ideal)
+      if (c.externalId) categoryIdMap.set(String(c.externalId), suriId);
+      // mapeia também pelo próprio id (caso a Suri use o ID da Nuvemshop como id interno)
+      categoryIdMap.set(suriId, suriId);
     }
-  } catch { /* sem mapa, syncProduct usará null */ }
+  } catch { /* sem mapa */ }
+
+  // Se o mapa não tem o categoryId do produto, tenta usar o ID diretamente
+  // (funciona quando a Suri usa o mesmo ID da Nuvemshop como ID interno)
+  if (product.categoryId && !categoryIdMap.has(String(product.categoryId))) {
+    categoryIdMap.set(String(product.categoryId), String(product.categoryId));
+  }
 
   return syncProduct(ep, tk, product, null, categoryIdMap.size > 0 ? categoryIdMap : null);
 }
@@ -1020,9 +1030,12 @@ async function handleSyncCatalog(req, res) {
     try {
       const suriCats = await listCategories(suriEndpoint, suriToken);
       for (const c of suriCats) {
-        if (c.externalId) categoryIdMap.set(String(c.externalId), String(c.id));
+        const suriId = String(c.id);
+        if (c.externalId) categoryIdMap.set(String(c.externalId), suriId);
+        // mapeia também pelo próprio id como chave
+        categoryIdMap.set(suriId, suriId);
       }
-    } catch { /* ignora — syncProduct usará null */ }
+    } catch { /* ignora */ }
   }
 
   // 2. Busca todos os produtos paginado, injetando variantes atualizadas em paralelo por batch
@@ -1052,7 +1065,11 @@ async function handleSyncCatalog(req, res) {
   await runConcurrent(allRawProducts, async (raw) => {
     try {
       const normalized = normalizeProduct(raw);
-      const r = await syncProduct(suriEndpoint, suriToken, normalized, resolvedStoreId, categoryIdMap);
+      // Fallback: se o categoryId não está no mapa, tenta usar o ID diretamente
+      if (normalized.categoryId && !categoryIdMap.has(String(normalized.categoryId))) {
+        categoryIdMap.set(String(normalized.categoryId), String(normalized.categoryId));
+      }
+      const r = await syncProduct(suriEndpoint, suriToken, normalized, resolvedStoreId, categoryIdMap.size > 0 ? categoryIdMap : null);
       const action = r?.action || "product_updated";
       allResults.push({ type: action, entity: "product", id: String(raw.id), name: normalized.name || String(raw.id), storeId: resolvedStoreId });
     } catch (err) {
