@@ -425,8 +425,20 @@ async function handleWebhook(req, res) {
   }
 
   let normalized;
-  try { normalized = normalizePayload(ecommerce_platform, rawPayload); }
-  catch { normalized = { eventType: rawPayload.type||rawPayload.event||"desconhecido", orderId:"", items:[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} }; }
+  // Webhook da Suri (chatbot) — tem formato próprio com HookEvent
+  if (!isViaWebhookToken && rawPayload.HookEvent) {
+    const suriEventMap = {
+      "OrdersPaid":      "order.paid",
+      "OrdersCreated":   "order.created",
+      "OrdersCancelled": "order.cancelled",
+      "OrdersShipped":   "order.shipped",
+    };
+    const eventType = suriEventMap[rawPayload.HookEvent] || rawPayload.HookEvent;
+    normalized = { eventType, orderId: String(rawPayload.OrderId || rawPayload.Id || ""), suriOrderId: String(rawPayload.Id || "") };
+  } else {
+    try { normalized = normalizePayload(ecommerce_platform, rawPayload); }
+    catch { normalized = { eventType: rawPayload.type||rawPayload.event||"desconhecido", orderId:"", items:[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} }; }
+  }
   const eventType = normalized.eventType;
   let webhookId;
   try {
@@ -445,6 +457,7 @@ async function handleWebhook(req, res) {
       case "order.shipped":   result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
       case "order.cancelled": result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
       case "product.sync":    result = await processProductSync(suri_endpoint, suri_token, normalized);   break;
+      case "order.paid":      result = await processSuriOrderPaid(suri_endpoint, suri_token, normalized, user_id); break;
       default:
         await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
         return res.status(200).json({ success:true, message:"Evento registrado sem processamento", event_type:eventType, webhook_id:webhookId });
@@ -953,6 +966,75 @@ async function handlePlatformSettings(req, res) {
 
 // ════════════════════════════════════════════════════════════════════════════
 // SYNC CATALOG — sincroniza categorias e produtos do e-commerce na Suri
+// ─── Suri OrdersPaid → deduz estoque na Nuvemshop ───────────────────────────
+async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId) {
+  const { searchOrders } = await import("./_lib/chatbot/suri/client.js");
+  const { getProductVariants, updateVariantStock } = await import("./_lib/ecommerce/nuvemshop/client.js");
+
+  // Busca credenciais da Nuvemshop para este usuário
+  const intRow = await pool.query(
+    "SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1",
+    [userId]
+  );
+  const integration = intRow.rows[0];
+  if (!integration || integration.ecommerce_platform !== "nuvemshop") {
+    return { action: "skipped", reason: "E-commerce não é Nuvemshop" };
+  }
+  const { store_id, access_token } = integration.ecommerce_config || {};
+  if (!store_id || !access_token) {
+    return { action: "skipped", reason: "Credenciais da Nuvemshop não configuradas" };
+  }
+
+  // Busca o pedido na Suri pelo OrderId
+  const orderId = normalized.suriOrderId || normalized.orderId;
+  if (!orderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
+
+  let suriOrder;
+  try {
+    const res = await searchOrders(suriEndpoint, suriToken, orderId);
+    // searchOrders retorna { data: [...] } ou array direto
+    const orders = Array.isArray(res) ? res : (res?.data || res?.orders || []);
+    suriOrder = orders[0];
+  } catch (err) {
+    throw new Error(`Erro ao buscar pedido na Suri: ${err.message}`);
+  }
+
+  if (!suriOrder) throw new Error(`Pedido ${orderId} não encontrado na Suri`);
+
+  const items = suriOrder.items || suriOrder.Items || suriOrder.products || [];
+  if (!items.length) return { action: "skipped", reason: "Pedido sem itens" };
+
+  const results = [];
+  for (const item of items) {
+    const productId = String(item.productId || item.ProductId || item.product_id || "");
+    const sku       = String(item.sku || item.Sku || item.SKU || "");
+    const qty       = parseInt(item.quantity || item.Quantity || item.qty || 1, 10);
+    if (!productId || !qty) continue;
+
+    try {
+      // Busca variantes do produto na Nuvemshop para encontrar pelo SKU
+      const variants = await getProductVariants(store_id, access_token, productId);
+      const variant  = Array.isArray(variants)
+        ? variants.find(v => String(v.sku) === sku || String(v.id) === sku) || variants[0]
+        : null;
+
+      if (!variant) {
+        results.push({ productId, sku, status: "variant_not_found" });
+        continue;
+      }
+
+      const currentStock = variant.stock ?? 0;
+      const newStock     = Math.max(0, currentStock - qty);
+      await updateVariantStock(store_id, access_token, productId, variant.id, newStock);
+      results.push({ productId, sku, variantId: variant.id, previousStock: currentStock, newStock, deducted: currentStock - newStock });
+    } catch (err) {
+      results.push({ productId, sku, status: "error", error: err.message });
+    }
+  }
+
+  return { action: "stock_deducted", orderId, items: results };
+}
+
 // POST /sync-catalog
 // ════════════════════════════════════════════════════════════════════════════
 async function handleSyncCatalog(req, res) {
