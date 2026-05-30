@@ -255,7 +255,11 @@ function normalizeNuvemshop(payload) {
     "products/created":"product.sync","products/updated":"product.sync",
   };
   const eventType=statusMap[topic]||topic;
-  if (eventType==="product.sync") { const p=payload.product||payload,v=p.variants?.[0]||{}; return { eventType, product:{id:String(p.id),sku:String(v.sku||p.id),name:p.name?.pt||p.name?.es||Object.values(p.name||{})[0]||"",description:((p.description?.pt||p.description?.es||"")).replace(/<[^>]+>/g,""),categoryId:String(p.categories?.[0]?.id||""),brand:p.brand||null,isActive:!!p.published_at,price:parseFloat(v.price||p.price||0),promotionalPrice:parseFloat(v.promotional_price||p.promotional_price||0),url:p.canonical_url||null,images:(p.images||[]).map(i=>({url:i.src,description:i.alt||null})),weightInGrams:parseFloat(v.weight||0)*1000,dimensions:{heightInCm:parseFloat(v.height||0),widthInCm:parseFloat(v.width||0),lengthInCm:parseFloat(v.depth||0)}} }; }
+  // Para product.sync: usa o produto completo já injetado pelo handleWebhook (com variantes atualizadas)
+  if (eventType==="product.sync") {
+    const p=payload.product||payload;
+    return { eventType, product: p };
+  }
   const order=payload.order||payload;
   return { eventType, orderId:String(order.id||order.number||""), paymentTracking:order.payment_details?.method||"", logisticStatus:order.shipping_status||order.status||"shipped", totalAmount:parseFloat(order.total||0), items:(order.products||[]).map(i=>({productId:String(i.product_id||i.id),sku:String(i.sku||i.variant_id),name:i.name,quantity:i.quantity,unitPrice:parseFloat(i.price||0),discount:parseFloat(i.discount||0),sellerId:"all"})), shipping:{provider:order.shipping_pickup_type||"Entrega",type:1,price:parseFloat(order.shipping_cost_owner||0),estimative:"5 dias úteis"} };
 }
@@ -302,11 +306,25 @@ async function processOrderCreated(ep, tk, n) {
 }
 async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); const st=mapLogisticStatus(n.logisticStatus); await suriRequest(ep,tk,"POST","/api/shop/orders/logistic",{id:ex.id||ex.orderId,status:st}); return {action:"logistic_updated",suriOrderId:ex.id,status:st}; }
 async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
-async function processProductSync(ep,tk,n) {
-  const p=n.product;
-  const sp={id:p.id,sku:p.sku,categoryId:p.categoryId,subcategoryId:null,sellerId:"all",sellerName:null,isActive:p.isActive,name:p.name,description:p.description||"",url:p.url||null,price:p.price,promotionalPrice:p.promotionalPrice||0,hasShippingRestriction:false,images:p.images||[],attributes:[],dimensions:[{sku:p.sku,dimensions:{},image:{url:p.images?.[0]?.url||""},price:p.price,priceTables:{},stocks:{},measurements:{weightInGrams:p.weightInGrams||0,heightInCm:p.dimensions?.heightInCm||0,widthInCm:p.dimensions?.widthInCm||0,lengthInCm:p.dimensions?.lengthInCm||0,unitsPerPackage:1}}],weightInGrams:p.weightInGrams||0};
-  try { await suriRequest(ep,tk,"PUT","/api/shop/products",sp); return {action:"product_updated",productId:p.id}; }
-  catch (err) { if (err.message.includes("404")) { await suriRequest(ep,tk,"POST","/api/shop/products",sp); return {action:"product_created",productId:p.id}; } throw err; }
+async function processProductSync(ep, tk, n) {
+  const { syncProduct } = await import("./_lib/chatbot/suri/products.js");
+  const { syncCategory, listCategories } = await import("./_lib/chatbot/suri/categories.js");
+  const { normalizeProduct } = await import("./_lib/ecommerce/nuvemshop/products.js");
+
+  // n.product já vem com variantes atualizadas (buscadas no handleWebhook)
+  const product = n.product ? normalizeProduct(n.product) : null;
+  if (!product) throw new Error("Produto não encontrado no payload do webhook");
+
+  // Monta categoryIdMap buscando categorias da Suri pelo externalId
+  const categoryIdMap = new Map();
+  try {
+    const suriCats = await listCategories(ep, tk);
+    for (const c of suriCats) {
+      if (c.externalId) categoryIdMap.set(String(c.externalId), String(c.id));
+    }
+  } catch { /* sem mapa, syncProduct usará null */ }
+
+  return syncProduct(ep, tk, product, null, categoryIdMap.size > 0 ? categoryIdMap : null);
 }
 async function handleWebhook(req, res) {
   if (req.method === "GET") return res.status(200).json({ success: true, message: "Webhook endpoint ativo" });
@@ -378,7 +396,13 @@ async function handleWebhook(req, res) {
             const fullData = await r.json();
             // Merge: mantém event/store_id originais e injeta dados completos
             if (ev.startsWith("product")) {
-              rawPayload = { ...rawPayload, product: fullData };
+              // Busca variantes atualizadas em paralelo para garantir estoque correto
+              let variants = fullData.variants || [];
+              try {
+                const vr = await fetch(`${base}/products/${rawPayload.id}/variants`, { headers });
+                if (vr.ok) { const vd = await vr.json(); if (Array.isArray(vd) && vd.length > 0) variants = vd; }
+              } catch { /* usa variantes do produto */ }
+              rawPayload = { ...rawPayload, product: { ...fullData, variants } };
             } else if (ev.startsWith("order")) {
               rawPayload = { ...rawPayload, order: fullData };
             } else {
@@ -951,7 +975,7 @@ async function handleSyncCatalog(req, res) {
 
   const { store_id, access_token } = ecommerceConfig;
   const { fetchCategories: fetchNuvemCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
-  const { listProducts } = await import("./_lib/ecommerce/nuvemshop/client.js");
+  const { listProducts, getProductVariants } = await import("./_lib/ecommerce/nuvemshop/client.js");
   const { normalizeProduct } = await import("./_lib/ecommerce/nuvemshop/products.js");
   const { syncProduct } = await import("./_lib/chatbot/suri/products.js");
   const { syncCategory, listCategories } = await import("./_lib/chatbot/suri/categories.js");
@@ -1001,13 +1025,22 @@ async function handleSyncCatalog(req, res) {
     } catch { /* ignora — syncProduct usará null */ }
   }
 
-  // 2. Busca todos os produtos primeiro (paginado), depois sincroniza em paralelo
+  // 2. Busca todos os produtos paginado, injetando variantes atualizadas em paralelo por batch
   const allRawProducts = [];
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
       const batch = await listProducts(store_id, access_token, { page, per_page: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
+
+      // Busca variantes atualizadas de todos os produtos do batch em paralelo
+      await Promise.all(batch.map(async (p) => {
+        try {
+          const variants = await getProductVariants(store_id, access_token, p.id);
+          if (Array.isArray(variants) && variants.length > 0) p.variants = variants;
+        } catch { /* mantém variants do listProducts */ }
+      }));
+
       for (const raw of batch) allRawProducts.push(raw);
       hasMore = batch.length >= 50;
       page++;
