@@ -1014,9 +1014,18 @@ async function handleSyncCatalog(req, res) {
     }
   }, 10);
 
+  const summary = {
+    categories_created: results.categories.filter(c => c.action === "category_created").length,
+    categories_updated: results.categories.filter(c => c.action !== "category_created").length,
+    products_created: results.products.filter(p => p.action === "product_created").length,
+    products_updated: results.products.filter(p => p.action !== "product_created").length,
+    errors: results.errors.length,
+  };
+
   return res.status(200).json({
     success: results.errors.length === 0 || (results.categories.length + results.products.length) > 0,
     message: `Sincronização concluída: ${results.categories.length} categoria(s), ${results.products.length} produto(s)${results.errors.length > 0 ? `, ${results.errors.length} erro(s)` : ""}.`,
+    summary,
     categories: results.categories,
     products: results.products,
     errors: results.errors,
