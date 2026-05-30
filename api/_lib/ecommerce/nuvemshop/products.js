@@ -80,7 +80,17 @@ export function normalizeProduct(p) {
     description: (p.description?.pt || p.description?.es || "").replace(/<[^>]+>/g, ""),
     categoryId: String(p.categories?.[0]?.id || ""),
     brand: p.brand || null,
-    isActive: !!(p.published ?? p.published_at),
+    // published pode ser: true/false (boolean), uma string de data ISO (quando ativo),
+    // ou null/undefined. published_at só deve ser usado se published for undefined.
+    // Nunca usar published_at como fallback pois pode estar preenchido mesmo em produto inativo.
+    isActive: (() => {
+      const pub = p.published;
+      if (pub === true)  return true;
+      if (pub === false) return false;
+      if (typeof pub === "string" && pub.length > 0) return true; // data ISO = publicado
+      // published ausente: usa has_stock como último recurso, nunca published_at
+      return false;
+    })(),
     price: firstVariant.price || 0,
     promotionalPrice: firstVariant.promotionalPrice || 0,
     url: p.canonical_url || null,
