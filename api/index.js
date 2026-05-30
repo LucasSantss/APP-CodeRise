@@ -950,53 +950,69 @@ async function handleSyncCatalog(req, res) {
   }
 
   const { store_id, access_token } = ecommerceConfig;
-  const { processForwardEvent } = await import("./_lib/chatbot/suri/index.js");
   const { fetchCategories: fetchNuvemCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
   const { listProducts } = await import("./_lib/ecommerce/nuvemshop/client.js");
   const { normalizeProduct } = await import("./_lib/ecommerce/nuvemshop/products.js");
+  const { syncProduct } = await import("./_lib/chatbot/suri/products.js");
+  const { syncCategory } = await import("./_lib/chatbot/suri/categories.js");
+
+  // Resolve store mapping
+  let resolvedStoreId = null;
+  try {
+    const mappings = ecommerceConfig._store_mappings ? JSON.parse(ecommerceConfig._store_mappings) : [];
+    const match = mappings.find(m => String(m.ecommerceStoreId) === String(store_id));
+    if (match) resolvedStoreId = String(match.chatbotStoreId);
+  } catch { /* sem mapeamento */ }
 
   const results = { categories: [], products: [], errors: [] };
 
-  // 1. Categorias
+  // Helper: executa em paralelo com limite de concorrência
+  async function runConcurrent(items, fn, concurrency = 5) {
+    const chunks = [];
+    for (let i = 0; i < items.length; i += concurrency) chunks.push(items.slice(i, i + concurrency));
+    for (const chunk of chunks) await Promise.all(chunk.map(fn));
+  }
+
+  // 1. Categorias em paralelo
   try {
     const cats = await fetchNuvemCategories(ecommerceConfig);
-    for (const cat of cats) {
+    await runConcurrent(cats, async (cat) => {
       try {
-        const r = await processForwardEvent(suriEndpoint, suriToken,
-          { eventType: "category.sync", category: cat, needsApiFetch: false },
-          ecommerceConfig, platform);
-        results.categories.push({ id: cat.id, name: cat.name, action: r.action || "synced" });
+        const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
+        results.categories.push({ id: cat.id, name: cat.name, action: r?.action || "synced" });
       } catch (err) {
         results.errors.push({ type: "category", id: cat.id, name: cat.name, error: err.message });
       }
-    }
+    }, 5);
   } catch (err) {
     results.errors.push({ type: "categories_list", error: err.message });
   }
 
-  // 2. Produtos (paginado) — normaliza localmente para evitar chamada extra por produto
+  // 2. Busca todos os produtos primeiro (paginado), depois sincroniza em paralelo
+  const allProducts = [];
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
       const batch = await listProducts(store_id, access_token, { page, per_page: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
-      for (const raw of batch) {
-        try {
-          const normalized = normalizeProduct(raw);
-          const r = await processForwardEvent(suriEndpoint, suriToken,
-            { eventType: "product.sync", product: normalized, needsApiFetch: false },
-            ecommerceConfig, platform);
-          results.products.push({ id: raw.id, name: normalized.name || String(raw.id), action: r.action || "synced" });
-        } catch (err) {
-          results.errors.push({ type: "product", id: raw.id, name: raw.name?.pt || String(raw.id), error: err.message });
-        }
-      }
+      for (const raw of batch) allProducts.push(raw);
       hasMore = batch.length >= 50;
       page++;
     }
   } catch (err) {
     results.errors.push({ type: "products_list", error: err.message });
   }
+
+  // Sincroniza produtos em paralelo (10 por vez)
+  await runConcurrent(allProducts, async (raw) => {
+    try {
+      const normalized = normalizeProduct(raw);
+      const r = await syncProduct(suriEndpoint, suriToken, normalized, resolvedStoreId);
+      results.products.push({ id: raw.id, name: normalized.name || String(raw.id), action: r?.action || "synced" });
+    } catch (err) {
+      results.errors.push({ type: "product", id: raw.id, name: raw.name?.pt || String(raw.id), error: err.message });
+    }
+  }, 10);
 
   return res.status(200).json({
     success: results.errors.length === 0 || (results.categories.length + results.products.length) > 0,
