@@ -1000,8 +1000,11 @@ async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId)
 
   // A Suri pode retornar { data: {...} } ou o objeto diretamente
   const orderData = suriOrder?.data || suriOrder;
-  const items = orderData?.items || orderData?.Items || orderData?.products || orderData?.Products || [];
-  if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
+  const items = orderData?.items || orderData?.Items || orderData?.products || orderData?.Products || orderData?.orderItems || orderData?.OrderItems || [];
+  if (!items.length) {
+    // Retorna estrutura completa para diagnóstico
+    throw new Error(`Pedido sem itens. Estrutura recebida: ${JSON.stringify(suriOrder).slice(0, 500)}`);
+  }
 
   const stockResults = [];
   for (const item of items) {
