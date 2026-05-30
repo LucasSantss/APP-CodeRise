@@ -450,7 +450,7 @@ const StoreMapping = () => {
           <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={handleSyncCatalog}
-              disabled={syncing || !hasCredentials || ecommercePlatform !== 'nuvemshop'}
+              disabled={syncing || ecommerceStatus !== 'ok' || chatbotStatus !== 'ok'}
               className="gap-2"
             >
               {syncing
