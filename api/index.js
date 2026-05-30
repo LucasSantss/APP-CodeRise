@@ -953,6 +953,7 @@ async function handleSyncCatalog(req, res) {
   const { processForwardEvent } = await import("./_lib/chatbot/suri/index.js");
   const { fetchCategories: fetchNuvemCategories } = await import("./_lib/ecommerce/nuvemshop/categories.js");
   const { listProducts } = await import("./_lib/ecommerce/nuvemshop/client.js");
+  const { normalizeProduct } = await import("./_lib/ecommerce/nuvemshop/products.js");
 
   const results = { categories: [], products: [], errors: [] };
 
@@ -973,20 +974,21 @@ async function handleSyncCatalog(req, res) {
     results.errors.push({ type: "categories_list", error: err.message });
   }
 
-  // 2. Produtos (paginado)
+  // 2. Produtos (paginado) — normaliza localmente para evitar chamada extra por produto
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
       const batch = await listProducts(store_id, access_token, { page, per_page: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
-      for (const p of batch) {
+      for (const raw of batch) {
         try {
+          const normalized = normalizeProduct(raw);
           const r = await processForwardEvent(suriEndpoint, suriToken,
-            { eventType: "product.sync", productId: String(p.id), needsApiFetch: true },
+            { eventType: "product.sync", product: normalized, needsApiFetch: false },
             ecommerceConfig, platform);
-          results.products.push({ id: p.id, name: p.name?.pt || String(p.id), action: r.action || "synced" });
+          results.products.push({ id: raw.id, name: normalized.name || String(raw.id), action: r.action || "synced" });
         } catch (err) {
-          results.errors.push({ type: "product", id: p.id, name: p.name?.pt || String(p.id), error: err.message });
+          results.errors.push({ type: "product", id: raw.id, name: raw.name?.pt || String(raw.id), error: err.message });
         }
       }
       hasMore = batch.length >= 50;
