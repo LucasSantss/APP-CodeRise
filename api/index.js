@@ -998,19 +998,17 @@ async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId)
 
   if (!suriOrder) throw new Error(`Pedido ${suriOrderId} não encontrado na Suri`);
 
-  // A Suri pode retornar { data: {...} } ou o objeto diretamente
+  // Estrutura real: { success, data: { items: [...] } }
   const orderData = suriOrder?.data || suriOrder;
-  const items = orderData?.items || orderData?.Items || orderData?.products || orderData?.Products || orderData?.orderItems || orderData?.OrderItems || [];
-  if (!items.length) {
-    // Retorna estrutura completa para diagnóstico
-    throw new Error(`Pedido sem itens. Estrutura recebida: ${JSON.stringify(suriOrder).slice(0, 500)}`);
-  }
+  const items = orderData?.items || [];
+  if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
 
   const stockResults = [];
   for (const item of items) {
-    const productId = String(item.productId || item.ProductId || item.product_id || "");
-    const sku       = String(item.sku || item.Sku || item.SKU || "");
-    const qty       = parseInt(item.quantity || item.Quantity || item.qty || 1, 10);
+    // Campos reais da Suri: providerId = ID do produto na Nuvemshop, sku, quantity
+    const productId = String(item.providerId || "");
+    const sku       = String(item.sku || "");
+    const qty       = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
     if (!productId || !qty) continue;
 
     try {
