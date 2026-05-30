@@ -964,7 +964,7 @@ async function handleSyncCatalog(req, res) {
     if (match) resolvedStoreId = String(match.chatbotStoreId);
   } catch { /* sem mapeamento */ }
 
-  const results = { categories: [], products: [], errors: [] };
+  const allResults = [];
 
   // Helper: executa em paralelo com limite de concorrência
   async function runConcurrent(items, fn, concurrency = 5) {
@@ -979,55 +979,58 @@ async function handleSyncCatalog(req, res) {
     await runConcurrent(cats, async (cat) => {
       try {
         const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
-        results.categories.push({ id: cat.id, name: cat.name, action: r?.action || "synced" });
+        const action = r?.action || "category_updated";
+        allResults.push({ type: action, entity: "category", id: String(cat.id), name: cat.name, storeId: resolvedStoreId });
       } catch (err) {
-        results.errors.push({ type: "category", id: cat.id, name: cat.name, error: err.message });
+        allResults.push({ type: "error", entity: "category", id: String(cat.id), name: cat.name, storeId: resolvedStoreId, message: err.message });
       }
     }, 5);
   } catch (err) {
-    results.errors.push({ type: "categories_list", error: err.message });
+    allResults.push({ type: "error", entity: "category", message: err.message });
   }
 
   // 2. Busca todos os produtos primeiro (paginado), depois sincroniza em paralelo
-  const allProducts = [];
+  const allRawProducts = [];
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
       const batch = await listProducts(store_id, access_token, { page, per_page: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
-      for (const raw of batch) allProducts.push(raw);
+      for (const raw of batch) allRawProducts.push(raw);
       hasMore = batch.length >= 50;
       page++;
     }
   } catch (err) {
-    results.errors.push({ type: "products_list", error: err.message });
+    allResults.push({ type: "error", entity: "product", message: err.message });
   }
 
-  // Sincroniza produtos em paralelo (10 por vez)
-  await runConcurrent(allProducts, async (raw) => {
+  await runConcurrent(allRawProducts, async (raw) => {
     try {
       const normalized = normalizeProduct(raw);
       const r = await syncProduct(suriEndpoint, suriToken, normalized, resolvedStoreId);
-      results.products.push({ id: raw.id, name: normalized.name || String(raw.id), action: r?.action || "synced" });
+      const action = r?.action || "product_updated";
+      allResults.push({ type: action, entity: "product", id: String(raw.id), name: normalized.name || String(raw.id), storeId: resolvedStoreId });
     } catch (err) {
-      results.errors.push({ type: "product", id: raw.id, name: raw.name?.pt || String(raw.id), error: err.message });
+      allResults.push({ type: "error", entity: "product", id: String(raw.id), name: raw.name?.pt || String(raw.id), storeId: resolvedStoreId, message: err.message });
     }
   }, 10);
 
   const summary = {
-    categories_created: results.categories.filter(c => c.action === "category_created").length,
-    categories_updated: results.categories.filter(c => c.action !== "category_created").length,
-    products_created: results.products.filter(p => p.action === "product_created").length,
-    products_updated: results.products.filter(p => p.action !== "product_created").length,
-    errors: results.errors.length,
+    categories_created: allResults.filter(r => r.type === "category_created").length,
+    categories_updated: allResults.filter(r => r.entity === "category" && r.type !== "error" && r.type !== "category_created").length,
+    products_created:   allResults.filter(r => r.type === "product_created").length,
+    products_updated:   allResults.filter(r => r.entity === "product" && r.type !== "error" && r.type !== "product_created").length,
+    errors:             allResults.filter(r => r.type === "error").length,
   };
 
+  const hasSuccess = (summary.categories_created + summary.categories_updated + summary.products_created + summary.products_updated) > 0;
+
   return res.status(200).json({
-    success: results.errors.length === 0 || (results.categories.length + results.products.length) > 0,
-    message: `Sincronização concluída: ${results.categories.length} categoria(s), ${results.products.length} produto(s)${results.errors.length > 0 ? `, ${results.errors.length} erro(s)` : ""}.`,
+    success: hasSuccess,
+    message: `Sincronização concluída: ${summary.categories_created + summary.categories_updated} categoria(s), ${summary.products_created + summary.products_updated} produto(s)${summary.errors > 0 ? `, ${summary.errors} erro(s)` : ""}.`,
     summary,
-    categories: results.categories,
-    products: results.products,
-    errors: results.errors,
+    results: allResults,
+    resolvedStoreId,
+    platform,
   });
 }
