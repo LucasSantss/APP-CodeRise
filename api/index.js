@@ -990,13 +990,17 @@ async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId)
   const suriOrderId = normalized.orderId || normalized.suriOrderId;
   if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
 
-  let suriOrder;
-  try {
-    const { request } = await import("./_lib/chatbot/suri/client.js");
-    suriOrder = await request(suriEndpoint, suriToken, "GET", `/api/shop/orders/${suriOrderId}`);
-  } catch (err) {
-    throw new Error(`Erro ao buscar pedido na Suri: ${err.message}`);
+  const base = suriEndpoint.replace(/\/+$/, "");
+  const orderRes = await fetch(`${base}/api/shop/orders/${suriOrderId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": `Bearer ${suriToken}` },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!orderRes.ok) {
+    const errBody = await orderRes.json().catch(() => ({}));
+    throw new Error(`Suri GET /api/shop/orders/${suriOrderId} → HTTP ${orderRes.status}: ${JSON.stringify(errBody).slice(0, 300)}`);
   }
+  const suriOrder = await orderRes.json();
 
   if (!suriOrder) throw new Error(`Pedido ${suriOrderId} não encontrado na Suri`);
 
@@ -1039,10 +1043,8 @@ async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId)
 
 // ─── Suri OrdersCancelled → devolve estoque na Nuvemshop ────────────────────
 async function processSuriOrderCancelled(suriEndpoint, suriToken, normalized, userId) {
-  const { request } = await import("./_lib/chatbot/suri/client.js");
   const { getProductVariants, updateVariantStock } = await import("./_lib/ecommerce/nuvemshop/client.js");
 
-  // Busca credenciais da Nuvemshop para este usuário
   const intRow = await pool.query(
     "SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1",
     [userId]
@@ -1059,15 +1061,22 @@ async function processSuriOrderCancelled(suriEndpoint, suriToken, normalized, us
   const suriOrderId = normalized.orderId || normalized.suriOrderId;
   if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
 
-  // Busca o pedido na Suri via GET /api/shop/orders/:id
-  let suriOrder;
-  try {
-    suriOrder = await request(suriEndpoint, suriToken, "GET", `/api/shop/orders/${suriOrderId}`);
-  } catch (err) {
-    throw new Error(`Erro ao buscar pedido na Suri: ${err.message}`);
+  // Busca o pedido na Suri via fetch direto
+  const base = suriEndpoint.replace(/\/+$/, "");
+  const orderRes = await fetch(`${base}/api/shop/orders/${suriOrderId}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Authorization": `Bearer ${suriToken}`,
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!orderRes.ok) {
+    const errBody = await orderRes.json().catch(() => ({}));
+    throw new Error(`Suri GET /api/shop/orders/${suriOrderId} → HTTP ${orderRes.status}: ${JSON.stringify(errBody).slice(0, 300)}`);
   }
-
-  if (!suriOrder) throw new Error(`Pedido ${suriOrderId} não encontrado na Suri`);
+  const suriOrder = await orderRes.json();
 
   const orderData = suriOrder?.data || suriOrder;
   const items = orderData?.items || [];
@@ -1081,7 +1090,6 @@ async function processSuriOrderCancelled(suriEndpoint, suriToken, normalized, us
     if (!productId || !qty) continue;
 
     try {
-      // Busca variantes atuais na Nuvemshop
       const variants = await getProductVariants(store_id, access_token, productId);
       const variant  = Array.isArray(variants)
         ? variants.find(v => String(v.sku) === sku) || variants[0]
@@ -1092,7 +1100,6 @@ async function processSuriOrderCancelled(suriEndpoint, suriToken, normalized, us
         continue;
       }
 
-      // Devolve o estoque somando a quantidade cancelada
       const currentStock = variant.stock ?? 0;
       const newStock     = currentStock + qty;
       await updateVariantStock(store_id, access_token, productId, variant.id, newStock);
