@@ -434,17 +434,23 @@ async function handleWebhook(req, res) {
       "OrdersCanceled":  "order.cancelled",
       "OrdersShipped":   "order.shipped",
     };
-    const eventType = suriEventMap[rawPayload.HookEvent] || rawPayload.HookEvent;
-    normalized = { eventType, orderId: String(rawPayload.OrderId || rawPayload.Id || ""), suriOrderId: String(rawPayload.Id || "") };
+    const displayEventType = suriEventMap[rawPayload.HookEvent] || rawPayload.HookEvent;
+    // Usa sufixo .suri para roteamento interno sem conflito com webhooks do e-commerce
+    const routeEventType = displayEventType === "order.cancelled" ? "order.cancelled.suri"
+                         : displayEventType === "order.created"   ? "order.created.suri"
+                         : displayEventType === "order.shipped"   ? "order.shipped.suri"
+                         : displayEventType;
+    normalized = { eventType: routeEventType, displayEventType, orderId: String(rawPayload.OrderId || rawPayload.Id || ""), suriOrderId: String(rawPayload.Id || "") };
   } else {
     try { normalized = normalizePayload(ecommerce_platform, rawPayload); }
     catch { normalized = { eventType: rawPayload.type||rawPayload.event||"desconhecido", orderId:"", items:[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} }; }
   }
   const eventType = normalized.eventType;
+  const logEventType = normalized.displayEventType || eventType;
   let webhookId;
   try {
     const webhookSource = isViaWebhookToken ? "ecommerce" : "chatbot";
-    const ins = await pool.query("INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, 'received', $4) RETURNING id", [user_id, eventType, JSON.stringify(rawPayload), webhookSource]);
+    const ins = await pool.query("INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, 'received', $4) RETURNING id", [user_id, logEventType, JSON.stringify(rawPayload), webhookSource]);
     webhookId = ins.rows[0].id;
     // Auto-cleanup: mantém no máximo 100 linhas por usuário em user_webhooks
     await pool.query(`DELETE FROM user_webhooks WHERE user_id=$1 AND id NOT IN (SELECT id FROM user_webhooks WHERE user_id=$1 ORDER BY received_at DESC LIMIT 100)`,[user_id]).catch(()=>{});
@@ -458,8 +464,8 @@ async function handleWebhook(req, res) {
       case "order.shipped":   result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
       case "order.cancelled": result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
       case "product.sync":    result = await processProductSync(suri_endpoint, suri_token, normalized);   break;
-      case "order.paid":      result = await processSuriOrderPaid(suri_endpoint, suri_token, normalized, user_id); break;
-      case "order.cancelled": result = await processSuriOrderCancelled(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.paid":             result = await processSuriOrderPaid(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.cancelled.suri":   result = await processSuriOrderCancelled(suri_endpoint, suri_token, normalized, user_id); break;
       default:
         await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
         return res.status(200).json({ success:true, message:"Evento registrado sem processamento", event_type:eventType, webhook_id:webhookId });
