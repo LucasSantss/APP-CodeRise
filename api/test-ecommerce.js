@@ -4,9 +4,9 @@
  * Funciona de forma análoga ao test-suri.js, mas para o lado do e-commerce.
  * Suporta: Nuvemshop, Shopify, WooCommerce, VTEX, Tray.
  */
-const pool = require("./db.js");
-const { setCors } = require("./_cors.js");
-const { requireAuth } = require("./_auth.js");
+import pool from "./db.js";
+import { setCors } from "./_cors.js";
+import { requireAuth } from "./_auth.js";
 
 const PLATFORM_LABELS = {
   shopify: "Shopify", woocommerce: "WooCommerce", nuvemshop: "Nuvemshop",
@@ -146,7 +146,7 @@ async function testTray({ api_address, access_token }) {
 
 // ── Handler principal ─────────────────────────────────────────────────────────
 
-async function handler(req, res) {
+export default async function handler(req, res) {
   if (setCors(req, res)) return;
   if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
 
@@ -210,5 +210,3 @@ async function handler(req, res) {
     return res.status(200).json({ success: false, message: msg });
   }
 }
-
-module.exports = handler;
