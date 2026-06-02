@@ -25,7 +25,7 @@ export async function handlePlatformSettings(req, res) {
   }
 
   if (req.method === "PATCH") {
-    if (!caller.is_admin)
+    if (caller.role !== 'admin' && !caller.is_admin)
       return res.status(403).json({ success: false, message: "Apenas administradores podem alterar configurações de plataforma." });
     const { platforms } = req.body || {};
     if (!platforms || typeof platforms !== "object")
