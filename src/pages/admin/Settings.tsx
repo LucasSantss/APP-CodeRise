@@ -97,7 +97,7 @@ const AdminSettings = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 min-w-2xl">
       <div>
         <h1 className="text-2xl font-bold">Configurações</h1>
         <p className="text-muted-foreground">Gerencie as plataformas de integração disponíveis</p>
@@ -116,7 +116,7 @@ const AdminSettings = () => {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-2">
 
           {/* Chatbot */}
           <Card>
