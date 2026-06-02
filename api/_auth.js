@@ -1,9 +1,8 @@
 import pool from "./db.js";
-// MELHORIA 7: verificação de hash com bcryptjs
 import bcrypt from "bcryptjs";
+import { assertTenantAccess, resolveTenant } from "./_tenant.js";
 
 export async function verifyPassword(plain, hash) {
-  // Suporte retrocompatível: se o hash não começa com $2b$, compara direto (legado)
   if (!hash || !hash.startsWith("$2")) return plain === hash;
   return bcrypt.compare(plain, hash);
 }
@@ -19,7 +18,6 @@ export async function getUserByToken(req) {
   return result.rows[0] || null;
 }
 
-// Versão que aceita o token direto como string (usada no SSE via query param)
 export async function getUserByTokenString(token) {
   if (!token) return null;
   const result = await pool.query(
@@ -36,15 +34,33 @@ export function isAdminSecret(req) {
 export async function requireAdmin(req, res) {
   if (isAdminSecret(req)) return { id: "system", role: "admin" };
   const user = await getUserByToken(req);
-  if (!user) { res.status(401).json({ success: false, message: "Não autorizado" }); return null; }
-  if (user.role !== "admin") { res.status(403).json({ success: false, message: "Acesso restrito a administradores" }); return null; }
-  if (!user.active) { res.status(403).json({ success: false, message: "Conta desativada" }); return null; }
+  if (!user) {
+    res.status(401).json({ success: false, message: "Nao autorizado" });
+    return null;
+  }
+  if (user.role !== "admin") {
+    res.status(403).json({ success: false, message: "Acesso restrito a administradores" });
+    return null;
+  }
+  if (!user.active) {
+    res.status(403).json({ success: false, message: "Conta desativada" });
+    return null;
+  }
   return user;
 }
 
 export async function requireAuth(req, res) {
   const user = await getUserByToken(req);
-  if (!user) { res.status(401).json({ success: false, message: "Não autorizado" }); return null; }
-  if (!user.active) { res.status(403).json({ success: false, message: "Conta desativada" }); return null; }
+  if (!user) {
+    res.status(401).json({ success: false, message: "Nao autorizado" });
+    return null;
+  }
+  if (!user.active) {
+    res.status(403).json({ success: false, message: "Conta desativada" });
+    return null;
+  }
+  const tenant = await resolveTenant(pool, req);
+  if (!assertTenantAccess(user, tenant, res)) return null;
+  if (tenant) user.tenant = tenant;
   return user;
 }

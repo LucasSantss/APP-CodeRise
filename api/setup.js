@@ -7,6 +7,10 @@ export async function handleSetup(req, res) {
   if (!isAdminSecret(req)) return res.status(401).json({ success:false, message:"Não autorizado" });
   try {
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(20) NOT NULL DEFAULT 'user', active BOOLEAN NOT NULL DEFAULT true, token VARCHAR(64) UNIQUE, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW());`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_slug VARCHAR(63) UNIQUE`).catch(()=>{});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_domain VARCHAR(255) UNIQUE`).catch(()=>{});
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_tenant_slug_idx ON users (tenant_slug) WHERE tenant_slug IS NOT NULL`).catch(()=>{});
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_tenant_domain_idx ON users (tenant_domain) WHERE tenant_domain IS NOT NULL`).catch(()=>{});
     await pool.query(`CREATE TABLE IF NOT EXISTS user_integrations (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ecommerce_platform VARCHAR(50), ecommerce_config JSONB, ecommerce_active BOOLEAN NOT NULL DEFAULT false, webhook_token VARCHAR(64) UNIQUE NOT NULL, chatbot_platform VARCHAR(50), chatbot_config JSONB, chatbot_active BOOLEAN NOT NULL DEFAULT false, chatbot_token VARCHAR(64) UNIQUE, suri_endpoint TEXT, suri_token TEXT, suri_active BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW(), UNIQUE(user_id));`);
     for (const sql of [
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_platform VARCHAR(50)`,

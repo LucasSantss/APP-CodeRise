@@ -7,13 +7,23 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+function getTenantSlug() {
+  const configuredRoot = (import.meta.env.VITE_TENANT_ROOT_DOMAIN || '').replace(/^https?:\/\//, '').toLowerCase();
+  const host = window.location.hostname.toLowerCase();
+  if (!configuredRoot || host === configuredRoot || !host.endsWith(`.${configuredRoot}`)) return '';
+  const slug = host.slice(0, -(configuredRoot.length + 1));
+  return ['www', 'app', 'api', 'admin'].includes(slug) ? '' : slug;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token;
+  const tenant = getTenantSlug();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (tenant) headers['X-CodeRise-Tenant'] = tenant;
 
   let res: Response;
   try {
