@@ -110,7 +110,7 @@ const AdminSettings = () => {
           para nenhum usuário da plataforma.
         </AlertDescription>
       </Alert>
-      
+
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -172,5 +172,6 @@ const AdminSettings = () => {
     </div>
   );
 };
+
 
 export default AdminSettings;
