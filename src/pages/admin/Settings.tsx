@@ -142,7 +142,6 @@ const AdminSettings = () => {
             </CardContent>
           </Card>
 
-
           {/* E-commerce */}
           <Card>
             <CardHeader className="pb-2">

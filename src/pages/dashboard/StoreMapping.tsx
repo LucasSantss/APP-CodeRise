@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getIntegrations, getChatbot, testEcommerceConnection, testSuriConnection, updateIntegration, updateChatbot, type StoreItem } from '@/services/api';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import { parseApiError } from '@/lib/parseApiError';
+import { useAuthStore } from '@/store/auth';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -213,7 +214,6 @@ const StoreMapping = () => {
       const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
       let authToken = '';
       try {
-        const { useAuthStore } = await import('@/store/auth');
         authToken = useAuthStore.getState().token || '';
       } catch { /* fallback */ }
 
