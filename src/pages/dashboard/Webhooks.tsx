@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
-import { Copy, RefreshCw, ExternalLink, Loader2, ShoppingCart, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { Copy, RefreshCw, ExternalLink, Loader2, ShoppingCart, MessageSquare, CheckCircle2, Link2, Webhook } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -281,14 +281,25 @@ const UserWebhooks = () => {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
-                    </TableCell>
-                  </TableRow>
+                  <>{[1,2,3,4,5].map(i => (
+                    <TableRow key={i}>
+                      <TableCell><div className="h-4 w-28 shimmer-load rounded-md" /></TableCell>
+                      <TableCell><div className="h-4 w-20 shimmer-load rounded-md" /></TableCell>
+                      <TableCell><div className="h-5 w-16 shimmer-load rounded-full" /></TableCell>
+                      <TableCell><div className="h-5 w-20 shimmer-load rounded-full" /></TableCell>
+                      <TableCell><div className="h-4 w-32 shimmer-load rounded-md" /></TableCell>
+                      <TableCell><div className="h-4 w-8 shimmer-load rounded-md" /></TableCell>
+                    </TableRow>
+                  ))}</>
                 ) : webhooks.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
+                    <TableCell colSpan={6} className="py-12 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <Webhook className="h-8 w-8 text-muted-foreground/30" />
+                        <p className="text-sm text-muted-foreground">Nenhum evento recebido ainda</p>
+                        <p className="text-xs text-muted-foreground/50">Configure o webhook na sua plataforma e realize um pedido de teste</p>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ) : webhooks.map((w) => (
                   <TableRow

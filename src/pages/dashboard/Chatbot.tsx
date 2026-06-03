@@ -355,6 +355,16 @@ const Chatbot = () => {
                   value={config[field.key] || ''}
                   onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
                 />
+                {isSuriEndpoint && (
+                  <p className="text-xs text-muted-foreground">
+                    URL base do seu chatbot Suri. Encontre em <strong>Painel Suri → Configurações → API</strong>.
+                  </p>
+                )}
+                {isSuriToken && (
+                  <p className="text-xs text-muted-foreground">
+                    Token de autenticação da API Suri. Mantenha este valor em segredo — ele autentica todas as chamadas.
+                  </p>
+                )}
               </div>
             );
           })}
