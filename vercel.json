@@ -154,7 +154,7 @@
   "crons": [
     {
       "path": "/queue/process",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/cleanup",
