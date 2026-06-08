@@ -8,7 +8,7 @@ import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare, ScrollText } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
 
@@ -206,11 +206,7 @@ const UserLogs = () => {
                 ) : filtered.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                      <div className="flex flex-col items-center gap-2 py-4">
-                        <ScrollText className="h-8 w-8 text-muted-foreground/30" />
-                        <p className="text-sm text-muted-foreground">Nenhum evento no período</p>
-                        <p className="text-xs text-muted-foreground/50">Os eventos aparecerão aqui quando chegarem via webhook</p>
-                      </div>
+                      Nenhum evento no período selecionado
                     </TableCell>
                   </TableRow>
                 ) : filtered.map((w) => (

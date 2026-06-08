@@ -7,7 +7,7 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -170,17 +170,3 @@ export const patchPlatformSettings = (platforms: Record<string, boolean>) =>
     '/platform-settings',
     { method: 'PATCH', body: JSON.stringify({ platforms }) }
   );
-
-// ── Queue (fila de processamento) ────────────────────────────────────────────
-export const getQueueStats = () =>
-  request<{ success: boolean; stats: Array<{ status: string; count: string; avg_duration_s: string | null }>; oldest_pending: unknown[] }>('/queue');
-
-export const processQueue = (limit = 50) =>
-  request<{ success: boolean; total: number; done: number; errors: number; skipped: number }>(`/queue/process?limit=${limit}`);
-
-export const cleanQueue = (days = 7) =>
-  request<{ success: boolean; message: string }>(`/queue?days=${days}`, { method: 'DELETE' });
-
-// ── Cleanup / retenção de dados ───────────────────────────────────────────────
-export const runCleanup = (webhookDays = 90, queueDays = 7) =>
-  request<{ success: boolean; webhooks_deleted: number; queue_deleted: number }>(`/cleanup?webhook_days=${webhookDays}&queue_days=${queueDays}`);

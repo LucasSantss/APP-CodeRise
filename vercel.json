@@ -3,131 +3,115 @@
   "rewrites": [
     {
       "source": "/users",
-      "destination": "/_lib/api/users.js"
+      "destination": "/api/users.js"
     },
     {
       "source": "/users(.*)",
-      "destination": "/_lib/api/users.js"
+      "destination": "/api/users.js"
     },
     {
       "source": "/integrations",
-      "destination": "/_lib/api/integrations.js"
+      "destination": "/api/integrations.js"
     },
     {
       "source": "/integrations(.*)",
-      "destination": "/_lib/api/integrations.js"
+      "destination": "/api/integrations.js"
     },
     {
       "source": "/sync-rules",
-      "destination": "/_lib/api/sync-rules.js"
+      "destination": "/api/sync-rules.js"
     },
     {
       "source": "/sync-rules(.*)",
-      "destination": "/_lib/api/sync-rules.js"
+      "destination": "/api/sync-rules.js"
     },
     {
       "source": "/notifications",
-      "destination": "/_lib/api/notifications.js"
+      "destination": "/api/notifications.js"
     },
     {
       "source": "/notifications(.*)",
-      "destination": "/_lib/api/notifications.js"
+      "destination": "/api/notifications.js"
     },
     {
       "source": "/auth",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/auth(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/chatbot",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/chatbot(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/webhooks",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/webhooks(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/webhook",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/webhook(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/register-webhook",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/register-webhook(.*)",
-      "destination": "/_lib/api/index.js"
-    },
-    {
-      "source": "/queue",
-      "destination": "/_lib/api/index.js"
-    },
-    {
-      "source": "/queue(.*)",
-      "destination": "/_lib/api/index.js"
-    },
-    {
-      "source": "/cleanup",
-      "destination": "/_lib/api/index.js"
-    },
-    {
-      "source": "/cleanup(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/setup",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/setup(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/test-suri",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/test-suri(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/test-ecommerce",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/test-ecommerce(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/platform-settings",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/platform-settings(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/sync-catalog",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/sync-catalog(.*)",
-      "destination": "/_lib/api/index.js"
+      "destination": "/api/index.js"
     },
     {
       "source": "/(.*)",
@@ -135,30 +119,20 @@
     }
   ],
   "functions": {
-    "_lib/api/index.js": {
+    "api/index.js": {
       "maxDuration": 300
     },
-    "_lib/api/users.js": {
+    "api/users.js": {
       "maxDuration": 30
     },
-    "_lib/api/integrations.js": {
+    "api/integrations.js": {
       "maxDuration": 30
     },
-    "_lib/api/notifications.js": {
+    "api/notifications.js": {
       "maxDuration": 30
     },
-    "_lib/api/sync-rules.js": {
+    "api/sync-rules.js": {
       "maxDuration": 30
     }
-  },
-  "crons": [
-    {
-      "path": "/queue/process",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/cleanup",
-      "schedule": "0 3 * * *"
-    }
-  ]
+  }
 }
