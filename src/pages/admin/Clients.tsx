@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Search, MoreHorizontal, UserCheck, UserX, Loader2 } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, UserCheck, UserX, Loader2, Users } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -177,9 +177,25 @@ const Clients = () => {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                {[1,2,3,4,5].map(i => (
+                  <TableRow key={i}>
+                    <TableCell><div className="h-4 w-32 shimmer-load rounded-md" /></TableCell>
+                    <TableCell><div className="h-4 w-40 shimmer-load rounded-md" /></TableCell>
+                    <TableCell><div className="h-5 w-16 shimmer-load rounded-full" /></TableCell>
+                    <TableCell><div className="h-5 w-12 shimmer-load rounded-full" /></TableCell>
+                    <TableCell><div className="h-6 w-6 shimmer-load rounded-md" /></TableCell>
+                  </TableRow>
+                ))}
               ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhum usuário encontrado</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={5} className="py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Users className="h-8 w-8 text-muted-foreground/30" />
+                      <p className="text-sm text-muted-foreground">Nenhum usuário encontrado</p>
+                      <p className="text-xs text-muted-foreground/50">Tente ajustar a busca ou crie um novo usuário</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ) : filtered.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.name}</TableCell>

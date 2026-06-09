@@ -1,10 +1,5 @@
-/**
- * api/_lib/router.js — Router principal
- * Importado por api/index.js (único entry point da Vercel)
- */
 import pool               from "./db.js";
 import { setCors }        from "./_cors.js";
-
 import { handleAuth }             from "./auth.js";
 import { handleChatbot }          from "./chatbot.js";
 import { handleWebhooks, handleWebhooksPoll } from "./webhooks.js";
@@ -14,6 +9,8 @@ import { handleSyncCatalog }      from "./sync-catalog.js";
 import { handlePlatformSettings } from "./platform-settings.js";
 import { handleSetup }            from "./setup.js";
 import { handleTestSuri }         from "./test-suri.js";
+import { handleQueue }            from "./queue.js";
+import { handleCleanup }          from "./cleanup.js";
 import handleUsers         from "./users.js";
 import handleIntegrations  from "./integrations.js";
 import handleNotifications from "./notifications.js";
@@ -24,14 +21,10 @@ function getPath(req) {
   return (req.url || "").split("?")[0].replace(/^\/api/, "");
 }
 
-// Migração lazy — garante coluna source sem travar o boot
-pool.query(
-  `ALTER TABLE user_webhooks ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'ecommerce'`
-).catch(() => {});
+pool.query(`ALTER TABLE user_webhooks ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'ecommerce'`).catch(() => {});
 
 export default async function handler(req, res) {
   if (setCors(req, res)) return;
-
   const path = getPath(req);
 
   if (path === "/auth")                                                         return handleAuth(req, res);
@@ -45,6 +38,8 @@ export default async function handler(req, res) {
   if (path === "/setup"             || path.startsWith("/setup?"))              return handleSetup(req, res);
   if (path === "/test-suri"         || path.startsWith("/test-suri?"))          return handleTestSuri(req, res);
   if (path === "/test-ecommerce"    || path.startsWith("/test-ecommerce?"))     return handleTestEcommerce(req, res);
+  if (path === "/queue"             || path.startsWith("/queue"))               return handleQueue(req, res);
+  if (path === "/cleanup"           || path.startsWith("/cleanup?"))            return handleCleanup(req, res);
   if (path.startsWith("/users"))         return handleUsers(req, res);
   if (path.startsWith("/integrations"))  return handleIntegrations(req, res);
   if (path.startsWith("/notifications")) return handleNotifications(req, res);

@@ -1,4 +1,7 @@
 import pool from "./db.js";
+import { rejectIfInvalidSignature } from "./_hmac.js";
+import { suriRequestWithRetry } from "./_retry.js";
+import { enqueueJob } from "./queue.js";
 
 // ─── Normalizers por plataforma ───────────────────────────────────────────────
 function normalizeVtex(payload) {
@@ -67,6 +70,7 @@ export function normalizePayload(platform, payload) {
 }
 
 // ─── Helpers Suri ─────────────────────────────────────────────────────────────
+/** @deprecated Use suriRequestWithRetry de _retry.js */
 export async function suriRequest(endpoint, token, method, path, body) {
   const base = endpoint.replace(/\/+$/, "");
   const res = await fetch(`${base}${path}`, { method, headers:{"Content-Type":"application/json","Accept":"application/json","Authorization":`Bearer ${token}`}, body: body ? JSON.stringify(body) : undefined });
@@ -75,7 +79,7 @@ export async function suriRequest(endpoint, token, method, path, body) {
   return data;
 }
 async function findSuriOrder(endpoint, token, orderId) {
-  try { const data = await suriRequest(endpoint, token, "POST", "/api/shop/orders", {ProviderOrderId:String(orderId),Page:1,PerPage:1}); const list=data?.orders||data?.data||data?.items||data||[]; return Array.isArray(list)?(list[0]||null):null; } catch { return null; }
+  try { const data = await suriRequestWithRetry(endpoint, token, "POST", "/api/shop/orders", {ProviderOrderId:String(orderId),Page:1,PerPage:1}); const list=data?.orders||data?.data||data?.items||data||[]; return Array.isArray(list)?(list[0]||null):null; } catch { return null; }
 }
 function mapLogisticStatus(status) {
   const map={"ready-for-handling":1,"processing":1,"order_paid":1,"handling":2,"preparing":2,"invoiced":3,"shipped":3,"fulfilled":3,"order_shipped":3,"delivered":4,"order_delivered":4,"completed":4,"canceled":5,"cancelled":5,"refunded":5};
@@ -85,15 +89,15 @@ function mapLogisticStatus(status) {
 // ─── Processadores de evento ──────────────────────────────────────────────────
 export async function processOrderCreated(ep, tk, n) {
   const existing = await findSuriOrder(ep, tk, n.orderId);
-  if (existing) { await suriRequest(ep,tk,"POST","/api/shop/orders/paid",{orderId:existing.id||existing.orderId,paymentTracking:n.paymentTracking||""}); return {action:"marked_paid",suriOrderId:existing.id}; }
+  if (existing) { await suriRequestWithRetry(ep,tk,"POST","/api/shop/orders/paid",{orderId:existing.id||existing.orderId,paymentTracking:n.paymentTracking||""}); return {action:"marked_paid",suriOrderId:existing.id}; }
   const budget={id:String(n.orderId),logistic:{providerId:"001",name:n.shipping.provider||"Entrega",description:"Padrão",type:n.shipping.type||1,price:n.shipping.price||0,minShippingTimeEstimative:n.shipping.estimative||"3 dias úteis",shippingTimeEstimative:n.shipping.estimative||"5 dias úteis"},items:n.items.map(i=>({fromSellerId:i.sellerId||"all",ProductId:String(i.productId||i.id),Sku:String(i.sku||i.productId),Name:i.name,quantity:i.quantity,unitPrice:i.unitPrice,discountAmount:i.discount||0})),errorMessages:[]};
-  const created = await suriRequest(ep,tk,"POST","/api/shop/orders/budget",budget);
+  const created = await suriRequestWithRetry(ep,tk,"POST","/api/shop/orders/budget",budget);
   const suriOrderId=created?.id||created?.orderId;
-  if (suriOrderId) await suriRequest(ep,tk,"POST","/api/shop/orders/paid",{orderId:suriOrderId,paymentTracking:n.paymentTracking||""});
+  if (suriOrderId) await suriRequestWithRetry(ep,tk,"POST","/api/shop/orders/paid",{orderId:suriOrderId,paymentTracking:n.paymentTracking||""});
   return {action:"created_and_paid",suriOrderId};
 }
-export async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); const st=mapLogisticStatus(n.logisticStatus); await suriRequest(ep,tk,"POST","/api/shop/orders/logistic",{id:ex.id||ex.orderId,status:st}); return {action:"logistic_updated",suriOrderId:ex.id,status:st}; }
-export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
+export async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); const st=mapLogisticStatus(n.logisticStatus); await suriRequestWithRetry(ep,tk,"POST","/api/shop/orders/logistic",{id:ex.id||ex.orderId,status:st}); return {action:"logistic_updated",suriOrderId:ex.id,status:st}; }
+export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequestWithRetry(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
 export async function processProductSync(ep, tk, n) {
   const { syncProduct } = await import("./chatbot/suri/products.js");
   const { listCategories } = await import("./chatbot/suri/categories.js");
@@ -194,59 +198,106 @@ export async function processSuriOrderCancelled(suriEndpoint, suriToken, normali
 }
 
 // ─── Handler principal do webhook ────────────────────────────────────────────
+// ── processWebhookJob: chamado pela fila assíncrona ─────────────────────────
+export async function processWebhookJob(userId, jobPayload) {
+  const { webhookId, eventType, normalized, suri_endpoint, suri_token,
+          ecommerce_platform, user_id, platformLabel, userName } = jobPayload;
+  try {
+    let result;
+    switch (eventType) {
+      case "order.created":        result = await processOrderCreated(suri_endpoint, suri_token, normalized); break;
+      case "order.shipped":        result = await processOrderShipped(suri_endpoint, suri_token, normalized); break;
+      case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
+      case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized); break;
+      case "order.paid":           result = await processSuriOrderPaid(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.cancelled.suri": result = await processSuriOrderCancelled(suri_endpoint, suri_token, normalized, user_id); break;
+      default:
+        await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2",
+          [`Evento '${eventType}' sem mapeamento`, webhookId]);
+        return { success: true, action: "no_mapping" };
+    }
+    await pool.query("UPDATE user_webhooks SET status='processed', error_message=NULL WHERE id=$1", [webhookId]);
+    try { await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"processed",event_type:eventType})]); } catch {}
+    return { success: true, result };
+  } catch (err) {
+    await pool.query("UPDATE user_webhooks SET status='error', error_message=$1 WHERE id=$2", [err.message, webhookId]);
+    try { await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"error",event_type:eventType})]); } catch {}
+    try {
+      const t = new Date().toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+      await pool.query("INSERT INTO notifications (type,title,message,target_role,target_user_id) VALUES ('error',$1,$2,'user',$3)",
+        [`Erro na integração ${platformLabel}`, `Evento "${eventType}" falhou em ${t}.\n\nDetalhe: ${err.message}`, user_id]);
+      await pool.query("INSERT INTO notifications (type,title,message,target_role) VALUES ('integration_error',$1,$2,'admin')",
+        [`Erro — ${platformLabel}`, `Perfil: ${userName}\nEvento: ${eventType}\n\nDetalhe: ${err.message}`]);
+      try { await pool.query("SELECT pg_notify('notifications_changed', 'new')"); } catch {}
+    } catch {}
+    throw err;
+  }
+}
+
 export async function handleWebhook(req, res) {
   if (req.method === "GET") return res.status(200).json({ success: true, message: "Webhook endpoint ativo" });
-  if (req.method !== "POST") { res.setHeader("Allow",["GET","POST"]); return res.status(405).end(); }
+  if (req.method !== "POST") { res.setHeader("Allow", ["GET","POST"]); return res.status(405).end(); }
+
   const { token } = req.query;
   if (!token) return res.status(400).json({ success: false, message: "token obrigatório" });
+
   let integration;
   try {
-    let r = await pool.query("SELECT user_id, suri_active, suri_endpoint, suri_token, ecommerce_platform, chatbot_platform, chatbot_config, chatbot_active, chatbot_token, webhook_token FROM user_integrations WHERE webhook_token = $1", [token]);
-    if (!r.rows[0]) r = await pool.query("SELECT user_id, suri_active, suri_endpoint, suri_token, ecommerce_platform, chatbot_platform, chatbot_config, chatbot_active, chatbot_token, webhook_token FROM user_integrations WHERE chatbot_token = $1", [token]);
+    let r = await pool.query(
+      "SELECT user_id, suri_active, suri_endpoint, suri_token, ecommerce_platform, ecommerce_config, chatbot_platform, chatbot_config, chatbot_active, chatbot_token, webhook_token FROM user_integrations WHERE webhook_token = $1",
+      [token]
+    );
+    if (!r.rows[0]) r = await pool.query(
+      "SELECT user_id, suri_active, suri_endpoint, suri_token, ecommerce_platform, ecommerce_config, chatbot_platform, chatbot_config, chatbot_active, chatbot_token, webhook_token FROM user_integrations WHERE chatbot_token = $1",
+      [token]
+    );
     if (!r.rows[0]) return res.status(404).json({ success: false, message: "Token inválido" });
     integration = r.rows[0];
   } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
-  const _ccfg = integration.chatbot_config || {};
+
+  const isViaWebhookToken = integration.webhook_token === token;
+  const { user_id, ecommerce_platform, chatbot_platform } = integration;
+
+  // Validação HMAC (apenas webhooks de e-commerce)
+  if (isViaWebhookToken && ecommerce_platform) {
+    const invalid = rejectIfInvalidSignature(ecommerce_platform, req, res, integration.ecommerce_config || {});
+    if (invalid) return;
+  }
+
+  const _ccfg       = integration.chatbot_config || {};
   const suri_endpoint = integration.suri_endpoint || _ccfg.endpoint || null;
   const suri_token    = integration.suri_token    || _ccfg.token    || null;
   const suri_active   = !!(integration.suri_active ?? integration.chatbot_active ?? (suri_endpoint && suri_token));
-  const { user_id, ecommerce_platform, chatbot_platform } = integration;
-  const isViaWebhookToken = integration.webhook_token === token;
   const activePlatform = isViaWebhookToken ? (ecommerce_platform || "ecommerce") : (chatbot_platform || "chatbot");
-  const PLATFORM_LABELS = { shopify:"Shopify", woocommerce:"WooCommerce", nuvemshop:"Nuvemshop", vtex:"VTEX", tray:"Tray", suri:"Suri", evolution_api:"Evolution API", kommo:"Kommo", chatbot:"Chatbot", ecommerce:"E-commerce" };
-  const platformLabel = PLATFORM_LABELS[activePlatform] || activePlatform;
+  const LABELS = { shopify:"Shopify", woocommerce:"WooCommerce", nuvemshop:"Nuvemshop", vtex:"VTEX", tray:"Tray", suri:"Suri" };
+  const platformLabel = LABELS[activePlatform] || activePlatform;
+
   let userName = `ID ${user_id}`;
-  try { const uRow = await pool.query("SELECT name FROM users WHERE id = $1", [user_id]); if (uRow.rows[0]) userName = uRow.rows[0].name; } catch {}
+  try { const u = await pool.query("SELECT name FROM users WHERE id=$1",[user_id]); if(u.rows[0]) userName=u.rows[0].name; } catch {}
 
   let rawPayload = req.body || {};
 
-  // Nuvemshop: busca dados completos + variantes atualizadas
+  // Nuvemshop: buscar dados completos
   if (ecommerce_platform === "nuvemshop" && rawPayload.id && rawPayload.event) {
     try {
-      const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [user_id]);
-      const cfg = intRow.rows[0]?.ecommerce_config || {};
+      const cfg = integration.ecommerce_config || {};
       const { store_id, access_token } = cfg;
       if (store_id && access_token) {
-        const headers = { "Content-Type":"application/json", "Authentication":`bearer ${access_token}`, "User-Agent":"CodeRise Integration (suporte@coderise.com.br)" };
-        const base = `https://api.tiendanube.com/v1/${store_id}`;
-        const ev = rawPayload.event || "";
-        let fetchUrl = null;
+        const headers = { "Content-Type":"application/json","Authentication":`bearer ${access_token}`,"User-Agent":"CodeRise Integration" };
+        const base    = `https://api.tiendanube.com/v1/${store_id}`;
+        const ev      = rawPayload.event || "";
+        let fetchUrl  = null;
         if (ev.startsWith("product")) fetchUrl = `${base}/products/${rawPayload.id}`;
         else if (ev.startsWith("order")) fetchUrl = `${base}/orders/${rawPayload.id}`;
-        else if (ev.startsWith("category")) fetchUrl = `${base}/categories/${rawPayload.id}`;
         if (fetchUrl) {
           const r = await fetch(fetchUrl, { headers });
           if (r.ok) {
-            const fullData = await r.json();
+            const full = await r.json();
             if (ev.startsWith("product")) {
-              let variants = fullData.variants || [];
-              try { const vr = await fetch(`${base}/products/${rawPayload.id}/variants`, { headers }); if (vr.ok) { const vd = await vr.json(); if (Array.isArray(vd) && vd.length > 0) variants = vd; } } catch {}
-              rawPayload = { ...rawPayload, product: { ...fullData, variants } };
-            } else if (ev.startsWith("order")) {
-              rawPayload = { ...rawPayload, order: fullData };
-            } else {
-              rawPayload = { ...rawPayload, ...fullData };
-            }
+              let variants = full.variants || [];
+              try { const vr=await fetch(`${base}/products/${rawPayload.id}/variants`,{headers}); if(vr.ok){const vd=await vr.json();if(Array.isArray(vd)&&vd.length)variants=vd;} } catch {}
+              rawPayload = { ...rawPayload, product: { ...full, variants } };
+            } else rawPayload = { ...rawPayload, order: full };
           }
         }
       }
@@ -255,55 +306,49 @@ export async function handleWebhook(req, res) {
 
   let normalized;
   if (!isViaWebhookToken && rawPayload.HookEvent) {
-    const suriEventMap = { "OrdersPaid":"order.paid", "OrdersCreated":"order.created", "OrdersCancelled":"order.cancelled", "OrdersCanceled":"order.cancelled", "OrdersShipped":"order.shipped" };
-    const displayEventType = suriEventMap[rawPayload.HookEvent] || rawPayload.HookEvent;
-    const routeEventType = displayEventType === "order.cancelled" ? "order.cancelled.suri"
-                         : displayEventType === "order.created"   ? "order.created.suri"
-                         : displayEventType === "order.shipped"   ? "order.shipped.suri"
-                         : displayEventType;
-    normalized = { eventType: routeEventType, displayEventType, orderId: String(rawPayload.OrderId || rawPayload.Id || ""), suriOrderId: String(rawPayload.Id || "") };
+    const suriMap = { "OrdersPaid":"order.paid","OrdersCreated":"order.created","OrdersCancelled":"order.cancelled","OrdersCanceled":"order.cancelled","OrdersShipped":"order.shipped" };
+    const dispEvt = suriMap[rawPayload.HookEvent] || rawPayload.HookEvent;
+    const routeEvt = dispEvt === "order.cancelled" ? "order.cancelled.suri" : dispEvt === "order.created" ? "order.created.suri" : dispEvt === "order.shipped" ? "order.shipped.suri" : dispEvt;
+    normalized = { eventType: routeEvt, displayEventType: dispEvt, orderId: String(rawPayload.OrderId||rawPayload.Id||""), suriOrderId: String(rawPayload.Id||"") };
   } else {
     try { normalized = normalizePayload(ecommerce_platform, rawPayload); }
     catch { normalized = { eventType: rawPayload.type||rawPayload.event||"desconhecido", orderId:"", items:[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} }; }
   }
 
-  const eventType = normalized.eventType;
+  const eventType    = normalized.eventType;
   const logEventType = normalized.displayEventType || eventType;
+
+  // Salva o evento
   let webhookId;
   try {
-    const webhookSource = isViaWebhookToken ? "ecommerce" : "chatbot";
-    const ins = await pool.query("INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, 'received', $4) RETURNING id", [user_id, logEventType, JSON.stringify(rawPayload), webhookSource]);
+    const ins = await pool.query(
+      "INSERT INTO user_webhooks (user_id,event_type,payload,status,source) VALUES ($1,$2,$3,'received',$4) RETURNING id",
+      [user_id, logEventType, JSON.stringify(rawPayload), isViaWebhookToken ? "ecommerce" : "chatbot"]
+    );
     webhookId = ins.rows[0].id;
-    await pool.query(`DELETE FROM user_webhooks WHERE user_id=$1 AND id NOT IN (SELECT id FROM user_webhooks WHERE user_id=$1 ORDER BY received_at DESC LIMIT 100)`,[user_id]).catch(()=>{});
+    pool.query(
+      `DELETE FROM user_webhooks WHERE user_id=$1 AND id NOT IN (SELECT id FROM user_webhooks WHERE user_id=$1 ORDER BY received_at DESC LIMIT 100)`,
+      [user_id]
+    ).catch(() => {});
   } catch (err) { return res.status(500).json({ success: false, message: "Erro ao salvar: " + err.message }); }
 
-  if (!suri_active || !suri_endpoint || !suri_token) return res.status(200).json({ success:true, message:"Evento registrado. Suri não configurada ou inativa.", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId });
+  if (!suri_active || !suri_endpoint || !suri_token)
+    return res.status(200).json({ success:true, message:"Evento registrado. Suri não configurada.", event_type:eventType, webhook_id:webhookId });
 
-  try {
-    let result;
-    switch (eventType) {
-      case "order.created":        result = await processOrderCreated(suri_endpoint, suri_token, normalized);  break;
-      case "order.shipped":        result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
-      case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
-      case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized);   break;
-      case "order.paid":           result = await processSuriOrderPaid(suri_endpoint, suri_token, normalized, user_id); break;
-      case "order.cancelled.suri": result = await processSuriOrderCancelled(suri_endpoint, suri_token, normalized, user_id); break;
-      default:
-        await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
-        return res.status(200).json({ success:true, message:"Evento registrado sem processamento", event_type:eventType, webhook_id:webhookId });
-    }
-    await pool.query("UPDATE user_webhooks SET status='processed', error_message=NULL WHERE id=$1", [webhookId]);
-    await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"processed",event_type:eventType})]);
-    return res.status(200).json({ success:true, message:"Evento processado com sucesso", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId, suri_result:result });
-  } catch (err) {
-    await pool.query("UPDATE user_webhooks SET status='error', error_message=$1 WHERE id=$2", [err.message, webhookId]);
-    await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"error",event_type:eventType})]);
-    try {
-      const errorTime = new Date().toLocaleString("pt-BR", { timeZone:"America/Sao_Paulo", day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" });
-      await pool.query("INSERT INTO notifications (type, title, message, target_role, target_user_id) VALUES ('error', $1, $2, 'user', $3)", [`Erro na integração ${platformLabel}`, `Evento "${eventType || "desconhecido"}" falhou em ${errorTime}.\n\nDetalhe: ${err.message}`, user_id]);
-      await pool.query("INSERT INTO notifications (type, title, message, target_role) VALUES ('integration_error', $1, $2, 'admin')", [`Erro de integração — ${platformLabel}`, `Perfil: ${userName}\nPlataforma: ${platformLabel}\nEvento: ${eventType || "desconhecido"}\nHorário: ${errorTime}\n\nDetalhe: ${err.message}`]);
-      await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
-    } catch {}
-    return res.status(200).json({ success:false, message:"Evento registrado mas falhou ao processar na Suri", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId, error:err.message });
-  }
+  // Enfileira o processamento assíncrono — responde imediatamente
+  const priority = eventType.startsWith("order") ? 10 : 5;
+  await enqueueJob(user_id, "webhook.process", {
+    webhookId, eventType, normalized, suri_endpoint, suri_token,
+    ecommerce_platform, user_id, platformLabel, userName,
+  }, priority);
+
+  try { await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"received",event_type:eventType})]); } catch {}
+
+  return res.status(200).json({
+    success: true,
+    message: "Evento recebido e enfileirado",
+    event_type: eventType,
+    webhook_id: webhookId,
+    async: true,
+  });
 }

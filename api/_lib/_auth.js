@@ -1,9 +1,7 @@
 import pool from "./db.js";
-// MELHORIA 7: verificação de hash com bcryptjs
 import bcrypt from "bcryptjs";
 
 export async function verifyPassword(plain, hash) {
-  // Suporte retrocompatível: se o hash não começa com $2b$, compara direto (legado)
   if (!hash || !hash.startsWith("$2")) return plain === hash;
   return bcrypt.compare(plain, hash);
 }
@@ -13,17 +11,27 @@ export async function getUserByToken(req) {
   if (!authHeader.startsWith("Bearer ")) return null;
   const token = authHeader.replace("Bearer ", "").trim();
   const result = await pool.query(
-    "SELECT id, name, email, role, active FROM users WHERE token = $1",
+    `SELECT id, name, email, role, active FROM users
+     WHERE token = $1
+       AND (token_expires_at IS NULL OR token_expires_at > NOW())`,
     [token]
   );
+  // Sliding window: renova expiração a cada request autenticado
+  if (result.rows[0]) {
+    pool.query(
+      "UPDATE users SET token_expires_at = NOW() + INTERVAL '30 days' WHERE token = $1",
+      [token]
+    ).catch(() => {});
+  }
   return result.rows[0] || null;
 }
 
-// Versão que aceita o token direto como string (usada no SSE via query param)
 export async function getUserByTokenString(token) {
   if (!token) return null;
   const result = await pool.query(
-    "SELECT id, name, email, role, active FROM users WHERE token = $1 AND active = true",
+    `SELECT id, name, email, role, active FROM users
+     WHERE token = $1 AND active = true
+       AND (token_expires_at IS NULL OR token_expires_at > NOW())`,
     [token]
   );
   return result.rows[0] || null;
@@ -38,7 +46,6 @@ export async function requireAdmin(req, res) {
   const user = await getUserByToken(req);
   if (!user) { res.status(401).json({ success: false, message: "Não autorizado" }); return null; }
   if (user.role !== "admin") { res.status(403).json({ success: false, message: "Acesso restrito a administradores" }); return null; }
-  if (!user.active) { res.status(403).json({ success: false, message: "Conta desativada" }); return null; }
   return user;
 }
 

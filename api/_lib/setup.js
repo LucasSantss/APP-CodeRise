@@ -21,6 +21,15 @@ export async function handleSetup(req, res) {
     await pool.query(`ALTER TABLE user_webhooks ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'ecommerce'`).catch(()=>{});
     await pool.query(`CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, type VARCHAR(30) NOT NULL, title VARCHAR(100) NOT NULL, message TEXT NOT NULL, image_url TEXT, target_role VARCHAR(20) DEFAULT 'all', target_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, scheduled_at TIMESTAMP, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW());`);
     await pool.query(`CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, hidden BOOLEAN NOT NULL DEFAULT false, read_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (notification_id, user_id));`);
+    // Token expiration
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP`).catch(()=>{});
+    await pool.query(`UPDATE users SET token_expires_at = NOW() + INTERVAL '30 days' WHERE token IS NOT NULL AND token_expires_at IS NULL`).catch(()=>{});
+    // Fila de processamento assíncrono
+    await pool.query(`CREATE TABLE IF NOT EXISTS processing_queue (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, job_type VARCHAR(50) NOT NULL, payload JSONB NOT NULL DEFAULT '{}', status VARCHAR(20) NOT NULL DEFAULT 'pending', priority INTEGER NOT NULL DEFAULT 0, retries INTEGER NOT NULL DEFAULT 0, worker_id VARCHAR(50), error TEXT, result JSONB, created_at TIMESTAMP NOT NULL DEFAULT NOW(), started_at TIMESTAMP, finished_at TIMESTAMP);`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_queue_pending ON processing_queue(status,priority DESC,created_at ASC) WHERE status='pending'`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_queue_user_id ON processing_queue(user_id)`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_token ON users(token) WHERE token IS NOT NULL`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_webhooks_user_received ON user_webhooks(user_id,received_at DESC)`).catch(()=>{});
     const adminToken=crypto.randomBytes(32).toString("hex");
     await pool.query(`INSERT INTO users (name,email,password,role,token) VALUES ('Administrador','admin@plataforma.com','admin123','admin',$1) ON CONFLICT (email) DO NOTHING`,[adminToken]);
     const userToken=crypto.randomBytes(32).toString("hex");
