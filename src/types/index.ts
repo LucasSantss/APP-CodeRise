@@ -136,8 +136,7 @@ export const ECOMMERCE_FIELDS: Record<EcommercePlatform, { label: string; fields
     fields: [
       { key: 'store_url',   label: 'URL da Loja (ex: minha-loja.myshopify.com)' },
       { key: 'api_token',   label: 'API Token',               type: 'password' },
-      { key: 'api_version',    label: 'API Version (ex: 2024-01)' },
-      { key: 'webhook_secret', label: 'Webhook Secret (HMAC)', type: 'password' },
+      { key: 'api_version', label: 'API Version (ex: 2024-01)' },
     ],
   },
   woocommerce: {
@@ -146,7 +145,6 @@ export const ECOMMERCE_FIELDS: Record<EcommercePlatform, { label: string; fields
       { key: 'site_url',        label: 'URL do Site' },
       { key: 'consumer_key',    label: 'Consumer Key',    type: 'password' },
       { key: 'consumer_secret', label: 'Consumer Secret', type: 'password' },
-      { key: 'webhook_secret',   label: 'Webhook Secret (HMAC)', type: 'password' },
     ],
   },
   tray: {
@@ -160,8 +158,7 @@ export const ECOMMERCE_FIELDS: Record<EcommercePlatform, { label: string; fields
     label: 'Nuvemshop',
     fields: [
       { key: 'store_id',     label: 'Store ID' },
-      { key: 'access_token',   label: 'Access Token', type: 'password' },
-      { key: 'webhook_secret',  label: 'Webhook Secret (HMAC)', type: 'password' },
+      { key: 'access_token', label: 'Access Token', type: 'password' },
     ],
   },
   vtex: {

@@ -170,7 +170,3 @@ export const patchPlatformSettings = (platforms: Record<string, boolean>) =>
     '/platform-settings',
     { method: 'PATCH', body: JSON.stringify({ platforms }) }
   );
-
-// ── Queue ─────────────────────────────────────────────────────────────────────
-export const getQueueStats = () =>
-  request<{ success: boolean; stats: Array<{ status: string; count: string; avg_duration_s: string | null }>; oldest_pending: unknown[] }>('/queue');

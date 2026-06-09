@@ -223,23 +223,9 @@ const UserWebhooks = () => {
         <CardHeader><CardTitle>Dados da Integração</CardTitle></CardHeader>
         <CardContent className="p-0">
           {loading ? (
-            <div className="space-y-3">
-              {[1,2,3].map(i => (
-                <div key={i} className="flex gap-3 p-3 border border-border/40 rounded-xl">
-                  <div className="h-8 w-8 shimmer-load rounded-lg flex-shrink-0" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 w-24 shimmer-load rounded-md" />
-                    <div className="h-3 w-40 shimmer-load rounded-md" />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : !integration ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <Link2 className="h-8 w-8 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">Nenhuma integração configurada</p>
-              <p className="text-xs text-muted-foreground/50">Configure o chatbot e o e-commerce para ver os tokens</p>
-            </div>
+            <p className="text-center text-muted-foreground py-8">Nenhuma integração configurada</p>
           ) : (
             <Table>
               <TableHeader>
@@ -296,28 +282,13 @@ const UserWebhooks = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-2">
-                      <>{[1,2,3,4,5].map(i => (
-                        <div key={i} className="flex gap-3 py-2 border-b border-border/30 last:border-0">
-                          <div className="h-4 w-28 shimmer-load rounded-md" />
-                          <div className="h-4 w-20 shimmer-load rounded-md" />
-                          <div className="h-5 w-16 shimmer-load rounded-full" />
-                          <div className="h-5 w-20 shimmer-load rounded-full" />
-                          <div className="h-4 w-32 shimmer-load rounded-md" />
-                          <div className="h-4 w-8 shimmer-load rounded-md" />
-                        </div>
-                      ))}</>
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : webhooks.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center">
-                      <div className="flex flex-col items-center gap-2">
-                        <Webhook className="h-8 w-8 text-muted-foreground/30" />
-                        <p className="text-sm text-muted-foreground">Nenhum evento recebido ainda</p>
-                        <p className="text-xs text-muted-foreground/50">Configure o webhook na sua plataforma e realize um pedido de teste</p>
-                      </div>
-                    </TableCell>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
                   </TableRow>
                 ) : webhooks.map((w) => (
                   <TableRow

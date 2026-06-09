@@ -35,26 +35,4 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  build: {
-    chunkSizeWarningLimit: 600,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          "vendor-react":  ["react", "react-dom", "react-router-dom"],
-          "vendor-gsap":   ["gsap"],
-          "vendor-radix":  [
-            "@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu",
-            "@radix-ui/react-select", "@radix-ui/react-tooltip",
-            "@radix-ui/react-switch", "@radix-ui/react-tabs",
-            "@radix-ui/react-label",  "@radix-ui/react-separator",
-            "@radix-ui/react-scroll-area", "@radix-ui/react-popover",
-            "@radix-ui/react-avatar", "@radix-ui/react-collapsible", "@radix-ui/react-slot"
-          ],
-          "vendor-utils":  ["clsx", "class-variance-authority", "tailwind-merge", "date-fns", "zustand"],
-          "vendor-icons":  ["lucide-react"],
-          "vendor-sonner": ["sonner"],
-        },
-      },
-    },
-  },
 }));

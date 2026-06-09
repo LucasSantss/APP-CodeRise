@@ -301,21 +301,6 @@ const EcommerceConfig = () => {
                   setConfig({ ...config, [field.key]: e.target.value });
                 }}
               />
-              {field.key === 'webhook_secret' && (
-                <p className="text-xs text-muted-foreground">
-                  Chave secreta para validar webhooks (HMAC). Configure o mesmo valor no painel da sua loja.
-                </p>
-              )}
-              {field.key === 'access_token' && (
-                <p className="text-xs text-muted-foreground">
-                  Token de acesso à API. Necessário para buscar detalhes dos pedidos e produtos.
-                </p>
-              )}
-              {field.key === 'store_url' && (
-                <p className="text-xs text-muted-foreground">
-                  URL da sua loja sem https:// (ex: <code className="text-xs bg-muted px-1 rounded">minha-loja.myshopify.com</code>).
-                </p>
-              )}
             </div>
           ))}
 

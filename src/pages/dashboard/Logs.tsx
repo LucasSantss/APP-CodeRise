@@ -8,7 +8,7 @@ import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare, ScrollText } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
 
@@ -199,26 +199,14 @@ const UserLogs = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-2">
-                      <>{[1,2,3,4,5,6].map(i => (
-                        <div key={i} className="flex gap-3 py-2 border-b border-border/30 last:border-0">
-                          <div className="h-4 w-32 shimmer-load rounded-md" />
-                          <div className="h-4 w-24 shimmer-load rounded-md" />
-                          <div className="h-5 w-20 shimmer-load rounded-full" />
-                          <div className="h-5 w-16 shimmer-load rounded-full" />
-                          <div className="h-4 w-8 shimmer-load rounded-md" />
-                        </div>
-                      ))}</>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-12 text-center">
-                      <div className="flex flex-col items-center gap-2 py-4">
-                        <ScrollText className="h-8 w-8 text-muted-foreground/30" />
-                        <p className="text-sm text-muted-foreground">Nenhum evento no período</p>
-                        <p className="text-xs text-muted-foreground/50">Os eventos aparecerão aqui quando chegarem via webhook</p>
-                      </div>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      Nenhum evento no período selecionado
                     </TableCell>
                   </TableRow>
                 ) : filtered.map((w) => (
