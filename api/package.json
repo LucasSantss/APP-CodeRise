@@ -1,9 +1,0 @@
-{
-  "name": "coderise-api",
-  "version": "1.0.0",
-  "type": "module",
-  "dependencies": {
-    "pg": "^8.19.0",
-    "bcryptjs": "^2.4.3"
-  }
-}
