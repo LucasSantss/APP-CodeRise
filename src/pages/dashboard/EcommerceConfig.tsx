@@ -20,12 +20,12 @@ import { getIntegrations, updateIntegration, patchIntegration, testEcommerceConn
 
 // Plataformas que suportam registro automático de webhook
 const AUTO_REGISTER_SUPPORT: Record<string, boolean> = {
-  shopify: true, woocommerce: true, nuvemshop: true, vtex: true, tray: true, custom: false,
+  shopify: true, woocommerce: true, nuvemshop: true, vtex: true, tray: true, olist: false, custom: false,
 };
 
 // Plataformas que suportam teste de conexão
 const TEST_CONNECTION_SUPPORT: Record<string, boolean> = {
-  shopify: true, woocommerce: true, nuvemshop: true, vtex: true, tray: true, custom: false,
+  shopify: true, woocommerce: true, nuvemshop: true, vtex: true, tray: true, olist: false, custom: false,
 };
 
 // Documentação manual por plataforma
@@ -35,6 +35,7 @@ const MANUAL_DOCS: Record<string, { label: string; url: string }> = {
   nuvemshop:   { label: 'Nuvemshop API Docs',        url: 'https://tiendanube.github.io/api-documentation/resources/webhook' },
   vtex:        { label: 'VTEX Hook API Docs',        url: 'https://developers.vtex.com/docs/guides/orders-feed' },
   tray:        { label: 'Tray Webhooks Docs',        url: 'https://developers.tray.com.br/webhooks' },
+  olist:       { label: 'Olist Ecommerce API Docs',   url: 'https://developers.vnda.com.br/guides/integracoes/webhooks/' },
 };
 
 interface RegisterResult {

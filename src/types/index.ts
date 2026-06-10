@@ -39,7 +39,7 @@ export interface ChatbotIntegration {
   updated_at: string;
 }
 
-export type EcommercePlatform = 'shopify' | 'woocommerce' | 'tray' | 'nuvemshop' | 'vtex' | 'custom';
+export type EcommercePlatform = 'shopify' | 'woocommerce' | 'tray' | 'nuvemshop' | 'vtex' | 'olist' | 'custom';
 export type ChatbotPlatform = 'suri' | 'evolution_api' | 'kommo' | 'take_blip' | 'manychat' | 'weni';
 
 export interface SyncRule {
@@ -168,6 +168,13 @@ export const ECOMMERCE_FIELDS: Record<EcommercePlatform, { label: string; fields
       { key: 'app_key',      label: 'App Key',   type: 'password' },
       { key: 'app_token',    label: 'App Token', type: 'password' },
       { key: 'environment',  label: 'Environment' },
+    ],
+  },
+  olist: {
+    label: 'Olist Ecommerce',
+    fields: [
+      { key: 'store_url',    label: 'URL da Loja (ex: https://minhaloja.vnda.com.br)' },
+      { key: 'access_token', label: 'Token de Acesso', type: 'password' },
     ],
   },
   custom: {
