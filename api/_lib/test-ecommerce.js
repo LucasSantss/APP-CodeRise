@@ -4,13 +4,13 @@
  * Funciona de forma análoga ao test-suri.js, mas para o lado do e-commerce.
  * Suporta: Nuvemshop, Shopify, WooCommerce, VTEX, Tray.
  */
-import pool from "./db.js";
-import { setCors } from "./_cors.js";
-import { requireAuth } from "./_auth.js";
+const pool = require("./db.js");
+const { setCors } = require("./_cors.js");
+const { requireAuth } = require("../_auth.js");
 
 const PLATFORM_LABELS = {
   shopify: "Shopify", woocommerce: "WooCommerce", nuvemshop: "Nuvemshop",
-  vtex: "VTEX", tray: "Tray", custom: "Custom",
+  vtex: "VTEX", tray: "Tray", olist: "Olist Ecommerce", custom: "Custom",
 };
 
 // ── Testadores por plataforma ─────────────────────────────────────────────────
@@ -144,7 +144,34 @@ async function testTray({ api_address, access_token }) {
   return { store: store.name || api_address, plan: null, country: null };
 }
 
+async function testOlist({ store_url, access_token }) {
+  if (!store_url || !access_token)
+    throw new Error("store_url e access_token são obrigatórios.");
+
+  const base = store_url.replace(/\/+$/, "");
+  const res = await fetch(`${base}/api/v2/orders?per_page=1`, {
+    headers: {
+      "Authorization": `Token ${access_token}`,
+      "User-Agent": "CodeRise Integration (suporte@coderise.com.br)",
+      "Content-Type": "application/json",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  const body = await res.json().catch(() => ({}));
+
+  if (res.status === 401 || res.status === 403)
+    throw new Error(`Token inválido ou sem permissão (HTTP ${res.status}). Verifique o Token de Acesso da Olist.`);
+  if (res.status === 404)
+    throw new Error(`URL não encontrada (HTTP 404). Verifique a URL da loja "${store_url}".`);
+  if (!res.ok)
+    throw new Error(`Olist retornou HTTP ${res.status}: ${JSON.stringify(body).slice(0, 200)}`);
+
+  return { store: store_url, plan: "Olist Ecommerce", country: "BR" };
+}
+
 // ── Handler principal ─────────────────────────────────────────────────────────
+
 
 async function handler(req, res) {
   if (setCors(req, res)) return;
@@ -188,6 +215,7 @@ async function handler(req, res) {
       case "woocommerce": result = await testWoocommerce(config); break;
       case "vtex":        result = await testVtex(config);        break;
       case "tray":        result = await testTray(config);        break;
+      case "olist":        result = await testOlist(config);        break;
       default:
         return res.status(400).json({ success: false, message: `Teste automático não disponível para "${platform}".` });
     }
@@ -211,4 +239,4 @@ async function handler(req, res) {
   }
 }
 
-export default handler;
+module.exports = handler;

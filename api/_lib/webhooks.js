@@ -1,5 +1,5 @@
 import pool from "./db.js";
-import { requireAuth } from "./_auth.js";
+import { requireAuth } from "../_auth.js";
 
 export async function handleWebhooks(req, res) {
   try {

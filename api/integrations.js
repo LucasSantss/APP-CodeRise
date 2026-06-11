@@ -1,4 +1,4 @@
-import pool, { checkDb } from "./db.js";
+import pool, { checkDb } from "./_lib/db.js";
 import { setCors } from "./_cors.js";
 import { requireAuth } from "./_auth.js";
 import crypto from "crypto";

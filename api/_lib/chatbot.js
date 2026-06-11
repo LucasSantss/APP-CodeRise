@@ -1,6 +1,6 @@
 import pool from "./db.js";
 import crypto from "crypto";
-import { requireAuth } from "./_auth.js";
+import { requireAuth } from "../_auth.js";
 
 async function ensureChatbotRow(userId) {
   const ex = await pool.query("SELECT webhook_token, chatbot_token FROM user_integrations WHERE user_id = $1", [userId]);

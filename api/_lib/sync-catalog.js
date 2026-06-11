@@ -1,5 +1,5 @@
 import pool from "./db.js";
-import { requireAuth } from "./_auth.js";
+import { requireAuth } from "../_auth.js";
 
 export async function handleSyncCatalog(req, res) {
   if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
@@ -19,19 +19,31 @@ export async function handleSyncCatalog(req, res) {
   const suriEndpoint = row.suri_endpoint || chatbotCfg.endpoint || null;
   const suriToken    = row.suri_token    || chatbotCfg.token    || null;
 
-  if (!platform || !ecommerceConfig.store_id)
+  if (!platform || (!ecommerceConfig.store_id && !ecommerceConfig.store_url))
     return res.status(400).json({ success: false, message: "E-commerce não configurado." });
   if (!suriEndpoint || !suriToken)
     return res.status(400).json({ success: false, message: "Chatbot (Suri) não configurado." });
-  if (platform !== "nuvemshop")
+  if (platform !== "nuvemshop" && platform !== "olist")
     return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform}.` });
 
-  const { store_id, access_token } = ecommerceConfig;
-  const { fetchCategories: fetchNuvemCategories } = await import("./ecommerce/nuvemshop/categories.js");
-  const { listProducts, getProductVariants }       = await import("./ecommerce/nuvemshop/client.js");
-  const { normalizeProduct }                       = await import("./ecommerce/nuvemshop/products.js");
-  const { syncProduct }                            = await import("./chatbot/suri/products.js");
-  const { syncCategory, listCategories }           = await import("./chatbot/suri/categories.js");
+  const store_id   = ecommerceConfig.store_id;
+  const store_url  = ecommerceConfig.store_url;
+  const { access_token } = ecommerceConfig;
+
+  const ecommercePath = platform === "olist" ? "./ecommerce/olist" : "./ecommerce/nuvemshop";
+  const { fetchCategories: fetchPlatformCategories } = await import(`${ecommercePath}/categories.js`);
+  const platformClient                               = await import(`${ecommercePath}/client.js`);
+  const { normalizeProduct }                         = await import(`${ecommercePath}/products.js`);
+  const { syncProduct }                              = await import("./chatbot/suri/products.js");
+  const { syncCategory, listCategories }             = await import("./chatbot/suri/categories.js");
+
+  // Abstrações de cliente — Olist usa store_url, Nuvemshop usa store_id
+  const _storeKey = platform === "olist" ? store_url : store_id;
+  const listProductsFn       = (params)    => platformClient.listProducts(_storeKey, access_token, params);
+  const getProductVariantsFn = (productId) => platformClient.getProductVariants(_storeKey, access_token, productId);
+  const ecommerceConfigNorm  = platform === "olist"
+    ? { store_url, access_token }
+    : { store_id, access_token };
 
   // Resolve store mapping: ecommerce store_id → suri storeId
   let resolvedStoreId = null;
@@ -52,7 +64,7 @@ export async function handleSyncCatalog(req, res) {
 
   // 1. Categorias em paralelo — coleta mapa nuvemshop_id → suri_id
   try {
-    const cats = await fetchNuvemCategories(ecommerceConfig);
+    const cats = await fetchPlatformCategories(ecommerceConfigNorm);
     await runConcurrent(cats, async (cat) => {
       try {
         const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
@@ -84,11 +96,11 @@ export async function handleSyncCatalog(req, res) {
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
-      const batch = await listProducts(store_id, access_token, { page, per_page: 50 });
+      const batch = await listProductsFn({ page, per_page: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
       await Promise.all(batch.map(async (p) => {
         try {
-          const variants = await getProductVariants(store_id, access_token, p.id);
+          const variants = await getProductVariantsFn(p.id);
           if (Array.isArray(variants) && variants.length > 0) p.variants = variants;
         } catch { /* mantém variants do listProducts */ }
       }));

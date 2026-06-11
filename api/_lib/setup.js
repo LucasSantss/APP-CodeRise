@@ -1,6 +1,6 @@
 import pool from "./db.js";
 import crypto from "crypto";
-import { isAdminSecret } from "./_auth.js";
+import { isAdminSecret } from "../_auth.js";
 
 export async function handleSetup(req, res) {
   if (req.method !== "GET") return res.status(405).end();

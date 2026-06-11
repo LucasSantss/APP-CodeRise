@@ -1,5 +1,5 @@
 import pool from "./db.js";
-import { requireAuth } from "./_auth.js";
+import { requireAuth } from "../_auth.js";
 
 export async function handleTestSuri(req, res) {
   if (req.method !== "POST") { res.setHeader("Allow",["POST"]); return res.status(405).end(); }

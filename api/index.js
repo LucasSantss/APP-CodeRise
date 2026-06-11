@@ -22,25 +22,25 @@
  *       ├── vtex/
  *       └── tray/
  */
-import pool        from "./db.js";
+import pool        from "./_lib/db.js";
 import { setCors } from "./_cors.js";
 
-import { handleAuth }             from "./auth.js";
-import { handleChatbot }          from "./chatbot.js";
-import { handleWebhooks, handleWebhooksPoll } from "./webhooks.js";
-import { handleWebhook }          from "./webhook-receiver.js";
-import { handleRegisterWebhook }  from "./register-webhook.js";
-import { handleSyncCatalog }      from "./sync-catalog.js";
-import { handlePlatformSettings } from "./platform-settings.js";
-import { handleSetup }            from "./setup.js";
-import { handleTestSuri }         from "./test-suri.js";
+import { handleAuth }             from "./_lib/auth.js";
+import { handleChatbot }          from "./_lib/chatbot.js";
+import { handleWebhooks, handleWebhooksPoll } from "./_lib/webhooks.js";
+import { handleWebhook }          from "./_lib/webhook-receiver.js";
+import { handleRegisterWebhook }  from "./_lib/register-webhook.js";
+import { handleSyncCatalog }      from "./_lib/sync-catalog.js";
+import { handlePlatformSettings } from "./_lib/platform-settings.js";
+import { handleSetup }            from "./_lib/setup.js";
+import { handleTestSuri }         from "./_lib/test-suri.js";
 
 // Handlers existentes no projeto (não alterados)
 import handleUsers         from "./users.js";
 import handleIntegrations  from "./integrations.js";
 import handleNotifications from "./notifications.js";
 import handleSyncRules     from "./sync-rules.js";
-import handleTestEcommerce from "./test-ecommerce.js";
+import handleTestEcommerce from "./_lib/test-ecommerce.js";
 
 // ─── helper ──────────────────────────────────────────────────────────────────
 function getPath(req) {
