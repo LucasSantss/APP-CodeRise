@@ -7,10 +7,10 @@
 
 const USER_AGENT = "CodeRise Integration (suporte@coderise.com.br)";
 
-function headers(accessToken) {
+function headers(accessToken, shopHost) {
   return {
-    "Authorization": `Token ${accessToken}`,
-    "User-Agent": USER_AGENT,
+    "Authorization": `Bearer ${accessToken}`,
+    "X-Shop-Host": shopHost,
     "Content-Type": "application/json",
   };
 }

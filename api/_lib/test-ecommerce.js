@@ -85,18 +85,21 @@ async function testTray({ api_address, access_token }) {
   return { store: store.name || api_address, plan: null, country: null };
 }
 
-async function testOlist({ store_url, access_token }) {
-  if (!store_url || !access_token) throw new Error("store_url e access_token são obrigatórios.");
-  const base = store_url.replace(/\/+$/, "");
-  const res = await fetch(`${base}/api/v2/orders?per_page=1`, {
-    headers: { "Authorization": `Token ${access_token}`, "User-Agent": "CodeRise Integration (suporte@coderise.com.br)", "Content-Type": "application/json" },
+async function testOlist({ shop_host, access_token }) {
+  if (!shop_host || !access_token) throw new Error("shop_host e access_token são obrigatórios.");
+  const res = await fetch(`https://api.vnda.com.br/api/v2/products?per_page=1`, {
+    headers: {
+      "Authorization": `Bearer ${access_token}`,
+      "X-Shop-Host": shop_host,
+      "Content-Type": "application/json",
+    },
     signal: AbortSignal.timeout(10000),
   });
   const body = await res.json().catch(() => ({}));
-  if (res.status === 401 || res.status === 403) throw new Error(`Token inválido ou sem permissão (HTTP ${res.status}). Verifique o Token de Acesso da Olist.`);
-  if (res.status === 404) throw new Error(`URL não encontrada (HTTP 404). Verifique a URL da loja "${store_url}".`);
+  if (res.status === 401 || res.status === 403) throw new Error(`Token inválido (HTTP ${res.status}). Verifique o Token de Acesso.`);
+  if (res.status === 404) throw new Error(`Loja não encontrada. Verifique o domínio "${shop_host}".`);
   if (!res.ok) throw new Error(`Olist retornou HTTP ${res.status}: ${JSON.stringify(body).slice(0, 200)}`);
-  return { store: store_url, plan: "Olist Ecommerce", country: "BR" };
+  return { store: shop_host, plan: "Olist Ecommerce", country: "BR" };
 }
 
 export default async function handler(req, res) {

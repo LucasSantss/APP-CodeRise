@@ -173,7 +173,7 @@ export const ECOMMERCE_FIELDS: Record<EcommercePlatform, { label: string; fields
   olist: {
     label: 'Olist Ecommerce',
     fields: [
-      { key: 'store_url',    label: 'URL da Loja (ex: https://minhaloja.vnda.com.br)' },
+      { key: 'shop_host',    label: 'Domínio da Loja (ex: www.minhaloja.com.br)' },
       { key: 'access_token', label: 'Token de Acesso', type: 'password' },
     ],
   },
