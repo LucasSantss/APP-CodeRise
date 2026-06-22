@@ -25,7 +25,7 @@ const AUTO_REGISTER_SUPPORT: Record<string, boolean> = {
 
 // Plataformas que suportam teste de conexão
 const TEST_CONNECTION_SUPPORT: Record<string, boolean> = {
-  shopify: true, woocommerce: true, nuvemshop: true, vtex: true, tray: true, olist: false, custom: false,
+  shopify: true, woocommerce: true, nuvemshop: true, vtex: true, tray: true, olist: true, custom: false,
 };
 
 // Documentação manual por plataforma

@@ -55,6 +55,53 @@ function normalizeTray(payload) {
   const order=payload.Order||payload.order||payload;
   return { eventType, orderId:String(order.id||order.Id||order.order_id||""), paymentTracking:order.payment?.payment_method||order.PaymentMethod||"", logisticStatus:order.status||order.Status||"shipped", totalAmount:parseFloat(order.total||order.Total||0), items:(order.ProductsSold||order.products||order.items||[]).map(i=>({productId:String(i.Product?.id||i.product_id||i.id),sku:String(i.Product?.reference||i.sku||i.id),name:i.Product?.name||i.name,quantity:parseInt(i.quantity||i.Quantity||1),unitPrice:parseFloat(i.price||i.Price||0),discount:parseFloat(i.discount||i.Discount||0),sellerId:"all"})), shipping:{provider:order.shipping?.carrier||order.Carrier||"Entrega",type:1,price:parseFloat(order.shipping?.cost||order.ShippingCost||0),estimative:"5 dias úteis"} };
 }
+function normalizeOlist(payload) {
+  const topic = payload.event || payload.topic || payload.type || "";
+  const statusMap = {
+    "order_paid":       "order.created",
+    "order_created":    "order.created",
+    "order_confirmed":  "order.created",
+    "order_shipped":    "order.shipped",
+    "order_delivered":  "order.shipped",
+    "order_cancelled":  "order.cancelled",
+    "order_voided":     "order.cancelled",
+    "order_refunded":   "order.cancelled",
+    "product_created":  "product.sync",
+    "product_updated":  "product.sync",
+    "product_deleted":  "product.deleted",
+    "tag_created":      "category.sync",
+    "tag_updated":      "category.sync",
+    "tag_deleted":      "category.deleted",
+  };
+  const eventType = statusMap[topic] || topic;
+  if (eventType === "product.sync" || eventType === "product.deleted") {
+    const p = payload.product || payload;
+    return { eventType, product: p };
+  }
+  const order = payload.order || payload;
+  return {
+    eventType,
+    orderId:         String(order.code || order.id || ""),
+    paymentTracking: order.payment_method || order.payment_type || "",
+    logisticStatus:  order.shipping_status || order.status || "shipped",
+    totalAmount:     parseFloat(order.total || 0),
+    items: (order.items || order.line_items || []).map(i => ({
+      productId: String(i.product_id || i.id || ""),
+      sku:       String(i.sku || i.variant_sku || ""),
+      name:      i.name || i.product_name || "Produto",
+      quantity:  parseInt(i.quantity || 1),
+      unitPrice: parseFloat(i.price || i.unit_price || 0),
+      discount:  parseFloat(i.discount || 0),
+      sellerId:  "all",
+    })),
+    shipping: {
+      provider:   order.shipping_method_name || "Entrega",
+      type:       1,
+      price:      parseFloat(order.shipping_price || 0),
+      estimative: "5 dias úteis",
+    },
+  };
+}
 export function normalizePayload(platform, payload) {
   switch (platform) {
     case "vtex":        return normalizeVtex(payload);
@@ -62,6 +109,7 @@ export function normalizePayload(platform, payload) {
     case "woocommerce": return normalizeWoocommerce(payload);
     case "nuvemshop":   return normalizeNuvemshop(payload);
     case "tray":        return normalizeTray(payload);
+    case "olist":       return normalizeOlist(payload);
     default: return { eventType:payload.type||payload.event||payload.event_type||"desconhecido", orderId:String(payload.order_id||payload.orderId||payload.id||""), paymentTracking:"", logisticStatus:payload.status||"shipped", totalAmount:parseFloat(payload.total||payload.total_price||0), items:payload.items||payload.line_items||[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} };
   }
 }
@@ -193,6 +241,67 @@ export async function processSuriOrderCancelled(suriEndpoint, suriToken, normali
   return { action: "stock_returned", orderId: suriOrderId, items: stockResults };
 }
 
+
+export async function processSuriOrderPaidOlist(suriEndpoint, suriToken, normalized, userId) {
+  const { deductStockForOrderItems } = await import("./ecommerce/olist/stock.js");
+  const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
+  const integration = intRow.rows[0];
+  if (!integration || integration.ecommerce_platform !== "olist") return { action: "skipped", reason: "E-commerce não é Olist" };
+  const { store_url, access_token } = integration.ecommerce_config || {};
+  if (!store_url || !access_token) return { action: "skipped", reason: "Credenciais da Olist não configuradas" };
+  const suriOrderId = normalized.orderId || normalized.suriOrderId;
+  if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
+  const base = suriEndpoint.replace(/\/+$/, "");
+  const orderRes = await fetch(`${base}/api/shop/orders/${suriOrderId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": `Bearer ${suriToken}` },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!orderRes.ok) { const errBody = await orderRes.json().catch(() => ({})); throw new Error(`Suri GET /api/shop/orders/${suriOrderId} → HTTP ${orderRes.status}: ${JSON.stringify(errBody).slice(0, 300)}`); }
+  const suriOrder = await orderRes.json();
+  const items = (suriOrder?.data || suriOrder)?.items || [];
+  if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
+  const result = await deductStockForOrderItems(
+    { store_url, access_token },
+    items.map(i => ({ sku: String(i.sku || ""), quantity: Math.round(parseFloat(i.quantity || i.paidQuantity || 1)), name: i.name || "" }))
+  );
+  return { action: "stock_deducted", orderId: suriOrderId, ...result };
+}
+export async function processSuriOrderCancelledOlist(suriEndpoint, suriToken, normalized, userId) {
+  const { getVariantBySku, updateVariantStock } = await import("./ecommerce/olist/client.js");
+  const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
+  const integration = intRow.rows[0];
+  if (!integration || integration.ecommerce_platform !== "olist") return { action: "skipped", reason: "E-commerce não é Olist" };
+  const { store_url, access_token } = integration.ecommerce_config || {};
+  if (!store_url || !access_token) return { action: "skipped", reason: "Credenciais da Olist não configuradas" };
+  const suriOrderId = normalized.orderId || normalized.suriOrderId;
+  if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
+  const base = suriEndpoint.replace(/\/+$/, "");
+  const orderRes = await fetch(`${base}/api/shop/orders/${suriOrderId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": `Bearer ${suriToken}` },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!orderRes.ok) { const errBody = await orderRes.json().catch(() => ({})); throw new Error(`Suri GET /api/shop/orders/${suriOrderId} → HTTP ${orderRes.status}: ${JSON.stringify(errBody).slice(0, 300)}`); }
+  const suriOrder = await orderRes.json();
+  const items = (suriOrder?.data || suriOrder)?.items || [];
+  if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
+  const stockResults = [];
+  for (const item of items) {
+    const sku = String(item.sku || "");
+    const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
+    if (!sku) continue;
+    try {
+      const variant      = await getVariantBySku(store_url, access_token, sku);
+      const currentStock = parseInt(variant.quantity ?? variant.stock ?? 0);
+      const newStock     = currentStock + qty;
+      await updateVariantStock(store_url, access_token, sku, newStock);
+      stockResults.push({ sku, previousStock: currentStock, newStock, returned: qty });
+    } catch (err) { stockResults.push({ sku, status: "error", error: err.message }); }
+  }
+  return { action: "stock_returned", orderId: suriOrderId, items: stockResults };
+}
+
 // ─── Handler principal do webhook ────────────────────────────────────────────
 export async function handleWebhook(req, res) {
   if (req.method === "GET") return res.status(200).json({ success: true, message: "Webhook endpoint ativo" });
@@ -257,10 +366,14 @@ export async function handleWebhook(req, res) {
   if (!isViaWebhookToken && rawPayload.HookEvent) {
     const suriEventMap = { "OrdersPaid":"order.paid", "OrdersCreated":"order.created", "OrdersCancelled":"order.cancelled", "OrdersCanceled":"order.cancelled", "OrdersShipped":"order.shipped" };
     const displayEventType = suriEventMap[rawPayload.HookEvent] || rawPayload.HookEvent;
-    const routeEventType = displayEventType === "order.cancelled" ? "order.cancelled.suri"
-                         : displayEventType === "order.created"   ? "order.created.suri"
-                         : displayEventType === "order.shipped"   ? "order.shipped.suri"
-                         : displayEventType;
+    const _isOlist = ecommerce_platform === "olist";
+    const routeEventType = displayEventType === "order.cancelled"
+      ? (_isOlist ? "order.cancelled.olist" : "order.cancelled.suri")
+      : (displayEventType === "order.paid" || displayEventType === "order.created")
+      ? (_isOlist ? "order.paid.olist" : "order.created.suri")
+      : displayEventType === "order.shipped"
+      ? "order.shipped.suri"
+      : displayEventType;
     normalized = { eventType: routeEventType, displayEventType, orderId: String(rawPayload.OrderId || rawPayload.Id || ""), suriOrderId: String(rawPayload.Id || "") };
   } else {
     try { normalized = normalizePayload(ecommerce_platform, rawPayload); }
@@ -288,6 +401,8 @@ export async function handleWebhook(req, res) {
       case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized);   break;
       case "order.paid":           result = await processSuriOrderPaid(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.cancelled.suri": result = await processSuriOrderCancelled(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.paid.olist":           result = await processSuriOrderPaidOlist(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.cancelled.olist":      result = await processSuriOrderCancelledOlist(suri_endpoint, suri_token, normalized, user_id); break;
       default:
         await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
         return res.status(200).json({ success:true, message:"Evento registrado sem processamento", event_type:eventType, webhook_id:webhookId });

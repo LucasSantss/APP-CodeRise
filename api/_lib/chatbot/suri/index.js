@@ -165,6 +165,31 @@ async function fetchCategoryFromEcommerce(platform, config, categoryId) {
       const { fetchCategory } = await import("../../ecommerce/nuvemshop/categories.js");
       return fetchCategory(config, categoryId);
     }
+    case "olist": {
+      const { fetchCategories } = await import("../../ecommerce/olist/categories.js");
+      const all = await fetchCategories(config);
+      return all.find(c => String(c.id) === String(categoryId)) || null;
+    }
+    case "shopify": {
+      const { fetchCategories } = await import("../../ecommerce/shopify/categories.js");
+      const all = await fetchCategories(config);
+      return all.find(c => String(c.id) === String(categoryId)) || null;
+    }
+    case "woocommerce": {
+      const { fetchCategories } = await import("../../ecommerce/woocommerce/categories.js");
+      const all = await fetchCategories(config);
+      return all.find(c => String(c.id) === String(categoryId)) || null;
+    }
+    case "vtex": {
+      const { fetchCategories } = await import("../../ecommerce/vtex/categories.js");
+      const all = await fetchCategories(config);
+      return all.find(c => String(c.id) === String(categoryId)) || null;
+    }
+    case "tray": {
+      const { fetchCategories } = await import("../../ecommerce/tray/categories.js");
+      const all = await fetchCategories(config);
+      return all.find(c => String(c.id) === String(categoryId)) || null;
+    }
     default:
       throw new Error(`Busca de categoria via API não implementada para: ${platform}`);
   }
@@ -174,6 +199,10 @@ async function fetchProductFromEcommerce(platform, config, productId) {
   switch (platform) {
     case "nuvemshop": {
       const { fetchAndNormalizeProduct } = await import("../../ecommerce/nuvemshop/products.js");
+      return fetchAndNormalizeProduct(config, productId);
+    }
+    case "olist": {
+      const { fetchAndNormalizeProduct } = await import("../../ecommerce/olist/products.js");
       return fetchAndNormalizeProduct(config, productId);
     }
     case "shopify": {

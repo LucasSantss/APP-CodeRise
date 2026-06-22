@@ -1,4 +1,4 @@
-import pool from "./db.js";
+import pool from "./_lib/db.js";
 // MELHORIA 7: verificação de hash com bcryptjs
 import bcrypt from "bcryptjs";
 

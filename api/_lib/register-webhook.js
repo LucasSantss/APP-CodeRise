@@ -1,5 +1,5 @@
 import pool from "./db.js";
-import { requireAuth } from "./_auth.js";
+import { requireAuth } from "../_auth.js";
 
 async function registerShopify(config, webhookUrl) {
   const { store_url, api_token, api_version } = config;
@@ -84,6 +84,26 @@ async function registerTray(config, webhookUrl) {
   return { success:true, message:`${results.filter(r=>r.status==="created").length}/${triggers.length} webhooks registrados na Tray`, details:results };
 }
 
+async function registerOlist(config, webhookUrl) {
+  const { store_url, access_token } = config;
+  if (!store_url || !access_token)
+    throw new Error("store_url e access_token são obrigatórios");
+
+  // A Olist não tem API pública de registro de webhooks.
+  // Retorna orientação para configuração manual no painel admin.
+  const events = [
+    "order_paid", "order_shipped", "order_cancelled",
+    "product_created", "product_updated", "product_deleted",
+  ];
+
+  return {
+    success: true,
+    manual:  true,
+    message: `Configure os webhooks manualmente no painel admin da Olist em: Configurações → Integrações → API → Webhooks. Registre a URL abaixo para os eventos: ${events.join(", ")}.`,
+    details: events.map(event => ({ event, status: "manual" })),
+  };
+}
+
 export async function handleRegisterWebhook(req, res) {
   if (req.method !== "POST") { res.setHeader("Allow",["POST"]); return res.status(405).end(); }
   const caller = await requireAuth(req, res); if (!caller) return;
@@ -103,6 +123,7 @@ export async function handleRegisterWebhook(req, res) {
       case "nuvemshop":   result = await registerNuvemshop(ecommerce_config, webhookUrl);   break;
       case "vtex":        result = await registerVtex(ecommerce_config, webhookUrl);        break;
       case "tray":        result = await registerTray(ecommerce_config, webhookUrl);        break;
+      case "olist":        result = await registerOlist(ecommerce_config, webhookUrl);        break;
       default: return res.status(400).json({ success:false, message:`Registro automático não disponível para '${ecommerce_platform}'. URL: ${webhookUrl}` });
     }
     return res.status(200).json({ success:true, ...result, webhook_url:webhookUrl });

@@ -1,5 +1,5 @@
 import pool from "./db.js";
-import { requireAuth } from "./_auth.js";
+import { requireAuth } from "../_auth.js";
 
 export async function handlePlatformSettings(req, res) {
   const caller = await requireAuth(req, res);

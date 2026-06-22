@@ -1,26 +1,19 @@
 /**
  * ecommerce/shopify/products.js
- * Busca e normalização de produtos da Shopify.
+ * Busca o produto completo via Admin API da Shopify e normaliza
+ * para o formato interno do CodeRise.
  */
 
-const API_VERSION = "2024-01";
-
-function headers(apiToken) {
-  return { "X-Shopify-Access-Token": apiToken, "Content-Type": "application/json" };
-}
+import * as client from "./client.js";
 
 export async function fetchAndNormalizeProduct(config, productId) {
   const { store_url, api_token, api_version } = config;
-  const host = store_url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const version = api_version || API_VERSION;
+  const p = await client.getProduct(store_url, api_token, productId, api_version);
+  return normalizeProduct(p, store_url);
+}
 
-  const res = await fetch(`https://${host}/admin/api/${version}/products/${productId}.json`, {
-    headers: headers(api_token),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) throw new Error(`Shopify GET product ${productId} → HTTP ${res.status}`);
-  const data = await res.json();
-  const p = data.product;
+export function normalizeProduct(p, storeUrl) {
+  const host = storeUrl ? storeUrl.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
 
   const variants = (p.variants || []).map(v => ({
     sku: String(v.sku || v.id),
@@ -28,6 +21,7 @@ export async function fetchAndNormalizeProduct(config, productId) {
     promotionalPrice: parseFloat(v.compare_at_price || 0),
     weightInGrams: v.grams || 0,
     stock: v.inventory_quantity || 0,
+    inventoryItemId: v.inventory_item_id ? String(v.inventory_item_id) : null,
     dimensions: { heightInCm: 0, widthInCm: 0, lengthInCm: 0 },
     attributes: [
       ...(v.option1 ? [{ name: "option1", value: v.option1 }] : []),
@@ -37,21 +31,33 @@ export async function fetchAndNormalizeProduct(config, productId) {
   }));
 
   const firstVariant = variants[0] || {};
+
   return {
     id: String(p.id),
     sku: String(p.variants?.[0]?.sku || p.id),
-    name: p.title,
+    name: p.title || "",
     description: (p.body_html || "").replace(/<[^>]+>/g, ""),
     categoryId: String(p.product_type || ""),
     brand: p.vendor || null,
     isActive: p.status === "active",
     price: firstVariant.price || 0,
     promotionalPrice: firstVariant.promotionalPrice || 0,
-    url: p.handle ? `https://${host}/products/${p.handle}` : null,
+    url: p.handle && host ? `https://${host}/products/${p.handle}` : null,
     images: (p.images || []).map(i => ({ url: i.src, description: i.alt || null })),
     weightInGrams: firstVariant.weightInGrams || 0,
     dimensions: firstVariant.dimensions || { heightInCm: 0, widthInCm: 0, lengthInCm: 0 },
     stock: firstVariant.stock || 0,
     variants,
   };
+}
+
+/**
+ * Normaliza payload bruto do webhook de produto da Shopify.
+ * Webhooks products/create e products/update já trazem o produto completo.
+ */
+export function normalizeWebhookProduct(payload, storeUrl) {
+  if (payload && payload.id && payload.variants) {
+    return { fromWebhook: true, product: normalizeProduct(payload, storeUrl) };
+  }
+  return { fromWebhook: false, productId: String(payload.id || "") };
 }
