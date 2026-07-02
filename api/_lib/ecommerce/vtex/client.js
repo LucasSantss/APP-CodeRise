@@ -111,9 +111,22 @@ export async function getOrderHookConfig(accountName, appKey, appToken) {
   return request(accountName, appKey, appToken, "GET", "/api/orders/hook/config");
 }
 
-export async function setOrderHookConfig(accountName, appKey, appToken, hookUrl) {
+export async function setOrderHookConfig(accountName, appKey, appToken, hookUrl, filterStatuses) {
+  const statuses = filterStatuses || [
+    "payment-approved",
+    "order-created",
+    "invoiced",
+    "order-completed",
+    "canceled",
+  ];
   return request(accountName, appKey, appToken, "POST", "/api/orders/hook/config", {
-    url: hookUrl,
-    key: "",
+    filter: {
+      type: ["Marketplace Order"],
+      status: statuses,
+    },
+    hook: {
+      headers: {},
+      url: hookUrl,
+    },
   });
 }

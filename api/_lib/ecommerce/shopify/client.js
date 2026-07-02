@@ -4,7 +4,7 @@
  * Autenticação via header X-Shopify-Access-Token.
  */
 
-const API_VERSION = "2024-01";
+const API_VERSION = "2025-01";
 
 function headers(apiToken) {
   return {

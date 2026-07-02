@@ -142,11 +142,20 @@ export async function processOrderCreated(ep, tk, n) {
 }
 export async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); const st=mapLogisticStatus(n.logisticStatus); await suriRequest(ep,tk,"POST","/api/shop/orders/logistic",{id:ex.id||ex.orderId,status:st}); return {action:"logistic_updated",suriOrderId:ex.id,status:st}; }
 export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
-export async function processProductSync(ep, tk, n) {
+export async function processProductSync(ep, tk, n, platform) {
   const { syncProduct } = await import("./chatbot/suri/products.js");
   const { listCategories } = await import("./chatbot/suri/categories.js");
-  const { normalizeProduct } = await import("./ecommerce/nuvemshop/products.js");
-  const product = n.product ? normalizeProduct(n.product) : null;
+  let product;
+  if (platform === "nuvemshop") {
+    const { normalizeProduct } = await import("./ecommerce/nuvemshop/products.js");
+    product = n.product ? normalizeProduct(n.product) : null;
+  } else if (platform === "olist") {
+    const { normalizeProduct } = await import("./ecommerce/olist/products.js");
+    product = n.product ? normalizeProduct(n.product) : null;
+  } else {
+    // Shopify, WooCommerce, VTEX, Tray: produto já normalizado pelo normalizeXxx() do webhook
+    product = n.product || null;
+  }
   if (!product) throw new Error("Produto não encontrado no payload do webhook");
   const categoryIdMap = new Map();
   try {
@@ -163,82 +172,164 @@ export async function processProductSync(ep, tk, n) {
   return syncProduct(ep, tk, product, null, categoryIdMap.size > 0 ? categoryIdMap : null);
 }
 
-// ─── Processadores de pedido da Suri (chatbot → Nuvemshop) ───────────────────
-export async function processSuriOrderPaid(suriEndpoint, suriToken, normalized, userId) {
-  const { getProductVariants, updateVariantStock } = await import("./ecommerce/nuvemshop/client.js");
-  const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
-  const integration = intRow.rows[0];
-  if (!integration || integration.ecommerce_platform !== "nuvemshop") return { action: "skipped", reason: "E-commerce não é Nuvemshop" };
-  const { store_id, access_token } = integration.ecommerce_config || {};
-  if (!store_id || !access_token) return { action: "skipped", reason: "Credenciais da Nuvemshop não configuradas" };
-  const suriOrderId = normalized.orderId || normalized.suriOrderId;
-  if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
+// ─── Processadores de pedido da Suri (chatbot → E-commerce) ─────────────────
+
+async function fetchSuriOrderItems(suriEndpoint, suriToken, suriOrderId) {
   const base = suriEndpoint.replace(/\/+$/, "");
-  const orderRes = await fetch(`${base}/api/shop/orders/${suriOrderId}`, {
+  const res = await fetch(`${base}/api/shop/orders/${suriOrderId}`, {
     method: "GET",
     headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": `Bearer ${suriToken}` },
     signal: AbortSignal.timeout(15000),
   });
-  if (!orderRes.ok) { const errBody = await orderRes.json().catch(() => ({})); throw new Error(`Suri GET /api/shop/orders/${suriOrderId} → HTTP ${orderRes.status}: ${JSON.stringify(errBody).slice(0, 300)}`); }
-  const suriOrder = await orderRes.json();
-  const orderData = suriOrder?.data || suriOrder;
-  const items = orderData?.items || [];
-  if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
-  const stockResults = [];
-  for (const item of items) {
-    const productId = String(item.providerId || "");
-    const sku = String(item.sku || "");
-    const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
-    if (!productId || !qty) continue;
-    try {
-      const variants = await getProductVariants(store_id, access_token, productId);
-      const variant = Array.isArray(variants) ? variants.find(v => String(v.sku) === sku) || variants[0] : null;
-      if (!variant) { stockResults.push({ productId, sku, status: "variant_not_found" }); continue; }
-      const currentStock = variant.stock ?? 0;
-      const newStock = Math.max(0, currentStock - qty);
-      await updateVariantStock(store_id, access_token, productId, variant.id, newStock);
-      stockResults.push({ productId, sku, variantId: variant.id, previousStock: currentStock, newStock, deducted: currentStock - newStock });
-    } catch (err) { stockResults.push({ productId, sku, status: "error", error: err.message }); }
-  }
-  return { action: "stock_deducted", orderId: suriOrderId, items: stockResults };
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`Suri GET /api/shop/orders/${suriOrderId} → HTTP ${res.status}: ${JSON.stringify(e).slice(0, 300)}`); }
+  const body = await res.json();
+  return (body?.data || body)?.items || [];
 }
-export async function processSuriOrderCancelled(suriEndpoint, suriToken, normalized, userId) {
-  const { getProductVariants, updateVariantStock } = await import("./ecommerce/nuvemshop/client.js");
+
+export async function processSuriOrderPaidGeneric(suriEndpoint, suriToken, normalized, userId) {
   const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
   const integration = intRow.rows[0];
-  if (!integration || integration.ecommerce_platform !== "nuvemshop") return { action: "skipped", reason: "E-commerce não é Nuvemshop" };
-  const { store_id, access_token } = integration.ecommerce_config || {};
-  if (!store_id || !access_token) return { action: "skipped", reason: "Credenciais da Nuvemshop não configuradas" };
+  if (!integration) return { action: "skipped", reason: "Integração não encontrada" };
+  const platform = integration.ecommerce_platform;
+  const config = integration.ecommerce_config || {};
+  if (platform === "olist") return { action: "skipped", reason: "Olist usa handler dedicado (order.paid.olist)" };
   const suriOrderId = normalized.orderId || normalized.suriOrderId;
   if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
-  const base = suriEndpoint.replace(/\/+$/, "");
-  const orderRes = await fetch(`${base}/api/shop/orders/${suriOrderId}`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": `Bearer ${suriToken}` },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!orderRes.ok) { const errBody = await orderRes.json().catch(() => ({})); throw new Error(`Suri GET /api/shop/orders/${suriOrderId} → HTTP ${orderRes.status}: ${JSON.stringify(errBody).slice(0, 300)}`); }
-  const suriOrder = await orderRes.json();
-  const orderData = suriOrder?.data || suriOrder;
-  const items = orderData?.items || [];
+  const items = await fetchSuriOrderItems(suriEndpoint, suriToken, suriOrderId);
   if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
-  const stockResults = [];
-  for (const item of items) {
-    const productId = String(item.providerId || "");
-    const sku = String(item.sku || "");
-    const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
-    if (!productId || !qty) continue;
-    try {
-      const variants = await getProductVariants(store_id, access_token, productId);
-      const variant = Array.isArray(variants) ? variants.find(v => String(v.sku) === sku) || variants[0] : null;
-      if (!variant) { stockResults.push({ productId, sku, status: "variant_not_found" }); continue; }
-      const currentStock = variant.stock ?? 0;
-      const newStock = currentStock + qty;
-      await updateVariantStock(store_id, access_token, productId, variant.id, newStock);
-      stockResults.push({ productId, sku, variantId: variant.id, previousStock: currentStock, newStock, returned: qty });
-    } catch (err) { stockResults.push({ productId, sku, status: "error", error: err.message }); }
+
+  let result;
+  if (platform === "nuvemshop") {
+    const { getProductVariants, updateVariantStock } = await import("./ecommerce/nuvemshop/client.js");
+    const { store_id, access_token } = config;
+    if (!store_id || !access_token) return { action: "skipped", reason: "Credenciais da Nuvemshop não configuradas" };
+    const stockResults = [];
+    for (const item of items) {
+      const productId = String(item.providerId || ""); const sku = String(item.sku || ""); const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
+      if (!productId || !qty) continue;
+      try {
+        const variants = await getProductVariants(store_id, access_token, productId);
+        const variant = Array.isArray(variants) ? variants.find(v => String(v.sku) === sku) || variants[0] : null;
+        if (!variant) { stockResults.push({ productId, sku, status: "variant_not_found" }); continue; }
+        const currentStock = variant.stock ?? 0; const newStock = Math.max(0, currentStock - qty);
+        await updateVariantStock(store_id, access_token, productId, variant.id, newStock);
+        stockResults.push({ productId, sku, variantId: variant.id, previousStock: currentStock, newStock, deducted: currentStock - newStock });
+      } catch (err) { stockResults.push({ productId, sku, status: "error", error: err.message }); }
+    }
+    result = { action: "stock_deducted", orderId: suriOrderId, items: stockResults };
+  } else if (platform === "woocommerce") {
+    const { deductStockForOrderItems } = await import("./ecommerce/woocommerce/stock.js");
+    result = { ...(await deductStockForOrderItems(config, items.map(i => ({ sku: String(i.sku || ""), quantity: Math.round(parseFloat(i.quantity || i.paidQuantity || 1)), name: i.name || "" })))), orderId: suriOrderId };
+  } else if (platform === "vtex") {
+    const { deductStockForOrderItems } = await import("./ecommerce/vtex/stock.js");
+    result = { ...(await deductStockForOrderItems(config, items.map(i => ({ sku: String(i.sku || ""), quantity: Math.round(parseFloat(i.quantity || i.paidQuantity || 1)), name: i.name || "" })))), orderId: suriOrderId };
+  } else if (platform === "tray") {
+    const { deductStockForOrderItems } = await import("./ecommerce/tray/stock.js");
+    result = { ...(await deductStockForOrderItems(config, items.map(i => ({ sku: String(i.sku || ""), quantity: Math.round(parseFloat(i.quantity || i.paidQuantity || 1)), name: i.name || "" })))), orderId: suriOrderId };
+  } else if (platform === "shopify") {
+    const { deductStockForOrderItems } = await import("./ecommerce/shopify/stock.js");
+    result = { ...(await deductStockForOrderItems(config, items.map(i => ({ sku: String(i.sku || ""), quantity: Math.round(parseFloat(i.quantity || i.paidQuantity || 1)), name: i.name || "", inventoryItemId: i.inventoryItemId || null })))), orderId: suriOrderId };
+  } else {
+    return { action: "skipped", reason: `Plataforma "${platform}" não suporta baixa de estoque automática via Suri` };
   }
-  return { action: "stock_returned", orderId: suriOrderId, items: stockResults };
+  return { platform, action: "stock_deducted", ...result };
+}
+export const processSuriOrderPaid = processSuriOrderPaidGeneric;
+export async function processSuriOrderCancelledGeneric(suriEndpoint, suriToken, normalized, userId) {
+  const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
+  const integration = intRow.rows[0];
+  if (!integration) return { action: "skipped", reason: "Integração não encontrada" };
+  const platform = integration.ecommerce_platform;
+  const config = integration.ecommerce_config || {};
+  if (platform === "olist") return { action: "skipped", reason: "Olist usa handler dedicado (order.cancelled.olist)" };
+  const suriOrderId = normalized.orderId || normalized.suriOrderId;
+  if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
+  const items = await fetchSuriOrderItems(suriEndpoint, suriToken, suriOrderId);
+  if (!items.length) return { action: "skipped", reason: "Pedido sem itens", orderId: suriOrderId };
+
+  const stockResults = [];
+  if (platform === "nuvemshop") {
+    const { getProductVariants, updateVariantStock } = await import("./ecommerce/nuvemshop/client.js");
+    const { store_id, access_token } = config;
+    if (!store_id || !access_token) return { action: "skipped", reason: "Credenciais da Nuvemshop não configuradas" };
+    for (const item of items) {
+      const productId = String(item.providerId || ""); const sku = String(item.sku || ""); const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
+      if (!productId || !qty) continue;
+      try {
+        const variants = await getProductVariants(store_id, access_token, productId);
+        const variant = Array.isArray(variants) ? variants.find(v => String(v.sku) === sku) || variants[0] : null;
+        if (!variant) { stockResults.push({ productId, sku, status: "variant_not_found" }); continue; }
+        const currentStock = variant.stock ?? 0; const newStock = currentStock + qty;
+        await updateVariantStock(store_id, access_token, productId, variant.id, newStock);
+        stockResults.push({ productId, sku, variantId: variant.id, previousStock: currentStock, newStock, returned: qty });
+      } catch (err) { stockResults.push({ productId, sku, status: "error", error: err.message }); }
+    }
+  } else if (platform === "woocommerce") {
+    const { returnVariantStock } = await import("./ecommerce/woocommerce/stock.js");
+    for (const item of items) {
+      const sku = String(item.sku || ""); const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
+      if (!sku || !qty) continue;
+      try { stockResults.push({ ...(await returnVariantStock(config, sku, qty)), name: item.name || "" }); }
+      catch (err) { stockResults.push({ sku, status: "error", error: err.message }); }
+    }
+  } else if (platform === "vtex") {
+    const { returnVariantStock } = await import("./ecommerce/vtex/stock.js");
+    for (const item of items) {
+      const sku = String(item.sku || ""); const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
+      if (!sku || !qty) continue;
+      try { stockResults.push({ ...(await returnVariantStock(config, sku, qty)), name: item.name || "" }); }
+      catch (err) { stockResults.push({ sku, status: "error", error: err.message }); }
+    }
+  } else if (platform === "tray") {
+    const { returnVariantStock } = await import("./ecommerce/tray/stock.js");
+    for (const item of items) {
+      const sku = String(item.sku || ""); const qty = Math.round(parseFloat(item.quantity || item.paidQuantity || 1));
+      if (!sku || !qty) continue;
+      try { stockResults.push({ ...(await returnVariantStock(config, sku, qty)), name: item.name || "" }); }
+      catch (err) { stockResults.push({ sku, status: "error", error: err.message }); }
+    }
+  } else if (platform === "shopify") {
+    for (const item of items) {
+      stockResults.push({ sku: item.sku || "", status: "skipped", reason: "Shopify requer inventory_item_id para devolução de estoque" });
+    }
+  } else {
+    return { action: "skipped", reason: `Plataforma "${platform}" sem suporte a devolução de estoque via Suri` };
+  }
+  return { platform, action: "stock_returned", orderId: suriOrderId, items: stockResults };
+}
+export const processSuriOrderCancelled = processSuriOrderCancelledGeneric;
+
+export async function processSuriOrderShippedGeneric(suriEndpoint, suriToken, normalized, userId) {
+  const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
+  const integration = intRow.rows[0];
+  if (!integration) return { action: "skipped", reason: "Integração não encontrada" };
+  const platform = integration.ecommerce_platform;
+  const config = integration.ecommerce_config || {};
+  const payload = { orderId: normalized.orderId, tracking_number: normalized.tracking_number, tracking_url: normalized.tracking_url, shipping_company: normalized.shipping_company };
+  if (!payload.orderId) return { action: "skipped", reason: "orderId não encontrado no payload" };
+  let result;
+  if (platform === "nuvemshop") {
+    const { fulfillOrder } = await import("./ecommerce/nuvemshop/orders.js");
+    result = await fulfillOrder(config, payload);
+  } else if (platform === "olist") {
+    const { fulfillOrder } = await import("./ecommerce/olist/orders.js");
+    result = await fulfillOrder(config, payload);
+  } else if (platform === "shopify") {
+    const { fulfillOrder } = await import("./ecommerce/shopify/orders.js");
+    result = await fulfillOrder(config, payload);
+  } else if (platform === "woocommerce") {
+    const { fulfillOrder } = await import("./ecommerce/woocommerce/orders.js");
+    result = await fulfillOrder(config, payload);
+  } else if (platform === "vtex") {
+    const { fulfillOrder } = await import("./ecommerce/vtex/orders.js");
+    result = await fulfillOrder(config, payload);
+  } else if (platform === "tray") {
+    const { fulfillOrder } = await import("./ecommerce/tray/orders.js");
+    result = await fulfillOrder(config, payload);
+  } else {
+    return { action: "skipped", reason: `Plataforma "${platform}" sem suporte a atualização de envio via Suri` };
+  }
+  return { platform, ...result };
 }
 
 
@@ -398,9 +489,11 @@ export async function handleWebhook(req, res) {
       case "order.created":        result = await processOrderCreated(suri_endpoint, suri_token, normalized);  break;
       case "order.shipped":        result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
       case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
-      case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized);   break;
-      case "order.paid":           result = await processSuriOrderPaid(suri_endpoint, suri_token, normalized, user_id); break;
-      case "order.cancelled.suri": result = await processSuriOrderCancelled(suri_endpoint, suri_token, normalized, user_id); break;
+      case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized, ecommerce_platform); break;
+      case "order.paid":           result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.created.suri":   result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.shipped.suri":   result = await processSuriOrderShippedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.cancelled.suri": result = await processSuriOrderCancelledGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.paid.olist":           result = await processSuriOrderPaidOlist(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.cancelled.olist":      result = await processSuriOrderCancelledOlist(suri_endpoint, suri_token, normalized, user_id); break;
       default:

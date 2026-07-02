@@ -64,7 +64,7 @@ export async function getProduct(apiAddress, accessToken, productId) {
 }
 
 export async function getProductVariants(apiAddress, accessToken, productId) {
-  const data = await request(apiAddress, accessToken, "GET", `/products/${productId}/variants`);
+  const data = await request(apiAddress, accessToken, "GET", `/variants?product_id=${productId}`);
   return data.Variants || data.variants || [];
 }
 
