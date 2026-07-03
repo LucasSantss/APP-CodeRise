@@ -526,7 +526,8 @@ export async function handleWebhook(req, res) {
         await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
         return res.status(200).json({ success:true, message:"Evento registrado sem processamento", event_type:eventType, webhook_id:webhookId });
     }
-    await pool.query("UPDATE user_webhooks SET status='processed', error_message=NULL WHERE id=$1", [webhookId]);
+    const resultInfo = result ? JSON.stringify(result).slice(0, 400) : null;
+    await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [resultInfo, webhookId]);
     await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"processed",event_type:eventType})]);
     return res.status(200).json({ success:true, message:"Evento processado com sucesso", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId, suri_result:result });
   } catch (err) {
