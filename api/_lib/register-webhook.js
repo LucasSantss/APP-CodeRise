@@ -54,7 +54,7 @@ async function registerNuvemshop(config, webhookUrl) {
       );
       // Evento não suportado: 422 com "is not valid" ou "invalid"
       const unsupported=r.status===422&&(body.includes("is not valid")||body.includes("invalid")||body.includes("não é válido"));
-      results.push({event,status:alreadyExists?"already_exists":unsupported?"unsupported":"error",detail:data.description||data});
+      results.push({event,status:alreadyExists?"already_exists":unsupported?"unsupported":"error",detail:data.description||data,httpStatus:r.status});
     } else {
       results.push({event,status:"created",id:data.id});
     }
@@ -105,6 +105,17 @@ async function registerOlist(config, webhookUrl) {
   };
 }
 
+async function listNuvemshopWebhooks(config) {
+  const { store_id, access_token } = config;
+  if (!store_id||!access_token) throw new Error("store_id e access_token são obrigatórios");
+  const base=`https://api.tiendanube.com/v1/${store_id}`;
+  const headers={"Authentication":`bearer ${access_token}`,"User-Agent":"CodeRise Integration (suporte@coderise.com.br)"};
+  const r=await fetch(`${base}/webhooks`,{headers});
+  const data=await r.json().catch(()=>[]);
+  if (!r.ok) throw new Error(`Nuvemshop GET /webhooks → HTTP ${r.status}: ${JSON.stringify(data)}`);
+  return Array.isArray(data)?data:[];
+}
+
 async function registerSuriChatbot(config, chatbotWebhookUrl, chatbotToken) {
   const { endpoint, token } = config;
   if (!endpoint || !token) throw new Error("endpoint e token da Suri são obrigatórios");
@@ -147,7 +158,7 @@ export async function handleRegisterChatbotWebhook(req, res) {
 }
 
 export async function handleRegisterWebhook(req, res) {
-  if (req.method !== "POST") { res.setHeader("Allow",["POST"]); return res.status(405).end(); }
+  if (req.method !== "POST" && req.method !== "GET") { res.setHeader("Allow",["GET","POST"]); return res.status(405).end(); }
   const caller = await requireAuth(req, res); if (!caller) return;
   try {
     const r = await pool.query("SELECT * FROM user_integrations WHERE user_id = $1", [caller.id]);
@@ -158,6 +169,38 @@ export async function handleRegisterWebhook(req, res) {
     const host=req.headers.host||req.headers["x-forwarded-host"]||"";
     const protocol=req.headers["x-forwarded-proto"]||"https";
     const webhookUrl=`${protocol}://${host}/webhook?token=${webhook_token}`;
+
+    // GET: lista webhooks registrados na plataforma (check)
+    if (req.method === "GET") {
+      if (ecommerce_platform !== "nuvemshop") {
+        return res.status(400).json({ success:false, message:`Verificação de webhooks disponível apenas para Nuvemshop (plataforma atual: ${ecommerce_platform})` });
+      }
+      const expectedEvents = [
+        "category/created","category/updated","category/deleted",
+        "order/created","order/updated","order/paid","order/packed",
+        "order/fulfilled","order/cancelled",
+        "product/created","product/updated","product/deleted",
+      ];
+      const existing = await listNuvemshopWebhooks(ecommerce_config);
+      const details = expectedEvents.map(event => {
+        const found = existing.find(w => w.event === event);
+        if (!found) return { event, status:"missing" };
+        const urlMatch = found.url === webhookUrl;
+        return { event, status: urlMatch ? "registered" : "wrong_url", id:found.id, url:found.url };
+      });
+      const extra = existing.filter(w => !expectedEvents.includes(w.event));
+      const ok = details.filter(d => d.status==="registered").length;
+      return res.status(200).json({
+        success:true,
+        message:`${ok}/${expectedEvents.length} eventos verificados`,
+        details,
+        extra: extra.map(w => ({ event:w.event, status:"extra", id:w.id, url:w.url })),
+        webhook_url:webhookUrl,
+        mode:"check",
+      });
+    }
+
+    // POST: registra webhooks
     let result;
     switch (ecommerce_platform) {
       case "shopify":     result = await registerShopify(ecommerce_config, webhookUrl);     break;

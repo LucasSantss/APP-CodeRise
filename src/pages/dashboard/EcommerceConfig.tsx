@@ -42,7 +42,9 @@ interface RegisterResult {
   success: boolean;
   message: string;
   webhook_url?: string;
-  details?: Array<{ topic?: string; event?: string; trigger?: string; status: string; id?: string | number; detail?: unknown }>;
+  mode?: 'register' | 'check';
+  details?: Array<{ topic?: string; event?: string; trigger?: string; status: string; id?: string | number; detail?: unknown; httpStatus?: number; url?: string }>;
+  extra?: Array<{ event: string; status: string; id?: string | number; url?: string }>;
 }
 
 const EcommerceConfig = () => {
@@ -55,6 +57,7 @@ const EcommerceConfig = () => {
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState(false);
   const [registering, setRegistering]     = useState(false);
+  const [checking, setChecking]           = useState(false);
   const [registerResult, setRegisterResult] = useState<RegisterResult | null>(null);
   const [showResult, setShowResult]       = useState(false);
 
@@ -207,6 +210,28 @@ const EcommerceConfig = () => {
       toast({ title: 'Erro ao registrar webhook', description: msg, variant: 'destructive' });
     } finally {
       setRegistering(false);
+    }
+  };
+
+  const handleCheckWebhooks = async () => {
+    setChecking(true);
+    setRegisterResult(null);
+    try {
+      const token = authToken || '';
+      const res = await fetch('/register-webhook', {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data: RegisterResult = await res.json();
+      setRegisterResult(data);
+      setShowResult(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      setRegisterResult({ success: false, message: msg });
+      setShowResult(true);
+      toast({ title: 'Erro ao verificar webhooks', description: msg, variant: 'destructive' });
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -400,12 +425,22 @@ const EcommerceConfig = () => {
                     As credenciais salvas serão usadas para autenticar.
                   </AlertDescription>
                 </Alert>
-                <Button onClick={handleRegisterWebhook} disabled={registering} className="w-full sm:w-auto">
-                  {registering
-                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Registrando...</>
-                    : <><Zap className="mr-2 h-4 w-4" />Registrar Webhook Automaticamente</>
-                  }
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handleRegisterWebhook} disabled={registering || checking} className="w-full sm:w-auto">
+                    {registering
+                      ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Registrando...</>
+                      : <><Zap className="mr-2 h-4 w-4" />Registrar Webhook Automaticamente</>
+                    }
+                  </Button>
+                  {platform === 'nuvemshop' && (
+                    <Button variant="outline" onClick={handleCheckWebhooks} disabled={registering || checking} className="w-full sm:w-auto">
+                      {checking
+                        ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verificando...</>
+                        : <><CheckCircle2 className="mr-2 h-4 w-4" />Verificar webhooks registrados</>
+                      }
+                    </Button>
+                  )}
+                </div>
               </div>
             ) : (
               <Alert>
@@ -434,9 +469,11 @@ const EcommerceConfig = () => {
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {registerResult?.success
-                ? <><CheckCheck className="h-5 w-5 text-green-500" /> Webhook Registrado</>
-                : <><AlertTriangle className="h-5 w-5 text-destructive" /> Resultado do Registro</>
+              {registerResult?.mode === 'check'
+                ? <><CheckCircle2 className="h-5 w-5 text-[#2f7bb9]" /> Verificação de Webhooks</>
+                : registerResult?.success
+                  ? <><CheckCheck className="h-5 w-5 text-green-500" /> Webhook Registrado</>
+                  : <><AlertTriangle className="h-5 w-5 text-destructive" /> Resultado do Registro</>
               }
             </DialogTitle>
           </DialogHeader>
@@ -447,7 +484,7 @@ const EcommerceConfig = () => {
 
               {registerResult.webhook_url && (
                 <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">URL registrada:</p>
+                  <p className="text-xs font-medium text-muted-foreground">URL {registerResult.mode === 'check' ? 'esperada' : 'registrada'}:</p>
                   <code className="text-xs bg-muted rounded p-2 block break-all">
                     {registerResult.webhook_url}
                   </code>
@@ -457,26 +494,59 @@ const EcommerceConfig = () => {
               {registerResult.details && registerResult.details.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Detalhes por evento
+                    {registerResult.mode === 'check' ? 'Status por evento' : 'Detalhes por evento'}
                   </p>
                   <div className="space-y-1">
                     {registerResult.details.map((d, i) => {
                       const label = d.topic || d.event || d.trigger || `evento ${i + 1}`;
-                      const isOk = d.status === 'created' || d.status === 'already_exists';
-                      const isWarn = d.status === 'unsupported';
+                      const isOk = d.status === 'created' || d.status === 'already_exists' || d.status === 'registered';
+                      const isWarn = d.status === 'unsupported' || d.status === 'wrong_url';
+                      const statusLabel: Record<string, string> = {
+                        already_exists: 'já existe',
+                        unsupported: 'não suportado',
+                        registered: 'registrado',
+                        missing: 'não encontrado',
+                        wrong_url: 'URL diferente',
+                      };
                       return (
-                        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
-                          <span className="font-mono text-xs">{label}</span>
-                          <Badge
-                            variant={(isOk ? 'outline' : isWarn ? 'secondary' : 'destructive') as BadgeVariant}
-                            className={isOk ? 'border-success text-success text-xs' : isWarn ? 'text-xs text-yellow-600 dark:text-yellow-400' : 'text-xs'}
-                          >
-                            {d.status === 'already_exists' ? 'já existe' : d.status === 'unsupported' ? 'não suportado' : d.status}
-                            {d.id ? ` #${d.id}` : ''}
-                          </Badge>
+                        <div key={i} className="py-1 border-b last:border-0">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-mono text-xs">{label}</span>
+                            <Badge
+                              variant={(isOk ? 'outline' : isWarn ? 'secondary' : 'destructive') as BadgeVariant}
+                              className={isOk ? 'border-success text-success text-xs' : isWarn ? 'text-xs text-yellow-600 dark:text-yellow-400' : 'text-xs'}
+                            >
+                              {statusLabel[d.status] ?? d.status}
+                              {d.id ? ` #${d.id}` : ''}
+                            </Badge>
+                          </div>
+                          {d.status === 'error' && d.detail && (
+                            <p className="text-xs text-destructive/80 mt-0.5 font-mono break-all">
+                              {d.httpStatus ? `HTTP ${d.httpStatus} — ` : ''}{typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail).slice(0, 120)}
+                            </p>
+                          )}
+                          {d.status === 'wrong_url' && d.url && (
+                            <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-0.5 break-all">registrado em: {d.url}</p>
+                          )}
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {registerResult.extra && registerResult.extra.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Eventos extras registrados</p>
+                  <div className="space-y-1">
+                    {registerResult.extra.map((d, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                        <span className="font-mono text-xs">{d.event}</span>
+                        <Badge variant={'secondary' as BadgeVariant} className="text-xs text-muted-foreground">
+                          extra {d.id ? `#${d.id}` : ''}
+                        </Badge>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

@@ -6,11 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug, CheckCheck, AlertTriangle } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import { useAuthStore } from '@/store/auth';
 import { useToast } from '@/hooks/use-toast';
 import { getChatbot, updateChatbot, patchChatbot, regenerateChatbotToken, testSuriConnection, type StoreItem } from '@/services/api';
 import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
@@ -28,17 +26,9 @@ const SURI_TOPICS = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ChatbotRegisterResult {
-  success: boolean;
-  message: string;
-  webhook_url?: string;
-  details?: Array<{ topic?: string; status: string }>;
-}
-
 const Chatbot = () => {
   const [platform, setPlatform] = useState<ChatbotPlatform | ''>('');
   const { isPlatformEnabled } = usePlatformSettingsStore();
-  const { token: authToken } = useAuthStore();
   const [config, setConfig] = useState<Record<string, string>>({});
   const [chatbotActive, setChatbotActive] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -58,9 +48,6 @@ const Chatbot = () => {
   ]);
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [registering, setRegistering] = useState(false);
-  const [registerResult, setRegisterResult] = useState<ChatbotRegisterResult | null>(null);
-  const [showResult, setShowResult] = useState(false);
   const { toast } = useToast();
 
   // ── GSAP ──────────────────────────────────────────────────────────────────
@@ -213,33 +200,6 @@ const Chatbot = () => {
       });
     } finally {
       setTesting(false);
-    }
-  };
-
-  // ── Registra webhook na Suri via backend ──────────────────────────────────
-  const handleRegisterChatbotWebhook = async () => {
-    setRegistering(true);
-    setRegisterResult(null);
-    try {
-      const res = await fetch('/register-chatbot-webhook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken || ''}` },
-      });
-      const data: ChatbotRegisterResult = await res.json();
-      setRegisterResult(data);
-      setShowResult(true);
-      if (data.success) {
-        toast({ title: '✅ Webhook registrado na Suri!' });
-      } else {
-        toast({ title: 'Atenção', description: data.message, variant: 'destructive' });
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
-      setRegisterResult({ success: false, message: msg });
-      setShowResult(true);
-      toast({ title: 'Erro ao registrar webhook', description: msg, variant: 'destructive' });
-    } finally {
-      setRegistering(false);
     }
   };
 
@@ -613,38 +573,6 @@ const Chatbot = () => {
             </CardContent>
           </Card>
 
-          {/* ── Registrar Webhook Automaticamente ── */}
-          <Card className="border-[#26316a]/25 bg-gradient-to-br from-[#26316a]/5 to-[#2f7bb9]/5">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-[#2f7bb9]" />
-                <CardTitle className="text-base">Registrar Webhook Automaticamente</CardTitle>
-              </div>
-              <CardDescription>
-                Registra a URL do webhook diretamente na Suri usando as credenciais salvas.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Alert className="border-[#2f7bb9]/20 bg-[#2f7bb9]/5">
-                <Zap className="h-4 w-4 text-[#2f7bb9]" />
-                <AlertDescription className="text-sm">
-                  Clique em <strong>Registrar Automaticamente</strong> para configurar os tópicos selecionados
-                  acima diretamente no painel da Suri. As credenciais salvas serão usadas para autenticar.
-                </AlertDescription>
-              </Alert>
-              <Button
-                onClick={handleRegisterChatbotWebhook}
-                disabled={registering || !chatbotWebhookUrl}
-                className="w-full sm:w-auto"
-              >
-                {registering
-                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Registrando...</>
-                  : <><Zap className="mr-2 h-4 w-4" />Registrar Webhook Automaticamente</>
-                }
-              </Button>
-            </CardContent>
-          </Card>
-
           {/* ── cURL de registro ── */}
           <Card className="border-border/50">
             <CardHeader className="pb-3">
@@ -700,60 +628,6 @@ const Chatbot = () => {
 
         </div>
       )}
-
-      {/* Modal de resultado do registro */}
-      <Dialog open={showResult} onOpenChange={setShowResult}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {registerResult?.success
-                ? <><CheckCheck className="h-5 w-5 text-green-500" /> Webhook Registrado</>
-                : <><AlertTriangle className="h-5 w-5 text-destructive" /> Resultado do Registro</>
-              }
-            </DialogTitle>
-          </DialogHeader>
-          {registerResult && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">{registerResult.message}</p>
-              {registerResult.webhook_url && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">URL registrada:</p>
-                  <code className="text-xs bg-muted rounded p-2 block break-all">{registerResult.webhook_url}</code>
-                </div>
-              )}
-              {registerResult.details && registerResult.details.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Tópicos registrados</p>
-                  <div className="space-y-1">
-                    {registerResult.details.map((d, i) => {
-                      const isOk = d.status === 'created' || d.status === 'already_exists';
-                      return (
-                        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
-                          <span className="font-mono text-xs">{d.topic}</span>
-                          <Badge
-                            variant={(isOk ? 'outline' : 'destructive') as BadgeVariant}
-                            className={isOk ? 'border-success text-success text-xs' : 'text-xs'}
-                          >
-                            {d.status === 'already_exists' ? 'já existe' : d.status}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {!registerResult.success && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    Verifique se as credenciais da Suri estão salvas corretamente e se o endpoint está acessível.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
