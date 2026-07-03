@@ -132,13 +132,16 @@ function mapLogisticStatus(status) {
 
 // ─── Processadores de evento ──────────────────────────────────────────────────
 export async function processOrderCreated(ep, tk, n) {
+  // Apenas cria o orçamento no Suri — NÃO chama orders/paid aqui.
+  // A dedução de estoque no e-commerce é responsabilidade exclusiva do
+  // webhook OrdersPaid vindo do Suri (processSuriOrderPaidGeneric),
+  // evitando dupla dedução quando o pedido já vem pago da plataforma.
   const existing = await findSuriOrder(ep, tk, n.orderId);
-  if (existing) { await suriRequest(ep,tk,"POST","/api/shop/orders/paid",{orderId:existing.id||existing.orderId,paymentTracking:n.paymentTracking||""}); return {action:"marked_paid",suriOrderId:existing.id}; }
+  if (existing) return { action: "already_exists", suriOrderId: existing.id };
   const budget={id:String(n.orderId),logistic:{providerId:"001",name:n.shipping.provider||"Entrega",description:"Padrão",type:n.shipping.type||1,price:n.shipping.price||0,minShippingTimeEstimative:n.shipping.estimative||"3 dias úteis",shippingTimeEstimative:n.shipping.estimative||"5 dias úteis"},items:n.items.map(i=>({fromSellerId:i.sellerId||"all",ProductId:String(i.productId||i.id),Sku:String(i.sku||i.productId),Name:i.name,quantity:i.quantity,unitPrice:i.unitPrice,discountAmount:i.discount||0})),errorMessages:[]};
   const created = await suriRequest(ep,tk,"POST","/api/shop/orders/budget",budget);
   const suriOrderId=created?.id||created?.orderId;
-  if (suriOrderId) await suriRequest(ep,tk,"POST","/api/shop/orders/paid",{orderId:suriOrderId,paymentTracking:n.paymentTracking||""});
-  return {action:"created_and_paid",suriOrderId};
+  return { action: "budget_created", suriOrderId };
 }
 export async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); const st=mapLogisticStatus(n.logisticStatus); await suriRequest(ep,tk,"POST","/api/shop/orders/logistic",{id:ex.id||ex.orderId,status:st}); return {action:"logistic_updated",suriOrderId:ex.id,status:st}; }
 export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
