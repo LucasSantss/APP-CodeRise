@@ -210,7 +210,9 @@ export async function handleSyncCatalog(req, res) {
       const action = r?.action || "product_updated";
       allResults.push({ type: action, entity: "product", id: String(raw.id || raw.Id), name: normalized.name || String(raw.id || raw.Id), storeId: resolvedStoreId });
     } catch (err) {
-      allResults.push({ type: "error", entity: "product", id: String(raw.id || raw.Id), name: raw.name || raw.Name || String(raw.id), storeId: resolvedStoreId, message: err.message });
+      const rawName = raw.name ?? raw.Name;
+      const nameStr = typeof rawName === 'string' ? rawName : (rawName?.pt || rawName?.es || rawName?.en || Object.values(rawName || {})[0] || String(raw.id || raw.Id));
+      allResults.push({ type: "error", entity: "product", id: String(raw.id || raw.Id), name: nameStr, storeId: resolvedStoreId, message: err.message });
     }
   }, 10);
 

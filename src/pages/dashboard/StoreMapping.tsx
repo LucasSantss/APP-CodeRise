@@ -105,7 +105,13 @@ const StoreMapping = () => {
   useEffect(() => {
     try {
       const stored = sessionStorage.getItem(SYNC_RESULT_KEY);
-      if (stored) setSyncResult(JSON.parse(stored));
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Discard stale data where item.name is a non-string (would cause React error #31)
+        const safe = !Array.isArray(parsed?.results) || parsed.results.every((r: any) => r.name == null || typeof r.name === 'string');
+        if (safe) setSyncResult(parsed);
+        else sessionStorage.removeItem(SYNC_RESULT_KEY);
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -568,7 +574,7 @@ const StoreMapping = () => {
                               <Badge variant={getResultBadgeVariant(item.type)} className="text-xs py-0 h-4 shrink-0">
                                 {getResultLabel(item)}
                               </Badge>
-                              {item.name && <span className="font-medium truncate">{item.name}</span>}
+                              {item.name != null && <span className="font-medium truncate">{typeof item.name === 'string' ? item.name : ((item.name as any)?.pt || (item.name as any)?.es || String(item.name))}</span>}
                               {item.id && <code className="text-muted-foreground bg-muted px-1 rounded shrink-0">#{item.id}</code>}
                             </div>
                             {displayMessage && (
