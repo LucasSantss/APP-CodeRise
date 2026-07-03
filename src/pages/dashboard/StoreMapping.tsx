@@ -86,7 +86,7 @@ const StoreMapping = () => {
           const cfg = i.ecommerce_config || {};
           setEcommerceConfig(cfg);
           if (cfg._store_mappings) { try { setMappings(JSON.parse(cfg._store_mappings)); } catch { /* ignore */ } }
-          if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); setEcommerceStatus('ok'); } catch { /* ignore */ } }
+          if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); } catch { /* ignore */ } }
         }
         if (c) {
           const ccfg = c.chatbot_config || {};
@@ -94,7 +94,7 @@ const StoreMapping = () => {
           setSuriEndpoint(c.suri_endpoint || ccfg.endpoint || '');
           setSuriToken(c.suri_token    || ccfg.token    || '');
           setChatbotConfig(ccfg);
-          if (ccfg._chatbot_stores) { try { setChatbotStores(JSON.parse(ccfg._chatbot_stores)); setChatbotStatus('ok'); } catch { /* ignore */ } }
+          if (ccfg._chatbot_stores) { try { setChatbotStores(JSON.parse(ccfg._chatbot_stores)); } catch { /* ignore */ } }
         }
       })
       .catch(() => toast({ title: 'Erro ao carregar configurações', variant: 'destructive' }))
@@ -320,12 +320,20 @@ const StoreMapping = () => {
             </Alert>
           )}
 
+          {hasCredentials && ecommerceStatus === 'idle' && chatbotStatus === 'idle' && (
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>Clique em <strong>Carregar Lojas</strong> para verificar a conexão com as credenciais atuais e atualizar a lista.</AlertDescription>
+            </Alert>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="rounded-lg border p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">E-commerce</span>
                 {ecommerceStatus === 'ok' && <Badge variant="outline" className="border-green-500 text-green-600 text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Conectado</Badge>}
                 {ecommerceStatus === 'error' && <Badge variant="destructive" className="text-xs">Erro</Badge>}
+                {ecommerceStatus === 'idle' && ecommerceStores.length > 0 && <Badge variant="secondary" className="text-xs">Em cache</Badge>}
               </div>
               {ecommerceStores.length > 0 ? (
                 <ul className="space-y-1">{ecommerceStores.map(s => (
@@ -342,6 +350,7 @@ const StoreMapping = () => {
                 <span className="text-sm font-medium">Chatbot (Suri)</span>
                 {chatbotStatus === 'ok' && <Badge variant="outline" className="border-green-500 text-green-600 text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Conectado</Badge>}
                 {chatbotStatus === 'error' && <Badge variant="destructive" className="text-xs">Erro</Badge>}
+                {chatbotStatus === 'idle' && chatbotStores.length > 0 && <Badge variant="secondary" className="text-xs">Em cache</Badge>}
               </div>
               {chatbotStores.length > 0 ? (
                 <ul className="space-y-1">{chatbotStores.map(s => (
@@ -451,7 +460,7 @@ const StoreMapping = () => {
           <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={handleSyncCatalog}
-              disabled={syncing || ecommerceStatus !== 'ok' || chatbotStatus !== 'ok'}
+              disabled={syncing || !hasCredentials || (ecommerceStatus === 'error') || (chatbotStatus === 'error')}
               className="gap-2"
             >
               {syncing

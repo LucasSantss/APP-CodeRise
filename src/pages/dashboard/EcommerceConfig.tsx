@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import { Badge, type BadgeVariant } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -254,7 +254,7 @@ const EcommerceConfig = () => {
                     <XCircle className="h-3 w-3" /> Falha
                   </Badge>
                 )}
-                <Button variant={((ecommerceActive ? 'default' : 'outline') as import("@/components/ui/badge").BadgeVariant) as BadgeVariant} size="sm" onClick={handleToggle}>
+                <Button variant={(ecommerceActive ? 'default' : 'outline') as BadgeVariant} size="sm" onClick={handleToggle}>
                   {ecommerceActive ? 'Ativado' : 'Desativado'}
                 </Button>
               </div>
@@ -299,7 +299,9 @@ const EcommerceConfig = () => {
                 type={field.type || 'text'}
                 value={config[field.key] || ''}
                 onChange={(e) => {
-                  setConfig({ ...config, [field.key]: e.target.value });
+                  setConfig(prev => ({ ...prev, [field.key]: e.target.value, _connection_status: '', _connection_msg: '' }));
+                  setConnectionStatus('idle');
+                  setConnectionMsg('');
                 }}
               />
             </div>
@@ -465,7 +467,7 @@ const EcommerceConfig = () => {
                         <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
                           <span className="font-mono text-xs">{label}</span>
                           <Badge
-                            variant={((isOk ? 'outline' : 'destructive') as import("@/components/ui/badge").BadgeVariant) as BadgeVariant}
+                            variant={(isOk ? 'outline' : 'destructive') as BadgeVariant}
                             className={isOk ? 'border-success text-success text-xs' : 'text-xs'}
                           >
                             {d.status === 'already_exists' ? 'já existe' : d.status}

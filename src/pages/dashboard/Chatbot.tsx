@@ -85,8 +85,6 @@ const Chatbot = () => {
           if (savedConfig._connection_status) {
             setConnectionStatus(savedConfig._connection_status as 'success' | 'error');
             setConnectionMsg(savedConfig._connection_msg || '');
-          } else if (savedConfig.endpoint) {
-            setConnectionStatus('success');
           }
         }
       })
@@ -353,7 +351,11 @@ const Chatbot = () => {
                         : (field.placeholder || '')
                   }
                   value={config[field.key] || ''}
-                  onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
+                  onChange={(e) => {
+                    setConfig(prev => ({ ...prev, [field.key]: e.target.value, _connection_status: '', _connection_msg: '' }));
+                    setConnectionStatus('idle');
+                    setConnectionMsg('');
+                  }}
                 />
               </div>
             );
