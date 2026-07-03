@@ -146,13 +146,17 @@ export async function handleSyncCatalog(req, res) {
   }
 
   // 1. Categorias em paralelo — coleta mapa platform_id → suri_id
-  // DEBUG: expõe estrutura bruta do GET /api/shop/categories para diagnóstico
+  // DEBUG: expõe estrutura bruta dos endpoints Suri para diagnóstico
   try {
     const { request: suriRequest } = await import("./chatbot/suri/client.js");
-    const rawCatsResponse = await suriRequest(suriEndpoint, suriToken, "GET", "/api/shop/categories", undefined).catch(e => ({ _error: e.message }));
-    allResults.push({ type: "info", entity: "debug", message: `GET /api/shop/categories → ${JSON.stringify(rawCatsResponse).slice(0, 500)}` });
+    const [rawCats, rawStores] = await Promise.all([
+      suriRequest(suriEndpoint, suriToken, "GET", "/api/shop/categories", undefined).catch(e => ({ _error: e.message })),
+      suriRequest(suriEndpoint, suriToken, "GET", "/api/shop/stores", undefined).catch(e => ({ _error: e.message })),
+    ]);
+    allResults.push({ type: "info", entity: "debug", message: `stores → ${JSON.stringify(rawStores).slice(0, 400)} | resolvedStoreId=${resolvedStoreId}` });
+    allResults.push({ type: "info", entity: "debug", message: `cats[0] → ${JSON.stringify(Array.isArray(rawCats) ? rawCats[0] : rawCats?.data?.[0])}` });
   } catch (e) {
-    allResults.push({ type: "info", entity: "debug", message: `GET /api/shop/categories falhou: ${e.message}` });
+    allResults.push({ type: "info", entity: "debug", message: `debug falhou: ${e.message}` });
   }
 
   try {
