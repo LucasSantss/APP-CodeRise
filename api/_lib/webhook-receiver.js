@@ -431,9 +431,11 @@ export async function handleWebhook(req, res) {
     integration = r.rows[0];
   } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
   const _ccfg = integration.chatbot_config || {};
-  const suri_endpoint = integration.suri_endpoint || _ccfg.endpoint || null;
-  const suri_token    = integration.suri_token    || _ccfg.token    || null;
-  const suri_active   = !!(integration.suri_active ?? integration.chatbot_active ?? (suri_endpoint && suri_token));
+  // chatbot_config.endpoint/token é a credencial atual; suri_endpoint/token é legado
+  const suri_endpoint = _ccfg.endpoint || integration.suri_endpoint || null;
+  const suri_token    = _ccfg.token    || integration.suri_token    || null;
+  // chatbot_active é o campo atual; suri_active é legado
+  const suri_active   = !!(integration.chatbot_active ?? integration.suri_active ?? (suri_endpoint && suri_token));
   const { user_id, ecommerce_platform, chatbot_platform } = integration;
   const isViaWebhookToken = integration.webhook_token === token;
   const activePlatform = isViaWebhookToken ? (ecommerce_platform || "ecommerce") : (chatbot_platform || "chatbot");
