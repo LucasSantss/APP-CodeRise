@@ -47,6 +47,11 @@ export async function handleTestSuri(req, res) {
   if (httpStatus<200||httpStatus>=300) { await notifyAdminError(`Servidor retornou HTTP ${httpStatus}.`); return res.status(200).json({success:false,httpStatus,message:`Servidor retornou HTTP ${httpStatus}.`}); }
   const hasValidBody=Array.isArray(body)||(body&&typeof body==="object"&&!body.raw)||(body&&Array.isArray(body.data));
   if (!hasValidBody||body?.raw!==undefined) { await notifyAdminError(`Servidor respondeu HTTP ${httpStatus} mas body inesperado.`); return res.status(200).json({success:false,httpStatus,message:`Servidor respondeu HTTP ${httpStatus} mas body inesperado. Verifique a URL.`,debug:String(body?.raw||"").slice(0,200)}); }
-  const storeCount=Array.isArray(body)?body.length:Array.isArray(body?.data)?body.data.length:null;
-  return res.status(200).json({success:true,httpStatus,message:storeCount!==null?`Conexão bem-sucedida! ${storeCount} loja(s) encontrada(s).`:"Conexão com a Suri realizada com sucesso!"});
+  const rawStores = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : [];
+  const stores = rawStores.map(s => ({
+    id: String(s.id ?? s.uuid ?? s.slug ?? s.code ?? ''),
+    name: String(s.name ?? s.title ?? s.slug ?? s.id ?? ''),
+  })).filter(s => s.id);
+  const storeCount = rawStores.length;
+  return res.status(200).json({success:true,httpStatus,message:storeCount>0?`Conexão bem-sucedida! ${storeCount} loja(s) encontrada(s).`:"Conexão com a Suri realizada com sucesso!",stores});
 }

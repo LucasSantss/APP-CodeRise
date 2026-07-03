@@ -137,10 +137,14 @@ export default async function handler(req, res) {
       default:
         return res.status(400).json({ success: false, message: `Teste automático não disponível para "${platform}".` });
     }
+    // Constrói lista de lojas usando a chave de identificação configurada
+    const storeKey = config.store_id || config.store_url || config.site_url || config.account_name || config.api_address || config.shop_host || '';
+    const stores = result.store && storeKey ? [{ id: storeKey, name: result.store }] : [];
     return res.status(200).json({
       success: true,
       message: `Conexão com ${platformLabel} realizada com sucesso!${result.store ? ` Loja: ${result.store}.` : ""}`,
       store: result.store || null, plan: result.plan || null, country: result.country || null,
+      stores,
     });
   } catch (err) {
     const msg = err.name === "TimeoutError" ? `Timeout: "${platformLabel}" não respondeu em 10 segundos.` : err.message;

@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ArrowRight, Store, Save, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Info, PackageSearch, XCircle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getIntegrations, getChatbot, testEcommerceConnection, testSuriConnection, updateIntegration, updateChatbot, type StoreItem } from '@/services/api';
+import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import { parseApiError } from '@/lib/parseApiError';
 
@@ -65,6 +66,7 @@ const StoreMapping = () => {
 
   const [ecommercePlatform, setEcommercePlatform] = useState('');
   const [ecommerceConfig, setEcommerceConfig] = useState<Record<string, string>>({});
+  const [chatbotPlatform, setChatbotPlatform] = useState('');
   const [suriEndpoint, setSuriEndpoint] = useState('');
   const [suriToken, setSuriToken] = useState('');
   const [chatbotConfig, setChatbotConfig] = useState<Record<string, string>>({});
@@ -86,15 +88,13 @@ const StoreMapping = () => {
           const cfg = i.ecommerce_config || {};
           setEcommerceConfig(cfg);
           if (cfg._store_mappings) { try { setMappings(JSON.parse(cfg._store_mappings)); } catch { /* ignore */ } }
-          if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); } catch { /* ignore */ } }
         }
         if (c) {
           const ccfg = c.chatbot_config || {};
-          // Credenciais da Suri: coluna direta ou fallback do chatbot_config
+          setChatbotPlatform(c.chatbot_platform || '');
           setSuriEndpoint(c.suri_endpoint || ccfg.endpoint || '');
           setSuriToken(c.suri_token    || ccfg.token    || '');
           setChatbotConfig(ccfg);
-          if (ccfg._chatbot_stores) { try { setChatbotStores(JSON.parse(ccfg._chatbot_stores)); } catch { /* ignore */ } }
         }
       })
       .catch(() => toast({ title: 'Erro ao carregar configurações', variant: 'destructive' }))
@@ -133,26 +133,16 @@ const StoreMapping = () => {
     const [ecResult, cbResult] = results;
 
     if (ecResult.status === 'fulfilled') {
-      const stores = ecResult.value as StoreItem[];
-      setEcommerceStores(stores);
+      setEcommerceStores(ecResult.value as StoreItem[]);
       setEcommerceStatus('ok');
-      const updatedCfg = { ...ecommerceConfig, _ecommerce_stores: JSON.stringify(stores) };
-      await updateIntegration({ ecommerce_config: updatedCfg }).catch(() => { });
-      setEcommerceConfig(updatedCfg);
     } else {
       setEcommerceStatus('error');
       toast({ title: 'E-commerce', description: (ecResult as any).reason?.message, variant: 'destructive' });
     }
 
     if (cbResult.status === 'fulfilled') {
-      const stores = cbResult.value as StoreItem[];
-      setChatbotStores(stores);
+      setChatbotStores(cbResult.value as StoreItem[]);
       setChatbotStatus('ok');
-      if (stores.length > 0) {
-        const updatedChatbotCfg = { ...chatbotConfig, _chatbot_stores: JSON.stringify(stores) };
-        await updateChatbot({ chatbot_config: updatedChatbotCfg }).catch(() => { });
-        setChatbotConfig(updatedChatbotCfg);
-      }
     } else {
       setChatbotStatus('error');
       toast({ title: 'Chatbot', description: (cbResult as any).reason?.message, variant: 'destructive' });
@@ -189,11 +179,14 @@ const StoreMapping = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updatedEcommerceCfg = { ...ecommerceConfig, _store_mappings: JSON.stringify(mappings), ...(ecommerceStores.length > 0 ? { _ecommerce_stores: JSON.stringify(ecommerceStores) } : {}) };
-      const updatedChatbotCfg = { ...chatbotConfig, ...(chatbotStores.length > 0 ? { _chatbot_stores: JSON.stringify(chatbotStores) } : {}) };
+      // Remove campos de cache de lojas ao salvar — lojas são sempre carregadas ao vivo
+      const { _ecommerce_stores: _es, ...baseCfg } = ecommerceConfig;
+      const { _chatbot_stores: _cs, ...baseChatbotCfg } = chatbotConfig;
+      const updatedEcommerceCfg = { ...baseCfg, _store_mappings: JSON.stringify(mappings) };
+      const updatedChatbotCfg = { ...baseChatbotCfg };
       await Promise.all([
         updateIntegration({ ecommerce_config: updatedEcommerceCfg }),
-        chatbotStores.length > 0 ? updateChatbot({ chatbot_config: updatedChatbotCfg }) : Promise.resolve(),
+        updateChatbot({ chatbot_config: updatedChatbotCfg }),
       ]);
       setEcommerceConfig(updatedEcommerceCfg);
       setChatbotConfig(updatedChatbotCfg);
@@ -333,7 +326,6 @@ const StoreMapping = () => {
                 <span className="text-sm font-medium">E-commerce</span>
                 {ecommerceStatus === 'ok' && <Badge variant="outline" className="border-green-500 text-green-600 text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Conectado</Badge>}
                 {ecommerceStatus === 'error' && <Badge variant="destructive" className="text-xs">Erro</Badge>}
-                {ecommerceStatus === 'idle' && ecommerceStores.length > 0 && <Badge variant="secondary" className="text-xs">Em cache</Badge>}
               </div>
               {ecommerceStores.length > 0 ? (
                 <ul className="space-y-1">{ecommerceStores.map(s => (
@@ -347,10 +339,16 @@ const StoreMapping = () => {
 
             <div className="rounded-lg border p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Chatbot (Suri)</span>
+                <span className="text-sm font-medium">
+                  Chatbot
+                  {chatbotPlatform && (
+                    <span className="text-muted-foreground font-normal ml-1">
+                      ({CHATBOT_FIELDS[chatbotPlatform as ChatbotPlatform]?.label || chatbotPlatform})
+                    </span>
+                  )}
+                </span>
                 {chatbotStatus === 'ok' && <Badge variant="outline" className="border-green-500 text-green-600 text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Conectado</Badge>}
                 {chatbotStatus === 'error' && <Badge variant="destructive" className="text-xs">Erro</Badge>}
-                {chatbotStatus === 'idle' && chatbotStores.length > 0 && <Badge variant="secondary" className="text-xs">Em cache</Badge>}
               </div>
               {chatbotStores.length > 0 ? (
                 <ul className="space-y-1">{chatbotStores.map(s => (
