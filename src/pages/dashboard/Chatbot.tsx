@@ -166,7 +166,7 @@ const Chatbot = () => {
         });
         if (result.stores && result.stores.length > 0) setEcommerceStores(result.stores);
         toast({
-          title: `✅ Conexão bem-sucedida!  Loja: ${result.stores}`,
+          title: '✅ Conexão bem-sucedida!',
           description: result.message || `HTTP ${result.httpStatus}`,
         });
       } else {

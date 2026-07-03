@@ -91,9 +91,9 @@ const StoreMapping = () => {
         }
         if (c) {
           const ccfg = c.chatbot_config || {};
-          setChatbotPlatform(c.chatbot_platform || '');
-          setSuriEndpoint(c.suri_endpoint || ccfg.endpoint || '');
-          setSuriToken(c.suri_token    || ccfg.token    || '');
+          setChatbotPlatform(c.chatbot_platform || i?.chatbot_platform || '');
+          setSuriEndpoint(c.suri_endpoint || i?.suri_endpoint || ccfg.endpoint || '');
+          setSuriToken(c.suri_token    || i?.suri_token    || ccfg.token    || '');
           setChatbotConfig(ccfg);
         }
       })
