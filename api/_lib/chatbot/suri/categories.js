@@ -24,20 +24,38 @@ export async function syncCategory(endpoint, token, category, resolvedStoreId = 
     ...(resolvedStoreId ? { storeId: resolvedStoreId } : {}),
   };
 
-  const existing = await findCategoryByExternalId(endpoint, token, category.id).catch(() => null);
+  // Fetch all Suri categories once; match by externalId, id, or name (case-insensitive)
+  const all = await client.listCategories(endpoint, token).catch(() => []);
+  const suriCats = Array.isArray(all) ? all : (all?.data || all?.categories || []);
+  const nameLower = category.name.toLowerCase();
+  const existing = suriCats.find(c =>
+    c.externalId === String(category.id) ||
+    c.id === String(category.id) ||
+    (c.name && c.name.toLowerCase() === nameLower)
+  ) || null;
+
+  if (existing) {
+    const res = await client.updateCategory(endpoint, token, { ...payload, id: existing.id });
+    const suriId = res?.id || existing.id || null;
+    return { action: "category_updated", categoryId: category.id, suriId, storeId: resolvedStoreId };
+  }
 
   try {
-    if (existing) {
-      const res = await client.updateCategory(endpoint, token, { ...payload, id: existing.id });
-      const suriId = res?.id || existing.id || null;
-      return { action: "category_updated", categoryId: category.id, suriId, storeId: resolvedStoreId };
-    } else {
-      const res = await client.createCategory(endpoint, token, payload);
-      const suriId = res?.id || category.id || null;
-      return { action: "category_created", categoryId: category.id, suriId, storeId: resolvedStoreId };
-    }
+    const res = await client.createCategory(endpoint, token, payload);
+    const suriId = res?.id || category.id || null;
+    return { action: "category_created", categoryId: category.id, suriId, storeId: resolvedStoreId };
   } catch (err) {
-    if (err.message.includes("404") || err.message.includes("HTTP 404")) {
+    const msg = err.message || "";
+    // "already exists" (400): re-search by name in the list we already have
+    if (msg.includes("already exists")) {
+      const match = suriCats.find(c => c.name && c.name.toLowerCase() === nameLower);
+      if (match) {
+        const res = await client.updateCategory(endpoint, token, { ...payload, id: match.id });
+        const suriId = res?.id || match.id || null;
+        return { action: "category_updated", categoryId: category.id, suriId, storeId: resolvedStoreId };
+      }
+    }
+    if (msg.includes("HTTP 404")) {
       const res = await client.createCategory(endpoint, token, payload);
       const suriId = res?.id || category.id || null;
       return { action: "category_created", categoryId: category.id, suriId, storeId: resolvedStoreId };
