@@ -144,19 +144,22 @@ export async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrde
 export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
 export async function processProductSync(ep, tk, n, platform) {
   const { syncProduct } = await import("./chatbot/suri/products.js");
-  const { listCategories } = await import("./chatbot/suri/categories.js");
+  const { listCategories, syncCategory } = await import("./chatbot/suri/categories.js");
+  const rawProduct = n.product || null;
   let product;
   if (platform === "nuvemshop") {
     const { normalizeProduct } = await import("./ecommerce/nuvemshop/products.js");
-    product = n.product ? normalizeProduct(n.product) : null;
+    product = rawProduct ? normalizeProduct(rawProduct) : null;
   } else if (platform === "olist") {
     const { normalizeProduct } = await import("./ecommerce/olist/products.js");
-    product = n.product ? normalizeProduct(n.product) : null;
+    product = rawProduct ? normalizeProduct(rawProduct) : null;
   } else {
     // Shopify, WooCommerce, VTEX, Tray: produto já normalizado pelo normalizeXxx() do webhook
-    product = n.product || null;
+    product = rawProduct || null;
   }
   if (!product) throw new Error("Produto não encontrado no payload do webhook");
+
+  // Constrói mapa de IDs: externalId (plataforma) → id interno do Suri
   const categoryIdMap = new Map();
   try {
     const suriCats = await listCategories(ep, tk);
@@ -166,9 +169,30 @@ export async function processProductSync(ep, tk, n, platform) {
       categoryIdMap.set(suriId, suriId);
     }
   } catch {}
+
+  // Se o produto tem categoria não mapeada, tenta sincronizá-la on-the-fly
+  // usando os dados que já vieram no payload do webhook (sem chamada extra à API)
   if (product.categoryId && !categoryIdMap.has(String(product.categoryId))) {
-    categoryIdMap.set(String(product.categoryId), String(product.categoryId));
+    const rawCats = rawProduct?.categories || [];
+    const rawCat  = rawCats.find(c => String(c.id) === String(product.categoryId));
+    if (rawCat) {
+      function i18n(f) { return typeof f === "string" ? f : (f?.pt || f?.es || Object.values(f || {})[0] || ""); }
+      try {
+        const r = await syncCategory(ep, tk, {
+          id:          String(rawCat.id),
+          name:        i18n(rawCat.name),
+          description: i18n(rawCat.description),
+          parentId:    rawCat.parent?.id ? String(rawCat.parent.id) : null,
+        });
+        if (r?.suriId) categoryIdMap.set(String(product.categoryId), String(r.suriId));
+      } catch {}
+    }
+    // Se ainda não mapeado, envia sem categoria em vez de passar ID inválido ao Suri
+    if (!categoryIdMap.has(String(product.categoryId))) {
+      product = { ...product, categoryId: null };
+    }
   }
+
   return syncProduct(ep, tk, product, null, categoryIdMap.size > 0 ? categoryIdMap : null);
 }
 
