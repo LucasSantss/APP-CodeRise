@@ -146,6 +146,15 @@ export async function handleSyncCatalog(req, res) {
   }
 
   // 1. Categorias em paralelo — coleta mapa platform_id → suri_id
+  // DEBUG: expõe estrutura bruta do GET /api/shop/categories para diagnóstico
+  try {
+    const { request: suriRequest } = await import("./chatbot/suri/client.js");
+    const rawCatsResponse = await suriRequest(suriEndpoint, suriToken, "GET", "/api/shop/categories", undefined).catch(e => ({ _error: e.message }));
+    allResults.push({ type: "info", entity: "debug", message: `GET /api/shop/categories → ${JSON.stringify(rawCatsResponse).slice(0, 500)}` });
+  } catch (e) {
+    allResults.push({ type: "info", entity: "debug", message: `GET /api/shop/categories falhou: ${e.message}` });
+  }
+
   try {
     const cats = await adapters.fetchCategories();
     await runConcurrent(cats, async (cat) => {
