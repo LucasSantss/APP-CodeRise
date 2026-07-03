@@ -489,8 +489,10 @@ export async function handleWebhook(req, res) {
     const _isOlist = ecommerce_platform === "olist";
     const routeEventType = displayEventType === "order.cancelled"
       ? (_isOlist ? "order.cancelled.olist" : "order.cancelled.suri")
-      : (displayEventType === "order.paid" || displayEventType === "order.created")
+      : displayEventType === "order.paid"         // OrdersPaid: única que deduz estoque
       ? (_isOlist ? "order.paid.olist" : "order.created.suri")
+      : displayEventType === "order.created"      // OrdersCreated: pedido criado mas não pago — ignora
+      ? "order.noop"
       : displayEventType === "order.shipped"
       ? "order.shipped.suri"
       : displayEventType;
@@ -519,6 +521,7 @@ export async function handleWebhook(req, res) {
       case "order.shipped":        result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
       case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
       case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized, ecommerce_platform); break;
+      case "order.noop":           { await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Ignorado: ${rawPayload.HookEvent || eventType} (sem ação)`, webhookId]); return res.status(200).json({ success:true, message:"Evento registrado sem ação (OrdersCreated não deduz estoque)", event_type:logEventType, webhook_id:webhookId }); }
       case "order.paid":           result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.created.suri":   result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.shipped.suri":   result = await processSuriOrderShippedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
