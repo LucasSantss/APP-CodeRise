@@ -1,14 +1,8 @@
 import pool from "./db.js";
 import { requireAuth } from "../_auth.js";
-<<<<<<< HEAD
 
 const SUPPORTED_PLATFORMS = ["nuvemshop", "olist", "shopify", "woocommerce", "tray", "vtex"];
 
-/**
- * Cada plataforma tem uma assinatura de credenciais diferente.
- * Esta função resolve os adaptadores corretos (listProducts, getVariants,
- * normalizeProduct, fetchCategories) para a plataforma configurada.
- */
 async function resolvePlatformAdapters(platform, ecommerceConfig) {
   switch (platform) {
     case "nuvemshop": {
@@ -44,7 +38,7 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       const { store_url, api_token, api_version } = ecommerceConfig;
       return {
         listProductsFn: (params) => client.listProducts(store_url, api_token, params, api_version),
-        getVariantsFn: null, // Shopify já retorna variantes dentro do próprio produto
+        getVariantsFn: null,
         normalizeProduct: (raw) => normalizeProduct(raw, store_url),
         fetchCategories: () => fetchCategories({ store_url, api_token, api_version }),
         storeKeyValid: !!store_url && !!api_token,
@@ -58,7 +52,6 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       return {
         listProductsFn: (params) => client.listProducts(site_url, consumer_key, consumer_secret, params),
         getVariantsFn: async (productId) => {
-          // WooCommerce só tem variações para produtos do tipo "variable" — buscamos sob demanda
           try {
             return await client.getProductVariations(site_url, consumer_key, consumer_secret, productId, { per_page: 100 });
           } catch { return []; }
@@ -91,8 +84,6 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       const { fetchCategories } = await import("./ecommerce/vtex/categories.js");
       const { account_name, app_key, app_token } = ecommerceConfig;
       return {
-        // VTEX não tem listagem paginada simples de produtos por padrão REST —
-        // usamos a árvore de SKUs como fallback simplificado de IDs.
         listProductsFn: async () => [],
         getVariantsFn: null,
         normalizeProduct,
@@ -104,8 +95,6 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       return null;
   }
 }
-=======
->>>>>>> 9de92078f9ef5a981a7ee86049e7a4c3a9bf5c9b
 
 export async function handleSyncCatalog(req, res) {
   if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
@@ -125,7 +114,6 @@ export async function handleSyncCatalog(req, res) {
   const suriEndpoint = row.suri_endpoint || chatbotCfg.endpoint || null;
   const suriToken    = row.suri_token    || chatbotCfg.token    || null;
 
-<<<<<<< HEAD
   if (!platform || !SUPPORTED_PLATFORMS.includes(platform))
     return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform || "(nenhuma plataforma)"}.` });
   if (!suriEndpoint || !suriToken)
@@ -138,33 +126,6 @@ export async function handleSyncCatalog(req, res) {
 
   const { syncProduct } = await import("./chatbot/suri/products.js");
   const { syncCategory, listCategories } = await import("./chatbot/suri/categories.js");
-=======
-  if (!platform || (!ecommerceConfig.store_id && !ecommerceConfig.store_url))
-    return res.status(400).json({ success: false, message: "E-commerce não configurado." });
-  if (!suriEndpoint || !suriToken)
-    return res.status(400).json({ success: false, message: "Chatbot (Suri) não configurado." });
-  if (platform !== "nuvemshop" && platform !== "olist")
-    return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform}.` });
-
-  const store_id   = ecommerceConfig.store_id;
-  const store_url  = ecommerceConfig.store_url;
-  const { access_token } = ecommerceConfig;
-
-  const ecommercePath = platform === "olist" ? "./ecommerce/olist" : "./ecommerce/nuvemshop";
-  const { fetchCategories: fetchPlatformCategories } = await import(`${ecommercePath}/categories.js`);
-  const platformClient                               = await import(`${ecommercePath}/client.js`);
-  const { normalizeProduct }                         = await import(`${ecommercePath}/products.js`);
-  const { syncProduct }                              = await import("./chatbot/suri/products.js");
-  const { syncCategory, listCategories }             = await import("./chatbot/suri/categories.js");
-
-  // Abstrações de cliente — Olist usa store_url, Nuvemshop usa store_id
-  const _storeKey = platform === "olist" ? store_url : store_id;
-  const listProductsFn       = (params)    => platformClient.listProducts(_storeKey, access_token, params);
-  const getProductVariantsFn = (productId) => platformClient.getProductVariants(_storeKey, access_token, productId);
-  const ecommerceConfigNorm  = platform === "olist"
-    ? { store_url, access_token }
-    : { store_id, access_token };
->>>>>>> 9de92078f9ef5a981a7ee86049e7a4c3a9bf5c9b
 
   // Resolve store mapping: ecommerce store_id → suri storeId
   let resolvedStoreId = null;
@@ -186,11 +147,7 @@ export async function handleSyncCatalog(req, res) {
 
   // 1. Categorias em paralelo — coleta mapa platform_id → suri_id
   try {
-<<<<<<< HEAD
     const cats = await adapters.fetchCategories();
-=======
-    const cats = await fetchPlatformCategories(ecommerceConfigNorm);
->>>>>>> 9de92078f9ef5a981a7ee86049e7a4c3a9bf5c9b
     await runConcurrent(cats, async (cat) => {
       try {
         const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
@@ -221,7 +178,6 @@ export async function handleSyncCatalog(req, res) {
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
-<<<<<<< HEAD
       const batch = await adapters.listProductsFn({ page, per_page: 50, limit: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
 
@@ -234,20 +190,10 @@ export async function handleSyncCatalog(req, res) {
         }));
       }
 
-=======
-      const batch = await listProductsFn({ page, per_page: 50 });
-      if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
-      await Promise.all(batch.map(async (p) => {
-        try {
-          const variants = await getProductVariantsFn(p.id);
-          if (Array.isArray(variants) && variants.length > 0) p.variants = variants;
-        } catch { /* mantém variants do listProducts */ }
-      }));
->>>>>>> 9de92078f9ef5a981a7ee86049e7a4c3a9bf5c9b
       for (const raw of batch) allRawProducts.push(raw);
       hasMore = batch.length >= 50;
       page++;
-      if (page > 200) break; // proteção contra loop infinito
+      if (page > 200) break;
     }
   } catch (err) {
     allResults.push({ type: "error", entity: "product", message: err.message });
