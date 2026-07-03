@@ -463,14 +463,15 @@ const EcommerceConfig = () => {
                     {registerResult.details.map((d, i) => {
                       const label = d.topic || d.event || d.trigger || `evento ${i + 1}`;
                       const isOk = d.status === 'created' || d.status === 'already_exists';
+                      const isWarn = d.status === 'unsupported';
                       return (
                         <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
                           <span className="font-mono text-xs">{label}</span>
                           <Badge
-                            variant={(isOk ? 'outline' : 'destructive') as BadgeVariant}
-                            className={isOk ? 'border-success text-success text-xs' : 'text-xs'}
+                            variant={(isOk ? 'outline' : isWarn ? 'secondary' : 'destructive') as BadgeVariant}
+                            className={isOk ? 'border-success text-success text-xs' : isWarn ? 'text-xs text-yellow-600 dark:text-yellow-400' : 'text-xs'}
                           >
-                            {d.status === 'already_exists' ? 'já existe' : d.status}
+                            {d.status === 'already_exists' ? 'já existe' : d.status === 'unsupported' ? 'não suportado' : d.status}
                             {d.id ? ` #${d.id}` : ''}
                           </Badge>
                         </div>

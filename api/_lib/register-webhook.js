@@ -55,8 +55,19 @@ async function registerNuvemshop(config, webhookUrl) {
   for (const event of events) {
     const r=await fetch(`${base}/webhooks`,{method:"POST",headers,body:JSON.stringify({event,url:webhookUrl})});
     const data=await r.json().catch(()=>({}));
-    if (!r.ok) { const alreadyExists=r.status===422&&JSON.stringify(data).toLowerCase().includes("already"); results.push({event,status:alreadyExists?"already_exists":"error",detail:data.description||data}); }
-    else { results.push({event,status:"created",id:data.id}); }
+    if (!r.ok) {
+      // Nuvemshop retorna mensagens em português — checar ambos os idiomas
+      const body=JSON.stringify(data).toLowerCase();
+      const alreadyExists=r.status===422&&(
+        body.includes("already")||body.includes("já existe")||body.includes("ja existe")||
+        body.includes("existe um webhook")||body.includes("mesmo endere")||body.includes("duplicate")
+      );
+      // Evento não suportado: 422 com "is not valid" ou "invalid"
+      const unsupported=r.status===422&&(body.includes("is not valid")||body.includes("invalid")||body.includes("não é válido"));
+      results.push({event,status:alreadyExists?"already_exists":unsupported?"unsupported":"error",detail:data.description||data});
+    } else {
+      results.push({event,status:"created",id:data.id});
+    }
   }
   const ok=results.filter(r=>r.status==="created"||r.status==="already_exists").length;
   return { success:true, message:`${ok}/${events.length} webhooks registrados na Nuvemshop`, details:results };
