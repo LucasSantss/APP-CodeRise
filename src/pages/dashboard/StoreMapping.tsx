@@ -87,13 +87,24 @@ const StoreMapping = () => {
           setEcommercePlatform(i.ecommerce_platform || '');
           const cfg = i.ecommerce_config || {};
           setEcommerceConfig(cfg);
-          if (cfg._store_mappings) { try { setMappings(JSON.parse(cfg._store_mappings)); } catch { /* ignore */ } }
+          if (cfg._store_mappings) {
+            try {
+              const savedMappings: StoreMapping[] = JSON.parse(cfg._store_mappings);
+              setMappings(savedMappings);
+              // Pre-populate store lists from saved mapping data so dropdowns show on reload
+              const ecStores = [...new Map(savedMappings.map(m => [m.ecommerceStoreId, { id: m.ecommerceStoreId, name: m.ecommerceStoreName }])).values()];
+              const cbStores = [...new Map(savedMappings.map(m => [m.chatbotStoreId, { id: m.chatbotStoreId, name: m.chatbotStoreName }])).values()];
+              if (ecStores.length > 0) setEcommerceStores(ecStores);
+              if (cbStores.length > 0) setChatbotStores(cbStores);
+            } catch { /* ignore */ }
+          }
         }
         if (c) {
           const ccfg = c.chatbot_config || {};
           setChatbotPlatform(c.chatbot_platform || i?.chatbot_platform || '');
-          setSuriEndpoint(c.suri_endpoint || i?.suri_endpoint || ccfg.endpoint || '');
-          setSuriToken(c.suri_token    || i?.suri_token    || ccfg.token    || '');
+          // chatbot_config.endpoint/token is the current credential; suri_endpoint/token is legacy fallback
+          setSuriEndpoint(ccfg.endpoint || c.suri_endpoint || i?.suri_endpoint || '');
+          setSuriToken(ccfg.token    || c.suri_token    || i?.suri_token    || '');
           setChatbotConfig(ccfg);
         }
       })
