@@ -74,6 +74,14 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/register-chatbot-webhook",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/register-chatbot-webhook(.*)",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/setup",
       "destination": "/api/index.js"
     },

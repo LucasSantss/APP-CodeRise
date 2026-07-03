@@ -29,7 +29,7 @@ import { handleAuth }             from "./_lib/auth.js";
 import { handleChatbot }          from "./_lib/chatbot.js";
 import { handleWebhooks, handleWebhooksPoll } from "./_lib/webhooks.js";
 import { handleWebhook }          from "./_lib/webhook-receiver.js";
-import { handleRegisterWebhook }  from "./_lib/register-webhook.js";
+import { handleRegisterWebhook, handleRegisterChatbotWebhook } from "./_lib/register-webhook.js";
 import { handleSyncCatalog }      from "./_lib/sync-catalog.js";
 import { handlePlatformSettings } from "./_lib/platform-settings.js";
 import { handleSetup }            from "./_lib/setup.js";
@@ -65,6 +65,7 @@ export default async function handler(req, res) {
   if (path === "/webhooks/poll"     || path.startsWith("/webhooks/poll?")) return handleWebhooksPoll(req, res);
   if (path === "/webhook"           || path.startsWith("/webhook?"))       return handleWebhook(req, res);
   if (path === "/register-webhook"  || path.startsWith("/register-webhook?")) return handleRegisterWebhook(req, res);
+  if (path === "/register-chatbot-webhook" || path.startsWith("/register-chatbot-webhook?")) return handleRegisterChatbotWebhook(req, res);
   if (path === "/sync-catalog"      || path.startsWith("/sync-catalog?"))  return handleSyncCatalog(req, res);
   if (path === "/platform-settings" || path.startsWith("/platform-settings?")) return handlePlatformSettings(req, res);
   if (path === "/setup"             || path.startsWith("/setup?"))         return handleSetup(req, res);

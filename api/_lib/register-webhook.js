@@ -36,20 +36,10 @@ async function registerNuvemshop(config, webhookUrl) {
   const base=`https://api.tiendanube.com/v1/${store_id}`;
   const headers={"Content-Type":"application/json","Authentication":`bearer ${access_token}`,"User-Agent":"CodeRise Integration (suporte@coderise.com.br)"};
   const events=[
-    "app/uninstalled","app/suspended","app/resumed",
     "category/created","category/updated","category/deleted",
     "order/created","order/updated","order/paid","order/packed",
-    "order/fulfilled","order/cancelled","order/custom_fields_updated",
-    "order/edited","order/pending","order/voided",
+    "order/fulfilled","order/cancelled",
     "product/created","product/updated","product/deleted",
-    "product_variant/custom_fields_updated",
-    "domain/updated",
-    "order_custom_field/created","order_custom_field/updated","order_custom_field/deleted",
-    "product_variant_custom_field/created","product_variant_custom_field/updated","product_variant_custom_field/deleted",
-    "fulfillment/updated",
-    "fulfillment_order/status_updated","fulfillment_order/tracking_event_created",
-    "fulfillment_order/tracking_event_updated","fulfillment_order/tracking_event_deleted",
-    "location/created","location/updated","location/deleted",
   ];
   const results=[];
   for (const event of events) {
@@ -113,6 +103,47 @@ async function registerOlist(config, webhookUrl) {
     message: `Configure os webhooks manualmente no painel admin da Olist em: Configurações → Integrações → API → Webhooks. Registre a URL abaixo para os eventos: ${events.join(", ")}.`,
     details: events.map(event => ({ event, status: "manual" })),
   };
+}
+
+async function registerSuriChatbot(config, chatbotWebhookUrl, chatbotToken) {
+  const { endpoint, token } = config;
+  if (!endpoint || !token) throw new Error("endpoint e token da Suri são obrigatórios");
+  const topics = (() => {
+    try {
+      const t = config.suri_topics ? JSON.parse(config.suri_topics) : null;
+      if (Array.isArray(t) && t.length > 0) return t;
+    } catch { /* usa default */ }
+    return ["OrdersCreated","OrdersPaid","OrdersCanceled","OrderLogisticUpdate"];
+  })();
+  const r = await fetch(`${endpoint.replace(/\/+$/,"")}/webhook/subscribe`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+    body:JSON.stringify({url:chatbotWebhookUrl,token:chatbotToken,topics}),
+  });
+  const data = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(`Suri POST /webhook/subscribe → HTTP ${r.status}: ${JSON.stringify(data)}`);
+  return {
+    success:true,
+    message:`Webhook registrado na Suri para ${topics.length} tópico(s)`,
+    details:topics.map(topic=>({topic,status:"created"})),
+  };
+}
+
+export async function handleRegisterChatbotWebhook(req, res) {
+  if (req.method !== "POST") { res.setHeader("Allow",["POST"]); return res.status(405).end(); }
+  const caller = await requireAuth(req, res); if (!caller) return;
+  try {
+    const r = await pool.query("SELECT chatbot_config, chatbot_token FROM user_integrations WHERE user_id = $1",[caller.id]);
+    if (!r.rows[0]) return res.status(404).json({success:false,message:"Integração não encontrada. Salve as configurações primeiro."});
+    const { chatbot_config, chatbot_token } = r.rows[0];
+    if (!chatbot_config?.endpoint) return res.status(400).json({success:false,message:"Configure o endpoint da Suri antes de registrar o webhook."});
+    if (!chatbot_token) return res.status(400).json({success:false,message:"Token do chatbot não gerado. Acesse a configuração do chatbot."});
+    const host=req.headers.host||req.headers["x-forwarded-host"]||"";
+    const protocol=req.headers["x-forwarded-proto"]||"https";
+    const chatbotWebhookUrl=`${protocol}://${host}/webhook?token=${chatbot_token}`;
+    const result = await registerSuriChatbot(chatbot_config,chatbotWebhookUrl,chatbot_token);
+    return res.status(200).json({success:true,...result,webhook_url:chatbotWebhookUrl});
+  } catch (err) { return res.status(500).json({success:false,message:err.message}); }
 }
 
 export async function handleRegisterWebhook(req, res) {
