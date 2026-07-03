@@ -111,8 +111,8 @@ export async function handleSyncCatalog(req, res) {
   const platform = row.ecommerce_platform;
   const ecommerceConfig = row.ecommerce_config || {};
   const chatbotCfg = row.chatbot_config || {};
-  const suriEndpoint = row.suri_endpoint || chatbotCfg.endpoint || null;
-  const suriToken    = row.suri_token    || chatbotCfg.token    || null;
+  const suriEndpoint = chatbotCfg.endpoint || row.suri_endpoint || null;
+  const suriToken    = chatbotCfg.token    || row.suri_token    || null;
 
   if (!platform || !SUPPORTED_PLATFORMS.includes(platform))
     return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform || "(nenhuma plataforma)"}.` });
@@ -146,19 +146,6 @@ export async function handleSyncCatalog(req, res) {
   }
 
   // 1. Categorias em paralelo — coleta mapa platform_id → suri_id
-  // DEBUG: expõe estrutura bruta dos endpoints Suri para diagnóstico
-  try {
-    const { request: suriRequest } = await import("./chatbot/suri/client.js");
-    const [rawCats, rawStores] = await Promise.all([
-      suriRequest(suriEndpoint, suriToken, "GET", "/api/shop/categories", undefined).catch(e => ({ _error: e.message })),
-      suriRequest(suriEndpoint, suriToken, "GET", "/api/shop/stores", undefined).catch(e => ({ _error: e.message })),
-    ]);
-    allResults.push({ type: "info", entity: "debug", message: `stores → ${JSON.stringify(rawStores).slice(0, 400)} | resolvedStoreId=${resolvedStoreId}` });
-    allResults.push({ type: "info", entity: "debug", message: `cats[0] → ${JSON.stringify(Array.isArray(rawCats) ? rawCats[0] : rawCats?.data?.[0])}` });
-  } catch (e) {
-    allResults.push({ type: "info", entity: "debug", message: `debug falhou: ${e.message}` });
-  }
-
   try {
     const cats = await adapters.fetchCategories();
     await runConcurrent(cats, async (cat) => {

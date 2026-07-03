@@ -16,12 +16,12 @@ export async function findCategoryByExternalId(endpoint, token, externalId) {
 }
 
 export async function syncCategory(endpoint, token, category, resolvedStoreId = null) {
+  // Suri categories API expects {id, name, description, children} — no storeId, no parentId
   const payload = {
     id: category.id,
     name: category.name,
     description: category.description || "",
-    parentId: category.parentId || null,
-    ...(resolvedStoreId ? { storeId: resolvedStoreId } : {}),
+    children: [],
   };
 
   // Fetch all Suri categories once; match by externalId, id, or name (case-insensitive)
