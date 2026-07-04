@@ -17,9 +17,24 @@ import { useGsapStagger } from '@/hooks/use-gsap';
 import gsap from 'gsap';
 
 const statusVariant = (status: string): "outline" | "destructive" | "secondary" | "default" => {
-  if (status === 'received') return 'outline';
+  if (status === 'processed') return 'outline';
   if (status === 'error') return 'destructive';
   return 'secondary';
+};
+
+const SourceBadge = ({ source }: { source?: string }) => {
+  if (source === 'chatbot') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <MessageSquare className="h-3 w-3" /> Chatbot
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <ShoppingCart className="h-3 w-3" /> E-commerce
+    </span>
+  );
 };
 
 const PLATFORM_DOCS: Record<string, string> = {
@@ -273,9 +288,10 @@ const UserWebhooks = () => {
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-[60px]">ID</TableHead>
+                  <TableHead className="min-w-[120px]">Origem</TableHead>
                   <TableHead className="min-w-[160px]">Tipo</TableHead>
                   <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[160px]">Erro</TableHead>
+                  <TableHead className="min-w-[200px]">Payload</TableHead>
                   <TableHead className="min-w-[160px]">Recebido em</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
@@ -283,13 +299,13 @@ const UserWebhooks = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : webhooks.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
                   </TableRow>
                 ) : webhooks.map((w) => (
                   <TableRow
@@ -298,15 +314,20 @@ const UserWebhooks = () => {
                     onClick={() => setSelectedWebhook(w)}
                   >
                     <TableCell className="text-xs font-mono w-[60px]">{w.id}</TableCell>
+                    <TableCell className="min-w-[120px]">
+                      <SourceBadge source={(w as any).source} />
+                    </TableCell>
                     <TableCell className="min-w-[160px]">
                       <Badge variant="outline" className="text-xs">{w.event_type?.toString() || 'desconhecido'}</Badge>
                     </TableCell>
                     <TableCell className="min-w-[100px]">
-                      <Badge variant={(statusVariant(w.status)) as BadgeVariant} className={w.status === 'received' ? 'border-success text-success' : ''}>
+                      <Badge variant={(statusVariant(w.status)) as BadgeVariant} className={w.status === 'processed' ? 'border-success text-success' : ''}>
                         {w.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground min-w-[160px] truncate max-w-xs">{w.error_message || '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono min-w-[200px] truncate max-w-xs">
+                      {w.payload ? JSON.stringify(w.payload).slice(0, 80) + '…' : (w.error_message || '—')}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap min-w-[160px]">{new Date(w.received_at).toLocaleString('pt-BR')}</TableCell>
                     <TableCell className="w-12">
                       <Button

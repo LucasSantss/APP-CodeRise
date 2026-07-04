@@ -191,7 +191,7 @@ const UserLogs = () => {
                   <TableHead className="min-w-[120px]">Origem</TableHead>
                   <TableHead className="min-w-[160px]">Tipo</TableHead>
                   <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[200px]">Erro</TableHead>
+                  <TableHead className="min-w-[200px]">Payload</TableHead>
                   <TableHead className="min-w-[160px]">Data</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
@@ -230,8 +230,8 @@ const UserLogs = () => {
                         {w.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground min-w-[200px] truncate max-w-xs">
-                      {w.error_message || '—'}
+                    <TableCell className="text-xs text-muted-foreground font-mono min-w-[200px] truncate max-w-xs">
+                      {w.payload ? JSON.stringify(w.payload).slice(0, 80) + '…' : (w.error_message || '—')}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap min-w-[160px]">
                       {new Date(w.received_at).toLocaleString('pt-BR')}
