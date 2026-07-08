@@ -114,6 +114,14 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/cron-sync-stores",
+      "destination": "/api/cron-sync-stores.js"
+    },
+    {
+      "source": "/cron-sync-stores(.*)",
+      "destination": "/api/cron-sync-stores.js"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
@@ -133,6 +141,9 @@
     },
     "api/sync-rules.js": {
       "maxDuration": 30
+    },
+    "api/cron-sync-stores.js": {
+      "maxDuration": 60
     }
   }
 }

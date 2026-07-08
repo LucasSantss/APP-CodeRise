@@ -13,6 +13,7 @@ export async function handleSetup(req, res) {
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_config JSONB`,
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_active BOOLEAN NOT NULL DEFAULT false`,
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_token VARCHAR(64) UNIQUE`,
+      `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS sync_schedule JSONB NOT NULL DEFAULT '{"enabled": false, "times": [], "timezone": "America/Sao_Paulo"}'::jsonb`,
     ]) { await pool.query(sql).catch(()=>{}); }
     const noToken = await pool.query("SELECT user_id FROM user_integrations WHERE chatbot_token IS NULL");
     for (const row of noToken.rows) { await pool.query("UPDATE user_integrations SET chatbot_token=$1 WHERE user_id=$2 AND chatbot_token IS NULL",[crypto.randomBytes(32).toString("hex"),row.user_id]); }

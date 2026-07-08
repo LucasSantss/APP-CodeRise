@@ -4,11 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, ArrowRight, Store, Save, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Info, PackageSearch, XCircle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, ArrowRight, Store, Save, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Info, PackageSearch, XCircle, ChevronDown, ChevronUp, RotateCcw, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getIntegrations, getChatbot, testEcommerceConnection, testSuriConnection, updateIntegration, updateChatbot, type StoreItem } from '@/services/api';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import { parseApiError } from '@/lib/parseApiError';
+import type { SyncSchedule } from '@/types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -72,6 +76,9 @@ const StoreMapping = () => {
   const [ecommerceStatus, setEcommerceStatus] = useState<'idle' | 'ok' | 'error'>('idle');
   const [chatbotStatus, setChatbotStatus] = useState<'idle' | 'ok' | 'error'>('idle');
 
+  const [syncSchedule, setSyncSchedule] = useState<SyncSchedule>({ enabled: false, times: [], timezone: 'America/Sao_Paulo' });
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
   const syncPanelRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const containerRef = useGsapStagger<HTMLDivElement>([loading], { stagger: 0.1, y: 20, delay: 0.05 });
@@ -87,6 +94,7 @@ const StoreMapping = () => {
           setEcommerceConfig(cfg);
           if (cfg._store_mappings) { try { setMappings(JSON.parse(cfg._store_mappings)); } catch { /* ignore */ } }
           if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); setEcommerceStatus('ok'); } catch { /* ignore */ } }
+          if (i.sync_schedule) setSyncSchedule({ enabled: false, times: [], timezone: 'America/Sao_Paulo', ...i.sync_schedule });
         }
         if (c) {
           const ccfg = c.chatbot_config || {};
@@ -270,6 +278,32 @@ const StoreMapping = () => {
     try { sessionStorage.removeItem(SYNC_RESULT_KEY); } catch { /* ignore */ }
   };
 
+  // ── Agendamento de Sincronização Automática ──────────────────────────────
+  const updateScheduleTime = (index: number, value: string) => {
+    setSyncSchedule(prev => {
+      const times = [...prev.times];
+      if (value) times[index] = value; else times.splice(index, 1);
+      return { ...prev, times: times.filter(Boolean) };
+    });
+  };
+
+  const addScheduleSlot = () => setSyncSchedule(prev => prev.times.length < 2 ? { ...prev, times: [...prev.times, '08:00'] } : prev);
+  const removeScheduleSlot = (index: number) => setSyncSchedule(prev => ({ ...prev, times: prev.times.filter((_, i) => i !== index) }));
+
+  const handleSaveSchedule = async () => {
+    setSavingSchedule(true);
+    try {
+      const payload: SyncSchedule = { ...syncSchedule, enabled: syncSchedule.enabled && syncSchedule.times.length > 0 };
+      await updateIntegration({ sync_schedule: payload });
+      setSyncSchedule(prev => ({ ...prev, enabled: payload.enabled }));
+      toast({ title: '✅ Agendamento salvo!', description: payload.enabled ? `Sincronização automática ativa às ${payload.times.join(' e ')}.` : 'Sincronização automática desativada.' });
+    } catch (err: unknown) {
+      toast({ title: 'Erro ao salvar agendamento', description: err instanceof Error ? err.message : '', variant: 'destructive' });
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
   const getResultIcon = (type: string) => {
     if (type === 'error') return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
     if (type === 'info') return <Info className="h-3.5 w-3.5 text-blue-500 shrink-0" />;
@@ -438,11 +472,11 @@ const StoreMapping = () => {
             </Alert>
           )}
 
-          {ecommercePlatform && ecommercePlatform !== 'nuvemshop' && (
+          {ecommercePlatform && ecommercePlatform !== 'nuvemshop' && ecommercePlatform !== 'olist' && (
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription className="text-xs">
-                A sincronização completa de catálogo está disponível apenas para <strong>Nuvemshop</strong> no momento.
+                A sincronização completa de catálogo está disponível apenas para <strong>Nuvemshop</strong> e <strong>Olist</strong> no momento.
                 Outras plataformas continuam recebendo produtos via webhooks normalmente.
               </AlertDescription>
             </Alert>
@@ -464,6 +498,61 @@ const StoreMapping = () => {
                 <RotateCcw className="h-3.5 w-3.5" />Limpar resultados
               </Button>
             )}
+          </div>
+
+          {/* ── Sincronização Automática ── */}
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">Sincronização Automática</p>
+                  <p className="text-xs text-muted-foreground">Sincronize o catálogo automaticamente até 2x por dia, nos horários que você definir.</p>
+                </div>
+              </div>
+              <Switch
+                checked={syncSchedule.enabled}
+                onCheckedChange={(checked) => setSyncSchedule(prev => ({ ...prev, enabled: checked }))}
+                disabled={!hasCredentials}
+              />
+            </div>
+
+            {syncSchedule.enabled && (
+              <div className="space-y-3">
+                {syncSchedule.times.length === 0 && (
+                  <p className="text-xs text-muted-foreground italic">Adicione ao menos um horário para ativar a sincronização automática.</p>
+                )}
+                {syncSchedule.times.map((time, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground w-16 shrink-0">Horário {idx + 1}</Label>
+                    <Input
+                      type="time"
+                      value={time}
+                      onChange={(e) => updateScheduleTime(idx, e.target.value)}
+                      className="h-8 w-32 text-sm"
+                    />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive shrink-0" onClick={() => removeScheduleSlot(idx)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+                {syncSchedule.times.length < 2 && (
+                  <Button variant="outline" size="sm" onClick={addScheduleSlot}>+ Adicionar horário</Button>
+                )}
+                <p className="text-xs text-muted-foreground">Horário de Brasília (America/Sao_Paulo).</p>
+              </div>
+            )}
+
+            {syncSchedule.lastResult && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                {syncSchedule.lastResult.success ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <XCircle className="h-3 w-3 text-destructive" />}
+                Última sincronização automática: {new Date(syncSchedule.lastResult.at).toLocaleString('pt-BR')}
+              </p>
+            )}
+
+            <Button size="sm" onClick={handleSaveSchedule} disabled={savingSchedule || !hasCredentials} className="gap-2">
+              {savingSchedule ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Salvando...</> : <><Save className="h-3.5 w-3.5" />Salvar agendamento</>}
+            </Button>
           </div>
 
           {syncing && (

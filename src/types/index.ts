@@ -26,8 +26,18 @@ export interface UserIntegration {
   suri_endpoint: string | null;
   suri_token: string | null;
   suri_active: boolean;
+  // Agendamento de sincronização automática de catálogo
+  sync_schedule: SyncSchedule | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SyncSchedule {
+  enabled: boolean;
+  times: string[]; // até 2 horários no formato "HH:MM"
+  timezone: string;
+  lastRun?: { date: string; times: string[] };
+  lastResult?: { success: boolean; message: string | null; summary?: Record<string, number> | null; at: string };
 }
 
 export interface ChatbotIntegration {

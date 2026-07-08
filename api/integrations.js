@@ -30,13 +30,18 @@ export default async function handler(req, res) {
       case "PUT": {
         const caller = await requireAuth(req, res); if (!caller) return;
         const targetId = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
-        const { suri_endpoint, suri_token, ecommerce_platform, ecommerce_config } = req.body || {};
+        const { suri_endpoint, suri_token, ecommerce_platform, ecommerce_config, sync_schedule } = req.body || {};
         await pool.query("INSERT INTO user_integrations (user_id, webhook_token) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING", [targetId, crypto.randomBytes(32).toString("hex")]);
         const fields = [], values = []; let idx = 1;
         if (suri_endpoint      !== undefined) { fields.push(`suri_endpoint = $${idx++}`);      values.push(suri_endpoint); }
         if (suri_token         !== undefined) { fields.push(`suri_token = $${idx++}`);         values.push(suri_token); }
         if (ecommerce_platform !== undefined) { fields.push(`ecommerce_platform = $${idx++}`); values.push(ecommerce_platform); }
         if (ecommerce_config   !== undefined) { fields.push(`ecommerce_config = $${idx++}`);   values.push(JSON.stringify(ecommerce_config)); }
+        if (sync_schedule      !== undefined) {
+          const times = Array.isArray(sync_schedule.times) ? sync_schedule.times.filter(t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)).slice(0, 2) : [];
+          fields.push(`sync_schedule = COALESCE(sync_schedule, '{}'::jsonb) || $${idx++}::jsonb`);
+          values.push(JSON.stringify({ enabled: !!sync_schedule.enabled && times.length > 0, times, timezone: sync_schedule.timezone || "America/Sao_Paulo" }));
+        }
         if (!fields.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
         fields.push("updated_at = NOW()"); values.push(targetId);
         const r = await pool.query(`UPDATE user_integrations SET ${fields.join(", ")} WHERE user_id = $${idx} RETURNING *`, values);
