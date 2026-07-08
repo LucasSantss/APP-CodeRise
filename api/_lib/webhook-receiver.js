@@ -132,31 +132,37 @@ function mapLogisticStatus(status) {
 
 // ─── Processadores de evento ──────────────────────────────────────────────────
 export async function processOrderCreated(ep, tk, n) {
+  // Apenas cria o orçamento no Suri — NÃO chama orders/paid aqui.
+  // A dedução de estoque no e-commerce é responsabilidade exclusiva do
+  // webhook OrdersPaid vindo do Suri (processSuriOrderPaidGeneric),
+  // evitando dupla dedução quando o pedido já vem pago da plataforma.
   const existing = await findSuriOrder(ep, tk, n.orderId);
-  if (existing) { await suriRequest(ep,tk,"POST","/api/shop/orders/paid",{orderId:existing.id||existing.orderId,paymentTracking:n.paymentTracking||""}); return {action:"marked_paid",suriOrderId:existing.id}; }
+  if (existing) return { action: "already_exists", suriOrderId: existing.id };
   const budget={id:String(n.orderId),logistic:{providerId:"001",name:n.shipping.provider||"Entrega",description:"Padrão",type:n.shipping.type||1,price:n.shipping.price||0,minShippingTimeEstimative:n.shipping.estimative||"3 dias úteis",shippingTimeEstimative:n.shipping.estimative||"5 dias úteis"},items:n.items.map(i=>({fromSellerId:i.sellerId||"all",ProductId:String(i.productId||i.id),Sku:String(i.sku||i.productId),Name:i.name,quantity:i.quantity,unitPrice:i.unitPrice,discountAmount:i.discount||0})),errorMessages:[]};
   const created = await suriRequest(ep,tk,"POST","/api/shop/orders/budget",budget);
   const suriOrderId=created?.id||created?.orderId;
-  if (suriOrderId) await suriRequest(ep,tk,"POST","/api/shop/orders/paid",{orderId:suriOrderId,paymentTracking:n.paymentTracking||""});
-  return {action:"created_and_paid",suriOrderId};
+  return { action: "budget_created", suriOrderId };
 }
 export async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); const st=mapLogisticStatus(n.logisticStatus); await suriRequest(ep,tk,"POST","/api/shop/orders/logistic",{id:ex.id||ex.orderId,status:st}); return {action:"logistic_updated",suriOrderId:ex.id,status:st}; }
 export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
 export async function processProductSync(ep, tk, n, platform) {
   const { syncProduct } = await import("./chatbot/suri/products.js");
-  const { listCategories } = await import("./chatbot/suri/categories.js");
+  const { listCategories, syncCategory } = await import("./chatbot/suri/categories.js");
+  const rawProduct = n.product || null;
   let product;
   if (platform === "nuvemshop") {
     const { normalizeProduct } = await import("./ecommerce/nuvemshop/products.js");
-    product = n.product ? normalizeProduct(n.product) : null;
+    product = rawProduct ? normalizeProduct(rawProduct) : null;
   } else if (platform === "olist") {
     const { normalizeProduct } = await import("./ecommerce/olist/products.js");
-    product = n.product ? normalizeProduct(n.product) : null;
+    product = rawProduct ? normalizeProduct(rawProduct) : null;
   } else {
     // Shopify, WooCommerce, VTEX, Tray: produto já normalizado pelo normalizeXxx() do webhook
-    product = n.product || null;
+    product = rawProduct || null;
   }
   if (!product) throw new Error("Produto não encontrado no payload do webhook");
+
+  // Constrói mapa de IDs: externalId (plataforma) → id interno do Suri
   const categoryIdMap = new Map();
   try {
     const suriCats = await listCategories(ep, tk);
@@ -166,9 +172,30 @@ export async function processProductSync(ep, tk, n, platform) {
       categoryIdMap.set(suriId, suriId);
     }
   } catch {}
+
+  // Se o produto tem categoria não mapeada, tenta sincronizá-la on-the-fly
+  // usando os dados que já vieram no payload do webhook (sem chamada extra à API)
   if (product.categoryId && !categoryIdMap.has(String(product.categoryId))) {
-    categoryIdMap.set(String(product.categoryId), String(product.categoryId));
+    const rawCats = rawProduct?.categories || [];
+    const rawCat  = rawCats.find(c => String(c.id) === String(product.categoryId));
+    if (rawCat) {
+      function i18n(f) { return typeof f === "string" ? f : (f?.pt || f?.es || Object.values(f || {})[0] || ""); }
+      try {
+        const r = await syncCategory(ep, tk, {
+          id:          String(rawCat.id),
+          name:        i18n(rawCat.name),
+          description: i18n(rawCat.description),
+          parentId:    rawCat.parent?.id ? String(rawCat.parent.id) : null,
+        });
+        if (r?.suriId) categoryIdMap.set(String(product.categoryId), String(r.suriId));
+      } catch {}
+    }
+    // Se ainda não mapeado, envia sem categoria em vez de passar ID inválido ao Suri
+    if (!categoryIdMap.has(String(product.categoryId))) {
+      product = { ...product, categoryId: null };
+    }
   }
+
   return syncProduct(ep, tk, product, null, categoryIdMap.size > 0 ? categoryIdMap : null);
 }
 
@@ -407,9 +434,11 @@ export async function handleWebhook(req, res) {
     integration = r.rows[0];
   } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
   const _ccfg = integration.chatbot_config || {};
-  const suri_endpoint = integration.suri_endpoint || _ccfg.endpoint || null;
-  const suri_token    = integration.suri_token    || _ccfg.token    || null;
-  const suri_active   = !!(integration.suri_active ?? integration.chatbot_active ?? (suri_endpoint && suri_token));
+  // chatbot_config.endpoint/token é a credencial atual; suri_endpoint/token é legado
+  const suri_endpoint = _ccfg.endpoint || integration.suri_endpoint || null;
+  const suri_token    = _ccfg.token    || integration.suri_token    || null;
+  // chatbot_active é o campo atual; suri_active é legado
+  const suri_active   = !!(integration.chatbot_active ?? integration.suri_active ?? (suri_endpoint && suri_token));
   const { user_id, ecommerce_platform, chatbot_platform } = integration;
   const isViaWebhookToken = integration.webhook_token === token;
   const activePlatform = isViaWebhookToken ? (ecommerce_platform || "ecommerce") : (chatbot_platform || "chatbot");
@@ -460,8 +489,10 @@ export async function handleWebhook(req, res) {
     const _isOlist = ecommerce_platform === "olist";
     const routeEventType = displayEventType === "order.cancelled"
       ? (_isOlist ? "order.cancelled.olist" : "order.cancelled.suri")
-      : (displayEventType === "order.paid" || displayEventType === "order.created")
+      : displayEventType === "order.paid"         // OrdersPaid: única que deduz estoque
       ? (_isOlist ? "order.paid.olist" : "order.created.suri")
+      : displayEventType === "order.created"      // OrdersCreated: pedido criado mas não pago — ignora
+      ? "order.noop"
       : displayEventType === "order.shipped"
       ? "order.shipped.suri"
       : displayEventType;
@@ -490,6 +521,7 @@ export async function handleWebhook(req, res) {
       case "order.shipped":        result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
       case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
       case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized, ecommerce_platform); break;
+      case "order.noop":           { await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Ignorado: ${rawPayload.HookEvent || eventType} (sem ação)`, webhookId]); return res.status(200).json({ success:true, message:"Evento registrado sem ação (OrdersCreated não deduz estoque)", event_type:logEventType, webhook_id:webhookId }); }
       case "order.paid":           result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.created.suri":   result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.shipped.suri":   result = await processSuriOrderShippedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
@@ -500,7 +532,8 @@ export async function handleWebhook(req, res) {
         await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
         return res.status(200).json({ success:true, message:"Evento registrado sem processamento", event_type:eventType, webhook_id:webhookId });
     }
-    await pool.query("UPDATE user_webhooks SET status='processed', error_message=NULL WHERE id=$1", [webhookId]);
+    const resultInfo = result ? JSON.stringify(result).slice(0, 400) : null;
+    await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [resultInfo, webhookId]);
     await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"processed",event_type:eventType})]);
     return res.status(200).json({ success:true, message:"Evento processado com sucesso", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId, suri_result:result });
   } catch (err) {

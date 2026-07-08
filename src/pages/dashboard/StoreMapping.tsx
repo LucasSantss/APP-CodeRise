@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, ArrowRight, Store, Save, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Info, PackageSearch, XCircle, ChevronDown, ChevronUp, RotateCcw, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getIntegrations, getChatbot, testEcommerceConnection, testSuriConnection, updateIntegration, updateChatbot, type StoreItem } from '@/services/api';
+import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import { parseApiError } from '@/lib/parseApiError';
 import type { SyncSchedule } from '@/types';
@@ -69,6 +70,7 @@ const StoreMapping = () => {
 
   const [ecommercePlatform, setEcommercePlatform] = useState('');
   const [ecommerceConfig, setEcommerceConfig] = useState<Record<string, string>>({});
+  const [chatbotPlatform, setChatbotPlatform] = useState('');
   const [suriEndpoint, setSuriEndpoint] = useState('');
   const [suriToken, setSuriToken] = useState('');
   const [chatbotConfig, setChatbotConfig] = useState<Record<string, string>>({});
@@ -92,17 +94,31 @@ const StoreMapping = () => {
           setEcommercePlatform(i.ecommerce_platform || '');
           const cfg = i.ecommerce_config || {};
           setEcommerceConfig(cfg);
+<<<<<<< HEAD
           if (cfg._store_mappings) { try { setMappings(JSON.parse(cfg._store_mappings)); } catch { /* ignore */ } }
           if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); setEcommerceStatus('ok'); } catch { /* ignore */ } }
           if (i.sync_schedule) setSyncSchedule({ enabled: false, times: [], timezone: 'America/Sao_Paulo', ...i.sync_schedule });
+=======
+          if (cfg._store_mappings) {
+            try {
+              const savedMappings: StoreMapping[] = JSON.parse(cfg._store_mappings);
+              setMappings(savedMappings);
+              // Pre-populate store lists from saved mapping data so dropdowns show on reload
+              const ecStores = [...new Map(savedMappings.map(m => [m.ecommerceStoreId, { id: m.ecommerceStoreId, name: m.ecommerceStoreName }])).values()];
+              const cbStores = [...new Map(savedMappings.map(m => [m.chatbotStoreId, { id: m.chatbotStoreId, name: m.chatbotStoreName }])).values()];
+              if (ecStores.length > 0) setEcommerceStores(ecStores);
+              if (cbStores.length > 0) setChatbotStores(cbStores);
+            } catch { /* ignore */ }
+          }
+>>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
         }
         if (c) {
           const ccfg = c.chatbot_config || {};
-          // Credenciais da Suri: coluna direta ou fallback do chatbot_config
-          setSuriEndpoint(c.suri_endpoint || ccfg.endpoint || '');
-          setSuriToken(c.suri_token    || ccfg.token    || '');
+          setChatbotPlatform(c.chatbot_platform || i?.chatbot_platform || '');
+          // chatbot_config.endpoint/token is the current credential; suri_endpoint/token is legacy fallback
+          setSuriEndpoint(ccfg.endpoint || c.suri_endpoint || i?.suri_endpoint || '');
+          setSuriToken(ccfg.token    || c.suri_token    || i?.suri_token    || '');
           setChatbotConfig(ccfg);
-          if (ccfg._chatbot_stores) { try { setChatbotStores(JSON.parse(ccfg._chatbot_stores)); setChatbotStatus('ok'); } catch { /* ignore */ } }
         }
       })
       .catch(() => toast({ title: 'Erro ao carregar configurações', variant: 'destructive' }))
@@ -113,7 +129,13 @@ const StoreMapping = () => {
   useEffect(() => {
     try {
       const stored = sessionStorage.getItem(SYNC_RESULT_KEY);
-      if (stored) setSyncResult(JSON.parse(stored));
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Discard stale data where item.name is a non-string (would cause React error #31)
+        const safe = !Array.isArray(parsed?.results) || parsed.results.every((r: any) => r.name == null || typeof r.name === 'string');
+        if (safe) setSyncResult(parsed);
+        else sessionStorage.removeItem(SYNC_RESULT_KEY);
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -141,26 +163,16 @@ const StoreMapping = () => {
     const [ecResult, cbResult] = results;
 
     if (ecResult.status === 'fulfilled') {
-      const stores = ecResult.value as StoreItem[];
-      setEcommerceStores(stores);
+      setEcommerceStores(ecResult.value as StoreItem[]);
       setEcommerceStatus('ok');
-      const updatedCfg = { ...ecommerceConfig, _ecommerce_stores: JSON.stringify(stores) };
-      await updateIntegration({ ecommerce_config: updatedCfg }).catch(() => { });
-      setEcommerceConfig(updatedCfg);
     } else {
       setEcommerceStatus('error');
       toast({ title: 'E-commerce', description: (ecResult as any).reason?.message, variant: 'destructive' });
     }
 
     if (cbResult.status === 'fulfilled') {
-      const stores = cbResult.value as StoreItem[];
-      setChatbotStores(stores);
+      setChatbotStores(cbResult.value as StoreItem[]);
       setChatbotStatus('ok');
-      if (stores.length > 0) {
-        const updatedChatbotCfg = { ...chatbotConfig, _chatbot_stores: JSON.stringify(stores) };
-        await updateChatbot({ chatbot_config: updatedChatbotCfg }).catch(() => { });
-        setChatbotConfig(updatedChatbotCfg);
-      }
     } else {
       setChatbotStatus('error');
       toast({ title: 'Chatbot', description: (cbResult as any).reason?.message, variant: 'destructive' });
@@ -197,11 +209,14 @@ const StoreMapping = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updatedEcommerceCfg = { ...ecommerceConfig, _store_mappings: JSON.stringify(mappings), ...(ecommerceStores.length > 0 ? { _ecommerce_stores: JSON.stringify(ecommerceStores) } : {}) };
-      const updatedChatbotCfg = { ...chatbotConfig, ...(chatbotStores.length > 0 ? { _chatbot_stores: JSON.stringify(chatbotStores) } : {}) };
+      // Remove campos de cache de lojas ao salvar — lojas são sempre carregadas ao vivo
+      const { _ecommerce_stores: _es, ...baseCfg } = ecommerceConfig;
+      const { _chatbot_stores: _cs, ...baseChatbotCfg } = chatbotConfig;
+      const updatedEcommerceCfg = { ...baseCfg, _store_mappings: JSON.stringify(mappings) };
+      const updatedChatbotCfg = { ...baseChatbotCfg };
       await Promise.all([
         updateIntegration({ ecommerce_config: updatedEcommerceCfg }),
-        chatbotStores.length > 0 ? updateChatbot({ chatbot_config: updatedChatbotCfg }) : Promise.resolve(),
+        updateChatbot({ chatbot_config: updatedChatbotCfg }),
       ]);
       setEcommerceConfig(updatedEcommerceCfg);
       setChatbotConfig(updatedChatbotCfg);
@@ -354,6 +369,13 @@ const StoreMapping = () => {
             </Alert>
           )}
 
+          {hasCredentials && ecommerceStatus === 'idle' && chatbotStatus === 'idle' && (
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>Clique em <strong>Carregar Lojas</strong> para verificar a conexão com as credenciais atuais e atualizar a lista.</AlertDescription>
+            </Alert>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="rounded-lg border p-4 space-y-2">
               <div className="flex items-center justify-between">
@@ -373,7 +395,14 @@ const StoreMapping = () => {
 
             <div className="rounded-lg border p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Chatbot (Suri)</span>
+                <span className="text-sm font-medium">
+                  Chatbot
+                  {chatbotPlatform && (
+                    <span className="text-muted-foreground font-normal ml-1">
+                      ({CHATBOT_FIELDS[chatbotPlatform as ChatbotPlatform]?.label || chatbotPlatform})
+                    </span>
+                  )}
+                </span>
                 {chatbotStatus === 'ok' && <Badge variant="outline" className="border-green-500 text-green-600 text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Conectado</Badge>}
                 {chatbotStatus === 'error' && <Badge variant="destructive" className="text-xs">Erro</Badge>}
               </div>
@@ -485,7 +514,7 @@ const StoreMapping = () => {
           <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={handleSyncCatalog}
-              disabled={syncing || ecommerceStatus !== 'ok' || chatbotStatus !== 'ok'}
+              disabled={syncing || !hasCredentials || (ecommerceStatus === 'error') || (chatbotStatus === 'error')}
               className="gap-2"
             >
               {syncing
@@ -650,7 +679,7 @@ const StoreMapping = () => {
                               <Badge variant={getResultBadgeVariant(item.type)} className="text-xs py-0 h-4 shrink-0">
                                 {getResultLabel(item)}
                               </Badge>
-                              {item.name && <span className="font-medium truncate">{item.name}</span>}
+                              {item.name != null && <span className="font-medium truncate">{typeof item.name === 'string' ? item.name : ((item.name as any)?.pt || (item.name as any)?.es || String(item.name))}</span>}
                               {item.id && <code className="text-muted-foreground bg-muted px-1 rounded shrink-0">#{item.id}</code>}
                             </div>
                             {displayMessage && (

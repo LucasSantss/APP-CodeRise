@@ -1,5 +1,115 @@
 import pool from "./db.js";
 import { requireAuth } from "../_auth.js";
+<<<<<<< HEAD
+=======
+
+const SUPPORTED_PLATFORMS = ["nuvemshop", "olist", "shopify", "woocommerce", "tray", "vtex"];
+
+async function resolvePlatformAdapters(platform, ecommerceConfig) {
+  switch (platform) {
+    case "nuvemshop": {
+      const client = await import("./ecommerce/nuvemshop/client.js");
+      const { normalizeProduct } = await import("./ecommerce/nuvemshop/products.js");
+      const { fetchCategories } = await import("./ecommerce/nuvemshop/categories.js");
+      const { store_id, access_token } = ecommerceConfig;
+      return {
+        listProductsFn: (params) => client.listProducts(store_id, access_token, params),
+        getVariantsFn: (productId) => client.getProductVariants(store_id, access_token, productId),
+        normalizeProduct,
+        fetchCategories: () => fetchCategories({ store_id, access_token }),
+        storeKeyValid: !!store_id && !!access_token,
+      };
+    }
+    case "olist": {
+      const client = await import("./ecommerce/olist/client.js");
+      const { normalizeProduct } = await import("./ecommerce/olist/products.js");
+      const { fetchCategories } = await import("./ecommerce/olist/categories.js");
+      const { store_url, access_token } = ecommerceConfig;
+      return {
+        listProductsFn: (params) => client.listProducts(store_url, access_token, params),
+        getVariantsFn: (productId) => client.getProductVariants(store_url, access_token, productId),
+        normalizeProduct,
+        fetchCategories: () => fetchCategories({ store_url, access_token }),
+        storeKeyValid: !!store_url && !!access_token,
+      };
+    }
+    case "shopify": {
+      const client = await import("./ecommerce/shopify/client.js");
+      const { normalizeProduct } = await import("./ecommerce/shopify/products.js");
+      const { fetchCategories } = await import("./ecommerce/shopify/categories.js");
+      const { store_url, api_token, api_version } = ecommerceConfig;
+      return {
+        listProductsFn: (params) => client.listProducts(store_url, api_token, params, api_version),
+        getVariantsFn: null,
+        normalizeProduct: (raw) => normalizeProduct(raw, store_url),
+        fetchCategories: () => fetchCategories({ store_url, api_token, api_version }),
+        storeKeyValid: !!store_url && !!api_token,
+      };
+    }
+    case "woocommerce": {
+      const client = await import("./ecommerce/woocommerce/client.js");
+      const { normalizeProduct } = await import("./ecommerce/woocommerce/products.js");
+      const { fetchCategories } = await import("./ecommerce/woocommerce/categories.js");
+      const { site_url, consumer_key, consumer_secret } = ecommerceConfig;
+      return {
+        listProductsFn: (params) => client.listProducts(site_url, consumer_key, consumer_secret, params),
+        getVariantsFn: async (productId) => {
+          try {
+            return await client.getProductVariations(site_url, consumer_key, consumer_secret, productId, { per_page: 100 });
+          } catch { return []; }
+        },
+        normalizeProduct: (raw, variants) => normalizeProduct(raw, variants || []),
+        fetchCategories: () => fetchCategories({ site_url, consumer_key, consumer_secret }),
+        storeKeyValid: !!site_url && !!consumer_key && !!consumer_secret,
+      };
+    }
+    case "tray": {
+      const client = await import("./ecommerce/tray/client.js");
+      const { normalizeProduct } = await import("./ecommerce/tray/products.js");
+      const { fetchCategories } = await import("./ecommerce/tray/categories.js");
+      const { api_address, access_token } = ecommerceConfig;
+      return {
+        listProductsFn: async (params) => {
+          const data = await client.listProducts(api_address, access_token, params);
+          const items = data.Products || data.products || [];
+          return items.map(i => i.Product || i);
+        },
+        getVariantsFn: (productId) => client.getProductVariants(api_address, access_token, productId).catch(() => []),
+        normalizeProduct: (raw, variants) => normalizeProduct({ ...raw, Variants: variants || raw.Variants }),
+        fetchCategories: () => fetchCategories({ api_address, access_token }),
+        storeKeyValid: !!api_address && !!access_token,
+      };
+    }
+    case "vtex": {
+      const client = await import("./ecommerce/vtex/client.js");
+      const { normalizeProduct } = await import("./ecommerce/vtex/products.js");
+      const { fetchCategories } = await import("./ecommerce/vtex/categories.js");
+      const { account_name, app_key, app_token } = ecommerceConfig;
+      return {
+        listProductsFn: async () => [],
+        getVariantsFn: null,
+        normalizeProduct,
+        fetchCategories: () => fetchCategories({ account_name, app_key, app_token }),
+        storeKeyValid: !!account_name && !!app_key && !!app_token,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+export async function handleSyncCatalog(req, res) {
+  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
+  const caller = await requireAuth(req, res);
+  if (!caller) return;
+
+  const row = await pool.query(
+    "SELECT ecommerce_platform, ecommerce_config, chatbot_config, suri_endpoint, suri_token FROM user_integrations WHERE user_id = $1",
+    [caller.id]
+  ).then(r => r.rows[0]).catch(() => null);
+
+  if (!row) return res.status(404).json({ success: false, message: "Integração não encontrada." });
+>>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
 
 // Lógica de sincronização pura, reaproveitada tanto pelo endpoint manual (handleSyncCatalog)
 // quanto pelo endpoint de agendamento (cron-sync-stores.js).
@@ -7,9 +117,10 @@ export async function syncCatalogForIntegrationRow(row) {
   const platform = row.ecommerce_platform;
   const ecommerceConfig = row.ecommerce_config || {};
   const chatbotCfg = row.chatbot_config || {};
-  const suriEndpoint = row.suri_endpoint || chatbotCfg.endpoint || null;
-  const suriToken    = row.suri_token    || chatbotCfg.token    || null;
+  const suriEndpoint = chatbotCfg.endpoint || row.suri_endpoint || null;
+  const suriToken    = chatbotCfg.token    || row.suri_token    || null;
 
+<<<<<<< HEAD
   if (!platform || (!ecommerceConfig.store_id && !ecommerceConfig.store_url))
     return { success: false, message: "E-commerce não configurado." };
   if (!suriEndpoint || !suriToken)
@@ -35,6 +146,20 @@ export async function syncCatalogForIntegrationRow(row) {
   const ecommerceConfigNorm  = platform === "olist"
     ? { store_url, access_token }
     : { store_id, access_token };
+=======
+  if (!platform || !SUPPORTED_PLATFORMS.includes(platform))
+    return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform || "(nenhuma plataforma)"}.` });
+  if (!suriEndpoint || !suriToken)
+    return res.status(400).json({ success: false, message: "Chatbot (Suri) não configurado." });
+
+  const adapters = await resolvePlatformAdapters(platform, ecommerceConfig);
+  if (!adapters) return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform}.` });
+  if (!adapters.storeKeyValid) return res.status(400).json({ success: false, message: "E-commerce não configurado corretamente — credenciais ausentes." });
+  if (platform === "vtex") return res.status(400).json({ success: false, message: "Sincronização em lote da VTEX ainda não disponível — utilize o fluxo de webhooks para sincronização incremental por produto." });
+
+  const { syncProduct } = await import("./chatbot/suri/products.js");
+  const { syncCategory, listCategories } = await import("./chatbot/suri/categories.js");
+>>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
 
   // Resolve store mapping: ecommerce store_id → suri storeId
   let resolvedStoreId = null;
@@ -56,7 +181,11 @@ export async function syncCatalogForIntegrationRow(row) {
 
   // 1. Categorias em paralelo — coleta mapa platform_id → suri_id
   try {
+<<<<<<< HEAD
     const cats = await fetchPlatformCategories(ecommerceConfigNorm);
+=======
+    const cats = await adapters.fetchCategories();
+>>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
     await runConcurrent(cats, async (cat) => {
       try {
         const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
@@ -87,6 +216,7 @@ export async function syncCatalogForIntegrationRow(row) {
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
+<<<<<<< HEAD
       const batch = await listProductsFn({ page, per_page: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
       await Promise.all(batch.map(async (p) => {
@@ -95,10 +225,24 @@ export async function syncCatalogForIntegrationRow(row) {
           if (Array.isArray(variants) && variants.length > 0) p.variants = variants;
         } catch { /* mantém variants do listProducts */ }
       }));
+=======
+      const batch = await adapters.listProductsFn({ page, per_page: 50, limit: 50 });
+      if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
+
+      if (adapters.getVariantsFn) {
+        await Promise.all(batch.map(async (p) => {
+          try {
+            const variants = await adapters.getVariantsFn(p.id || p.Id);
+            if (Array.isArray(variants) && variants.length > 0) p._fetchedVariants = variants;
+          } catch { /* mantém variants já presentes no produto, se houver */ }
+        }));
+      }
+
+>>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
       for (const raw of batch) allRawProducts.push(raw);
       hasMore = batch.length >= 50;
       page++;
-      if (page > 200) break; // proteção contra loop infinito
+      if (page > 200) break;
     }
   } catch (err) {
     allResults.push({ type: "error", entity: "product", message: err.message });
@@ -115,7 +259,9 @@ export async function syncCatalogForIntegrationRow(row) {
       const action = r?.action || "product_updated";
       allResults.push({ type: action, entity: "product", id: String(raw.id || raw.Id), name: normalized.name || String(raw.id || raw.Id), storeId: resolvedStoreId });
     } catch (err) {
-      allResults.push({ type: "error", entity: "product", id: String(raw.id || raw.Id), name: raw.name || raw.Name || String(raw.id), storeId: resolvedStoreId, message: err.message });
+      const rawName = raw.name ?? raw.Name;
+      const nameStr = typeof rawName === 'string' ? rawName : (rawName?.pt || rawName?.es || rawName?.en || Object.values(rawName || {})[0] || String(raw.id || raw.Id));
+      allResults.push({ type: "error", entity: "product", id: String(raw.id || raw.Id), name: nameStr, storeId: resolvedStoreId, message: err.message });
     }
   }, 10);
 

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle2, XCircle, Copy, Terminal, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Copy, Key, RefreshCw, Info, ArrowRight, ExternalLink, Zap, Plug } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
@@ -85,8 +85,6 @@ const Chatbot = () => {
           if (savedConfig._connection_status) {
             setConnectionStatus(savedConfig._connection_status as 'success' | 'error');
             setConnectionMsg(savedConfig._connection_msg || '');
-          } else if (savedConfig.endpoint) {
-            setConnectionStatus('success');
           }
         }
       })
@@ -168,7 +166,7 @@ const Chatbot = () => {
         });
         if (result.stores && result.stores.length > 0) setEcommerceStores(result.stores);
         toast({
-          title: `✅ Conexão bem-sucedida!  Loja: ${result.stores}`,
+          title: '✅ Conexão bem-sucedida!',
           description: result.message || `HTTP ${result.httpStatus}`,
         });
       } else {
@@ -246,18 +244,6 @@ const Chatbot = () => {
   };
 
   const fields = platform ? CHATBOT_FIELDS[platform]?.fields ?? [] : [];
-
-  // cURL gerado para registro na Suri
-  const curlCommand = chatbotWebhookUrl
-    ? `curl -X POST "${config.endpoint || '<URL_DO_CHATBOT>'}/webhook/subscribe" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${config.token || '<TOKEN_DE_INTEGRACAO>'}" \\
-  -d '{
-    "url": "${chatbotWebhookUrl}",
-    "token": "${chatbotToken}",
-    "topics": ${JSON.stringify(selectedTopics)}
-  }'`
-    : '';
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
@@ -353,7 +339,11 @@ const Chatbot = () => {
                         : (field.placeholder || '')
                   }
                   value={config[field.key] || ''}
-                  onChange={(e) => setConfig({ ...config, [field.key]: e.target.value })}
+                  onChange={(e) => {
+                    setConfig(prev => ({ ...prev, [field.key]: e.target.value, _connection_status: '', _connection_msg: '' }));
+                    setConnectionStatus('idle');
+                    setConnectionMsg('');
+                  }}
                 />
               </div>
             );
@@ -568,59 +558,6 @@ const Chatbot = () => {
                   );
                 })}
               </div>
-            </CardContent>
-          </Card>
-
-          {/* ── cURL de registro ── */}
-          <Card className="border-border/50">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-base">Registro via API (opcional)</CardTitle>
-              </div>
-              <CardDescription>
-                Use este comando para registrar o webhook programaticamente na Suri, sem acessar o painel.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {chatbotWebhookUrl ? (
-                <>
-                  <Alert className="border-amber-200/50 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800/30">
-                    <Info className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                    <AlertDescription className="text-sm text-amber-800 dark:text-amber-300">
-                      Os campos <code className="font-mono text-xs bg-amber-100/60 dark:bg-amber-900/40 px-1 rounded">URL_DO_CHATBOT</code> e{' '}
-                      <code className="font-mono text-xs bg-amber-100/60 dark:bg-amber-900/40 px-1 rounded">TOKEN_DE_INTEGRACAO</code> são
-                      preenchidos automaticamente se você salvou as credenciais acima.
-                    </AlertDescription>
-                  </Alert>
-
-                  <div className="relative group">
-                    <pre className="bg-[#0f1117] text-[#e2e8f0] rounded-xl p-4 text-xs font-mono overflow-x-auto leading-relaxed border border-white/5 shadow-inner whitespace-pre">
-                      <code>{curlCommand}</code>
-                    </pre>
-                    <Button
-                      size="sm" variant="secondary"
-                      className="absolute top-3 right-3 h-7 gap-1.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => copy(curlCommand, 'curl')}
-                    >
-                      {copiedField === 'curl'
-                        ? <><CheckCircle2 className="h-3 w-3 text-emerald-400" /> Copiado</>
-                        : <><Copy className="h-3 w-3" /> Copiar</>}
-                    </Button>
-                  </div>
-
-                  <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground text-xs" asChild>
-                    <a href="https://developers.suri.com.br" target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-3 w-3" /> Documentação da API Suri
-                    </a>
-                  </Button>
-                </>
-              ) : (
-                <Alert>
-                  <Info className="h-4 w-4" />
-                  <AlertDescription>Salve as configurações para gerar o cURL com sua URL de webhook.</AlertDescription>
-                </Alert>
-              )}
             </CardContent>
           </Card>
 

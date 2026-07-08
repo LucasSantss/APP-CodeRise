@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
-import { Copy, RefreshCw, ExternalLink, Loader2, ShoppingCart, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { Copy, RefreshCw, ExternalLink, Loader2, ShoppingCart, MessageSquare, CheckCircle2, Eye } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,9 +17,24 @@ import { useGsapStagger } from '@/hooks/use-gsap';
 import gsap from 'gsap';
 
 const statusVariant = (status: string): "outline" | "destructive" | "secondary" | "default" => {
-  if (status === 'received') return 'outline';
+  if (status === 'processed') return 'outline';
   if (status === 'error') return 'destructive';
   return 'secondary';
+};
+
+const SourceBadge = ({ source }: { source?: string }) => {
+  if (source === 'chatbot') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <MessageSquare className="h-3 w-3" /> Chatbot
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <ShoppingCart className="h-3 w-3" /> E-commerce
+    </span>
+  );
 };
 
 const PLATFORM_DOCS: Record<string, string> = {
@@ -272,23 +288,24 @@ const UserWebhooks = () => {
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-[60px]">ID</TableHead>
+                  <TableHead className="min-w-[120px]">Origem</TableHead>
                   <TableHead className="min-w-[160px]">Tipo</TableHead>
                   <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[160px]">Erro</TableHead>
+                  <TableHead className="min-w-[200px]">Payload</TableHead>
                   <TableHead className="min-w-[160px]">Recebido em</TableHead>
-                  <TableHead className="min-w-[220px]">Payload</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : webhooks.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum evento recebido</TableCell>
                   </TableRow>
                 ) : webhooks.map((w) => (
                   <TableRow
@@ -297,18 +314,30 @@ const UserWebhooks = () => {
                     onClick={() => setSelectedWebhook(w)}
                   >
                     <TableCell className="text-xs font-mono w-[60px]">{w.id}</TableCell>
+                    <TableCell className="min-w-[120px]">
+                      <SourceBadge source={(w as any).source} />
+                    </TableCell>
                     <TableCell className="min-w-[160px]">
                       <Badge variant="outline" className="text-xs">{w.event_type?.toString() || 'desconhecido'}</Badge>
                     </TableCell>
                     <TableCell className="min-w-[100px]">
-                      <Badge variant={(statusVariant(w.status)) as BadgeVariant} className={w.status === 'received' ? 'border-success text-success' : ''}>
+                      <Badge variant={(statusVariant(w.status)) as BadgeVariant} className={w.status === 'processed' ? 'border-success text-success' : ''}>
                         {w.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground min-w-[160px] truncate max-w-xs">{w.error_message || '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono min-w-[200px] truncate max-w-xs">
+                      {w.payload ? JSON.stringify(w.payload).slice(0, 80) + '…' : (w.error_message || '—')}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap min-w-[160px]">{new Date(w.received_at).toLocaleString('pt-BR')}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground font-mono truncate min-w-[220px] max-w-[220px]">
-                      {w.payload ? JSON.stringify(w.payload).slice(0, 80) + '...' : '—'}
+                    <TableCell className="w-12">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={(e) => { e.stopPropagation(); setSelectedWebhook(w); }}
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -322,54 +351,52 @@ const UserWebhooks = () => {
         </CardContent>
       </Card>
 
-      {/* Dados do Evento Selecionado */}
-      <Card style={{ opacity: 0 }}>
-        <CardHeader className="flex items-center justify-between">
-          <CardTitle>Dados do Evento</CardTitle>
+      {/* Modal de payload */}
+      <Dialog open={!!selectedWebhook} onOpenChange={() => setSelectedWebhook(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Payload do Evento
+              {selectedWebhook && (
+                <Badge variant="outline" className="text-xs ml-1">{selectedWebhook.event_type?.toString() || 'desconhecido'}</Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
           {selectedWebhook && (
-            <Button variant="ghost" size="sm" onClick={() => setSelectedWebhook(null)}>Fechar</Button>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-muted-foreground">ID:</span> <span className="font-mono">#{selectedWebhook.id}</span></div>
+                <div>
+                  <span className="text-muted-foreground">Status:</span>{' '}
+                  <Badge
+                    variant={(statusVariant(selectedWebhook.status)) as BadgeVariant}
+                    className={selectedWebhook.status === 'received' ? 'border-success text-success' : ''}
+                  >
+                    {selectedWebhook.status}
+                  </Badge>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Recebido em:</span>{' '}
+                  <span>{new Date(selectedWebhook.received_at).toLocaleString('pt-BR')}</span>
+                </div>
+                {selectedWebhook.error_message && (
+                  <div className="col-span-2 text-destructive text-xs bg-destructive/10 rounded p-2">
+                    {selectedWebhook.error_message}
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2 text-muted-foreground">Payload JSON</p>
+                <pre className="bg-muted rounded-lg p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                  {selectedWebhook.payload
+                    ? JSON.stringify(selectedWebhook.payload, null, 2)
+                    : '— sem payload —'}
+                </pre>
+              </div>
+            </div>
           )}
-        </CardHeader>
-        <CardContent className="p-0">
-          {selectedWebhook ? (
-            (() => {
-              const raw = (selectedWebhook as any).payload;
-              let payload: any = raw;
-              if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch { /* keep */ } }
-              if (payload && typeof payload === 'object' && Object.keys(payload).length > 0) {
-                return (
-                  <Table>
-                    <TableHeader><TableRow>{Object.keys(payload).map((key) => <TableHead key={key} className="capitalize text-xs">{key.replace(/_/g, ' ')}</TableHead>)}</TableRow></TableHeader>
-                    <TableBody>
-                      <TableRow>{Object.keys(payload).map((key) => <TableCell key={key} className="text-sm text-muted-foreground font-mono break-all">{formatValue(key, payload[key])}</TableCell>)}</TableRow>
-                    </TableBody>
-                  </Table>
-                );
-              }
-              return (
-                <Table>
-                  <TableHeader><TableRow><TableHead>Campo</TableHead><TableHead>Valor</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell className="text-sm text-muted-foreground font-mono">payload</TableCell>
-                      <TableCell className="text-sm text-muted-foreground font-mono break-all">{formatValue('payload', payload)}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              );
-            })()
-          ) : (
-            <Table>
-              <TableHeader><TableRow><TableHead>Campo</TableHead><TableHead>Valor</TableHead></TableRow></TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell colSpan={2} className="text-center text-muted-foreground py-8">Selecione um evento na lista acima</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
