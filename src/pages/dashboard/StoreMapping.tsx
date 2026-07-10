@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, ArrowRight, Store, Save, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Info, PackageSearch, XCircle, ChevronDown, ChevronUp, RotateCcw, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -12,7 +13,7 @@ import { getIntegrations, getChatbot, testEcommerceConnection, testSuriConnectio
 import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import { parseApiError } from '@/lib/parseApiError';
-import type { SyncSchedule } from '@/types';
+import type { SyncSchedule, SyncScheduleHistoryEntry } from '@/types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -225,49 +226,53 @@ const StoreMapping = () => {
   };
 
   // ── Sync Catalog ─────────────────────────────────────────────────────────
+  // Chamada de rede pura, reaproveitada tanto pelo botão manual quanto pelo agendamento automático.
+  const performCatalogSync = async (): Promise<SyncCatalogResult> => {
+    const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
+    let authToken = '';
+    try {
+      const { useAuthStore } = await import('@/store/auth');
+      authToken = useAuthStore.getState().token || '';
+    } catch { /* fallback */ }
+
+    const res = await fetch(`${API_BASE}/sync-catalog`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+    });
+
+    // Lê o corpo como texto primeiro para evitar "Unexpected end of JSON input"
+    const rawText = await res.text();
+    if (!rawText || rawText.trim() === '') {
+      throw new Error(`Servidor retornou resposta vazia (HTTP ${res.status}). Verifique se a rota /sync-catalog está configurada no vercel.json.`);
+    }
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error(`Resposta inválida do servidor (HTTP ${res.status}): ${rawText.slice(0, 200)}`);
+    }
+    return { ...data, syncedAt: new Date().toISOString() };
+  };
+
   const handleSyncCatalog = async () => {
     setSyncing(true);
     setShowAllResults(false);
     try {
-      const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
-      let authToken = '';
-      try {
-        const { useAuthStore } = await import('@/store/auth');
-        authToken = useAuthStore.getState().token || '';
-      } catch { /* fallback */ }
-
-      const res = await fetch(`${API_BASE}/sync-catalog`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
-      });
-
-      // Lê o corpo como texto primeiro para evitar "Unexpected end of JSON input"
-      const rawText = await res.text();
-      if (!rawText || rawText.trim() === '') {
-        throw new Error(`Servidor retornou resposta vazia (HTTP ${res.status}). Verifique se a rota /sync-catalog está configurada no vercel.json.`);
-      }
-      let data: any;
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        throw new Error(`Resposta inválida do servidor (HTTP ${res.status}): ${rawText.slice(0, 200)}`);
-      }
-      const result: SyncCatalogResult = { ...data, syncedAt: new Date().toISOString() };
-
+      const result = await performCatalogSync();
       setSyncResult(result);
       try { sessionStorage.setItem(SYNC_RESULT_KEY, JSON.stringify(result)); } catch { /* ignore */ }
 
-      if (data.success) {
-        const { summary } = data;
+      if (result.success) {
+        const { summary } = result;
         toast({
           title: '✅ Sincronização concluída!',
           description: `${summary.categories_created + summary.categories_updated} categorias · ${summary.products_created + summary.products_updated} produtos · ${summary.errors} erro(s)`,
         });
       } else {
-        const errMsg = data.message || 'Erro desconhecido';
+        const errMsg = result.message || 'Erro desconhecido';
         const parsed = parseApiError(errMsg, 'general');
         toast({
           title: parsed.title || 'Sincronização com erros',
@@ -290,18 +295,16 @@ const StoreMapping = () => {
   };
 
   // ── Agendamento de Sincronização Automática ──────────────────────────────
-  // Horários fixos, alinhados aos 2 jobs de Vercel Cron nativos configurados em vercel.json.
-  const SCHEDULE_SLOTS: { value: string; label: string }[] = [
-    { value: '08:00', label: 'Manhã (08:00)' },
-    { value: '20:00', label: 'Noite (20:00)' },
-  ];
-
-  const toggleScheduleSlot = (slot: string, checked: boolean) => {
-    setSyncSchedule(prev => ({
-      ...prev,
-      times: checked ? [...prev.times.filter(t => t !== slot), slot] : prev.times.filter(t => t !== slot),
-    }));
+  const updateScheduleTime = (index: number, value: string) => {
+    setSyncSchedule(prev => {
+      const times = [...prev.times];
+      if (value) times[index] = value; else times.splice(index, 1);
+      return { ...prev, times: times.filter(Boolean) };
+    });
   };
+
+  const addScheduleSlot = () => setSyncSchedule(prev => prev.times.length < 2 ? { ...prev, times: [...prev.times, '08:00'] } : prev);
+  const removeScheduleSlot = (index: number) => setSyncSchedule(prev => ({ ...prev, times: prev.times.filter((_, i) => i !== index) }));
 
   const handleSaveSchedule = async () => {
     setSavingSchedule(true);
@@ -309,13 +312,68 @@ const StoreMapping = () => {
       const payload: SyncSchedule = { ...syncSchedule, enabled: syncSchedule.enabled && syncSchedule.times.length > 0 };
       await updateIntegration({ sync_schedule: payload });
       setSyncSchedule(prev => ({ ...prev, enabled: payload.enabled }));
-      toast({ title: '✅ Agendamento salvo!', description: payload.enabled ? `Sincronização automática ativa às ${payload.times.join(' e ')}.` : 'Sincronização automática desativada.' });
+      toast({ title: '✅ Agendamento salvo!', description: payload.enabled ? `Sincronização automática ativa às ${payload.times.join(' e ')} (enquanto o dashboard estiver aberto).` : 'Sincronização automática desativada.' });
     } catch (err: unknown) {
       toast({ title: 'Erro ao salvar agendamento', description: err instanceof Error ? err.message : '', variant: 'destructive' });
     } finally {
       setSavingSchedule(false);
     }
   };
+
+  // Roda enquanto o dashboard estiver aberto: a cada 30s checa se bateu algum
+  // horário configurado (fuso do agendamento) e, se sim, dispara o mesmo fluxo
+  // de sincronização do botão manual — no máximo uma vez por horário/dia.
+  const scheduleRunningRef = useRef(false);
+  useEffect(() => {
+    if (!syncSchedule.enabled || syncSchedule.times.length === 0) return;
+
+    const checkSchedule = async () => {
+      if (scheduleRunningRef.current || syncing) return;
+
+      const timezone = syncSchedule.timezone || 'America/Sao_Paulo';
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).formatToParts(new Date());
+      const get = (type: string) => parts.find(p => p.type === type)?.value || '';
+      const today = `${get('year')}-${get('month')}-${get('day')}`;
+      const hhmm = `${get('hour')}:${get('minute')}`;
+
+      const lastRun = syncSchedule.lastRun && syncSchedule.lastRun.date === today ? syncSchedule.lastRun : { date: today, times: [] as string[] };
+      const dueSlot = syncSchedule.times.find(t => t === hhmm && !lastRun.times.includes(t));
+      if (!dueSlot) return;
+
+      scheduleRunningRef.current = true;
+      setSyncing(true);
+      setShowAllResults(false);
+      let historyEntry: SyncScheduleHistoryEntry;
+      try {
+        const result = await performCatalogSync();
+        setSyncResult(result);
+        try { sessionStorage.setItem(SYNC_RESULT_KEY, JSON.stringify(result)); } catch { /* ignore */ }
+        historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: result.success, message: result.message || null, summary: result.summary || null };
+      } catch (err: unknown) {
+        historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: false, message: err instanceof Error ? err.message : 'Erro desconhecido', summary: null };
+      }
+      setSyncing(false);
+
+      const updatedLastRun = { date: today, times: [...lastRun.times, dueSlot] };
+      const history = [historyEntry, ...(syncSchedule.history || [])].slice(0, 15);
+      const updatedSchedule: SyncSchedule = { ...syncSchedule, lastRun: updatedLastRun, lastResult: historyEntry, history };
+      setSyncSchedule(updatedSchedule);
+      updateIntegration({ sync_schedule: updatedSchedule }).catch(() => { /* tenta de novo no próximo check */ });
+
+      toast({
+        title: historyEntry.success ? '✅ Sincronização automática concluída' : 'Sincronização automática com erros',
+        description: `Horário ${dueSlot}${historyEntry.message ? ` — ${historyEntry.message}` : ''}`,
+        variant: historyEntry.success ? undefined : 'destructive',
+      });
+      scheduleRunningRef.current = false;
+    };
+
+    checkSchedule();
+    const id = setInterval(checkSchedule, 30000);
+    return () => clearInterval(id);
+  }, [syncSchedule, syncing]);
 
   const getResultIcon = (type: string) => {
     if (type === 'error') return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
@@ -534,7 +592,7 @@ const StoreMapping = () => {
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm font-medium">Sincronização Automática</p>
-                  <p className="text-xs text-muted-foreground">Sincronize o catálogo automaticamente até 2x por dia, nos horários que você definir.</p>
+                  <p className="text-xs text-muted-foreground">Sincronize o catálogo automaticamente até 2x por dia, nos horários que você definir — enquanto este painel estiver aberto no navegador.</p>
                 </div>
               </div>
               <Switch
@@ -547,18 +605,26 @@ const StoreMapping = () => {
             {syncSchedule.enabled && (
               <div className="space-y-3">
                 {syncSchedule.times.length === 0 && (
-                  <p className="text-xs text-muted-foreground italic">Selecione ao menos um horário para ativar a sincronização automática.</p>
+                  <p className="text-xs text-muted-foreground italic">Adicione ao menos um horário para ativar a sincronização automática.</p>
                 )}
-                {SCHEDULE_SLOTS.map((slot) => (
-                  <div key={slot.value} className="flex items-center gap-2">
-                    <Switch
-                      checked={syncSchedule.times.includes(slot.value)}
-                      onCheckedChange={(checked) => toggleScheduleSlot(slot.value, checked)}
+                {syncSchedule.times.map((time, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground w-16 shrink-0">Horário {idx + 1}</Label>
+                    <Input
+                      type="time"
+                      value={time}
+                      onChange={(e) => updateScheduleTime(idx, e.target.value)}
+                      className="h-8 w-32 text-sm"
                     />
-                    <Label className="text-sm">{slot.label}</Label>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive shrink-0" onClick={() => removeScheduleSlot(idx)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 ))}
-                <p className="text-xs text-muted-foreground">Horário de Brasília (America/Sao_Paulo). Horários fixos, definidos pela plataforma.</p>
+                {syncSchedule.times.length < 2 && (
+                  <Button variant="outline" size="sm" onClick={addScheduleSlot}>+ Adicionar horário</Button>
+                )}
+                <p className="text-xs text-muted-foreground">Horário de Brasília (America/Sao_Paulo).</p>
               </div>
             )}
 
