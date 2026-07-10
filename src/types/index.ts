@@ -37,7 +37,16 @@ export interface SyncSchedule {
   times: string[]; // até 2 horários no formato "HH:MM"
   timezone: string;
   lastRun?: { date: string; times: string[] };
-  lastResult?: { success: boolean; message: string | null; summary?: Record<string, number> | null; at: string };
+  lastResult?: SyncScheduleHistoryEntry;
+  history?: SyncScheduleHistoryEntry[];
+}
+
+export interface SyncScheduleHistoryEntry {
+  at: string;
+  slot: string;
+  success: boolean;
+  message: string | null;
+  summary?: Record<string, number> | null;
 }
 
 export interface ChatbotIntegration {

@@ -1,6 +1,7 @@
 import pool, { checkDb } from "./_lib/db.js";
 import { setCors } from "./_cors.js";
 import { requireAuth } from "./_auth.js";
+import { ALLOWED_SLOTS } from "./cron-sync-stores.js";
 import crypto from "crypto";
 
 export default async function handler(req, res) {
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
         if (ecommerce_platform !== undefined) { fields.push(`ecommerce_platform = $${idx++}`); values.push(ecommerce_platform); }
         if (ecommerce_config   !== undefined) { fields.push(`ecommerce_config = $${idx++}`);   values.push(JSON.stringify(ecommerce_config)); }
         if (sync_schedule      !== undefined) {
-          const times = Array.isArray(sync_schedule.times) ? sync_schedule.times.filter(t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)).slice(0, 2) : [];
+          const times = Array.isArray(sync_schedule.times) ? sync_schedule.times.filter(t => ALLOWED_SLOTS.includes(t)) : [];
           fields.push(`sync_schedule = COALESCE(sync_schedule, '{}'::jsonb) || $${idx++}::jsonb`);
           values.push(JSON.stringify({ enabled: !!sync_schedule.enabled && times.length > 0, times, timezone: sync_schedule.timezone || "America/Sao_Paulo" }));
         }

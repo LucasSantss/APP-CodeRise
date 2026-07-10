@@ -1,17 +1,18 @@
 /**
  * api/cron-sync-stores.js — dispara a sincronização automática de catálogo
- * para usuários com agendamento ativo (até 2 horários/dia, configurados em
+ * para usuários com agendamento ativo (até 2 horários fixos/dia, configurados em
  * "Lojas" > "Sincronização de Catálogo" > "Sincronização Automática").
  *
- * Chamado periodicamente (a cada ~10-15min) por um agendador externo
- * (ex: cron-job.org) ou por Vercel Cron, protegido por CRON_SECRET.
- * A cada usuário elegível, dispara no máximo uma sincronização por horário/dia.
+ * Chamado pelo Vercel Cron nativo (vercel.json > crons), uma vez para cada
+ * horário fixo (?slot=08:00 e ?slot=20:00). A Vercel envia automaticamente
+ * "Authorization: Bearer <CRON_SECRET>" nessas chamadas.
  */
 import pool from "./_lib/db.js";
 import { setCors } from "./_cors.js";
 import { syncCatalogForIntegrationRow } from "./_lib/sync-catalog.js";
 
-const TOLERANCE_MINUTES = 7;
+export const ALLOWED_SLOTS = ["08:00", "20:00"];
+const TOLERANCE_MINUTES = 30;
 const TIME_BUDGET_MS = 45000;
 
 function isAuthorized(req) {
@@ -41,21 +42,12 @@ function minutesSinceMidnight(hhmm) {
 export default async function handler(req, res) {
   if (setCors(req, res)) return;
   if (req.method !== "GET" && req.method !== "POST") { res.setHeader("Allow", ["GET", "POST"]); return res.status(405).end(); }
-  if (!isAuthorized(req)) {
-    // Diagnóstico temporário — não expõe o valor do segredo, só metadados para achar a divergência.
-    const envSecret = process.env.CRON_SECRET || "";
-    const querySecret = req.query?.secret || "";
-    return res.status(401).json({
-      success: false,
-      message: "Não autorizado.",
-      debug: {
-        envConfigured: !!envSecret,
-        envLength: envSecret.length,
-        receivedQuerySecretLength: querySecret.length,
-        receivedViaHeader: !!(req.headers["x-cron-secret"] || (req.headers.authorization || "").startsWith("Bearer ")),
-      },
-    });
-  }
+  if (!isAuthorized(req)) return res.status(401).json({ success: false, message: "Não autorizado." });
+
+  // O Vercel Cron chama com ?slot=08:00 ou ?slot=20:00 — sabemos exatamente qual
+  // horário disparou. Sem esse parâmetro (teste manual), caímos de volta para
+  // detectar por proximidade do horário atual.
+  const requestedSlot = ALLOWED_SLOTS.includes(req.query?.slot) ? req.query.slot : null;
 
   const startedAt = Date.now();
   const rows = await pool.query(
@@ -70,17 +62,16 @@ export default async function handler(req, res) {
 
     const schedule = row.sync_schedule || {};
     const timezone = schedule.timezone || "America/Sao_Paulo";
-    const times = Array.isArray(schedule.times) ? schedule.times : [];
+    const times = Array.isArray(schedule.times) ? schedule.times.filter(t => ALLOWED_SLOTS.includes(t)) : [];
     if (times.length === 0) continue;
 
     const { date: today, hhmm: currentTime } = nowInTimezone(timezone);
     const currentMinutes = minutesSinceMidnight(currentTime);
     const lastRun = schedule.lastRun && schedule.lastRun.date === today ? schedule.lastRun : { date: today, times: [] };
 
-    const dueSlot = times.find((slot) => {
-      if (lastRun.times.includes(slot)) return false;
-      return Math.abs(minutesSinceMidnight(slot) - currentMinutes) <= TOLERANCE_MINUTES;
-    });
+    const dueSlot = requestedSlot
+      ? (times.includes(requestedSlot) && !lastRun.times.includes(requestedSlot) ? requestedSlot : null)
+      : times.find((slot) => !lastRun.times.includes(slot) && Math.abs(minutesSinceMidnight(slot) - currentMinutes) <= TOLERANCE_MINUTES);
     if (!dueSlot) continue;
 
     let result;
@@ -91,10 +82,11 @@ export default async function handler(req, res) {
     }
 
     const updatedLastRun = { date: today, times: [...lastRun.times, dueSlot] };
-    const lastResult = { success: !!result.success, message: result.message || null, summary: result.summary || null, at: new Date().toISOString() };
+    const historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: !!result.success, message: result.message || null, summary: result.summary || null };
+    const history = [historyEntry, ...(Array.isArray(schedule.history) ? schedule.history : [])].slice(0, 15);
     await pool.query(
       "UPDATE user_integrations SET sync_schedule = sync_schedule || $1::jsonb, updated_at = NOW() WHERE id = $2",
-      [JSON.stringify({ lastRun: updatedLastRun, lastResult }), row.id]
+      [JSON.stringify({ lastRun: updatedLastRun, lastResult: historyEntry, history }), row.id]
     ).catch(() => {});
 
     triggered.push({ user_id: row.user_id, slot: dueSlot, success: !!result.success, message: result.message || null });
@@ -102,6 +94,7 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     success: true,
+    slot: requestedSlot,
     checked: rows.length,
     triggered,
     skippedBudget,

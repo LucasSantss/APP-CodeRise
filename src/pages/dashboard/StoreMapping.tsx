@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, ArrowRight, Store, Save, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Info, PackageSearch, XCircle, ChevronDown, ChevronUp, RotateCcw, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -80,6 +79,7 @@ const StoreMapping = () => {
 
   const [syncSchedule, setSyncSchedule] = useState<SyncSchedule>({ enabled: false, times: [], timezone: 'America/Sao_Paulo' });
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [showScheduleHistory, setShowScheduleHistory] = useState(false);
 
   const syncPanelRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -290,16 +290,18 @@ const StoreMapping = () => {
   };
 
   // ── Agendamento de Sincronização Automática ──────────────────────────────
-  const updateScheduleTime = (index: number, value: string) => {
-    setSyncSchedule(prev => {
-      const times = [...prev.times];
-      if (value) times[index] = value; else times.splice(index, 1);
-      return { ...prev, times: times.filter(Boolean) };
-    });
-  };
+  // Horários fixos, alinhados aos 2 jobs de Vercel Cron nativos configurados em vercel.json.
+  const SCHEDULE_SLOTS: { value: string; label: string }[] = [
+    { value: '08:00', label: 'Manhã (08:00)' },
+    { value: '20:00', label: 'Noite (20:00)' },
+  ];
 
-  const addScheduleSlot = () => setSyncSchedule(prev => prev.times.length < 2 ? { ...prev, times: [...prev.times, '08:00'] } : prev);
-  const removeScheduleSlot = (index: number) => setSyncSchedule(prev => ({ ...prev, times: prev.times.filter((_, i) => i !== index) }));
+  const toggleScheduleSlot = (slot: string, checked: boolean) => {
+    setSyncSchedule(prev => ({
+      ...prev,
+      times: checked ? [...prev.times.filter(t => t !== slot), slot] : prev.times.filter(t => t !== slot),
+    }));
+  };
 
   const handleSaveSchedule = async () => {
     setSavingSchedule(true);
@@ -545,34 +547,63 @@ const StoreMapping = () => {
             {syncSchedule.enabled && (
               <div className="space-y-3">
                 {syncSchedule.times.length === 0 && (
-                  <p className="text-xs text-muted-foreground italic">Adicione ao menos um horário para ativar a sincronização automática.</p>
+                  <p className="text-xs text-muted-foreground italic">Selecione ao menos um horário para ativar a sincronização automática.</p>
                 )}
-                {syncSchedule.times.map((time, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <Label className="text-xs text-muted-foreground w-16 shrink-0">Horário {idx + 1}</Label>
-                    <Input
-                      type="time"
-                      value={time}
-                      onChange={(e) => updateScheduleTime(idx, e.target.value)}
-                      className="h-8 w-32 text-sm"
+                {SCHEDULE_SLOTS.map((slot) => (
+                  <div key={slot.value} className="flex items-center gap-2">
+                    <Switch
+                      checked={syncSchedule.times.includes(slot.value)}
+                      onCheckedChange={(checked) => toggleScheduleSlot(slot.value, checked)}
                     />
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive shrink-0" onClick={() => removeScheduleSlot(idx)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <Label className="text-sm">{slot.label}</Label>
                   </div>
                 ))}
-                {syncSchedule.times.length < 2 && (
-                  <Button variant="outline" size="sm" onClick={addScheduleSlot}>+ Adicionar horário</Button>
-                )}
-                <p className="text-xs text-muted-foreground">Horário de Brasília (America/Sao_Paulo).</p>
+                <p className="text-xs text-muted-foreground">Horário de Brasília (America/Sao_Paulo). Horários fixos, definidos pela plataforma.</p>
               </div>
             )}
 
             {syncSchedule.lastResult && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                {syncSchedule.lastResult.success ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <XCircle className="h-3 w-3 text-destructive" />}
-                Última sincronização automática: {new Date(syncSchedule.lastResult.at).toLocaleString('pt-BR')}
-              </p>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleHistory(v => !v)}
+                  className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors"
+                >
+                  {syncSchedule.lastResult.success ? <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" /> : <XCircle className="h-3 w-3 text-destructive shrink-0" />}
+                  Última sincronização automática: {new Date(syncSchedule.lastResult.at).toLocaleString('pt-BR')}
+                  {showScheduleHistory ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </button>
+
+                {showScheduleHistory && syncSchedule.history && syncSchedule.history.length > 0 && (
+                  <div className="rounded-lg border overflow-hidden">
+                    <div className="bg-muted/40 px-3 py-1.5">
+                      <span className="text-xs font-medium text-muted-foreground">Histórico de sincronizações automáticas</span>
+                    </div>
+                    <div className="divide-y max-h-64 overflow-y-auto">
+                      {syncSchedule.history.map((entry, idx) => (
+                        <div key={idx} className="flex items-start gap-2 px-3 py-2 text-xs">
+                          {entry.success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" /> : <XCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium">{new Date(entry.at).toLocaleString('pt-BR')}</span>
+                              <code className="text-muted-foreground bg-muted px-1 rounded shrink-0">{entry.slot}</code>
+                            </div>
+                            {entry.summary && (
+                              <p className="text-muted-foreground mt-0.5">
+                                {(entry.summary.categories_created ?? 0) + (entry.summary.categories_updated ?? 0)} categorias · {(entry.summary.products_created ?? 0) + (entry.summary.products_updated ?? 0)} produtos
+                                {(entry.summary.errors ?? 0) > 0 ? ` · ${entry.summary.errors} erro(s)` : ''}
+                              </p>
+                            )}
+                            {!entry.success && entry.message && (
+                              <p className="text-destructive mt-0.5 break-words">{entry.message}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             <Button size="sm" onClick={handleSaveSchedule} disabled={savingSchedule || !hasCredentials} className="gap-2">

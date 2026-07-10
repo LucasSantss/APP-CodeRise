@@ -145,5 +145,15 @@
     "api/cron-sync-stores.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/cron-sync-stores?slot=08:00",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/cron-sync-stores?slot=20:00",
+      "schedule": "0 23 * * *"
+    }
+  ]
 }
