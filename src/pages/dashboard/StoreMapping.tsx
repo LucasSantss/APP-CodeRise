@@ -94,11 +94,6 @@ const StoreMapping = () => {
           setEcommercePlatform(i.ecommerce_platform || '');
           const cfg = i.ecommerce_config || {};
           setEcommerceConfig(cfg);
-<<<<<<< HEAD
-          if (cfg._store_mappings) { try { setMappings(JSON.parse(cfg._store_mappings)); } catch { /* ignore */ } }
-          if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); setEcommerceStatus('ok'); } catch { /* ignore */ } }
-          if (i.sync_schedule) setSyncSchedule({ enabled: false, times: [], timezone: 'America/Sao_Paulo', ...i.sync_schedule });
-=======
           if (cfg._store_mappings) {
             try {
               const savedMappings: StoreMapping[] = JSON.parse(cfg._store_mappings);
@@ -110,7 +105,8 @@ const StoreMapping = () => {
               if (cbStores.length > 0) setChatbotStores(cbStores);
             } catch { /* ignore */ }
           }
->>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
+          if (cfg._ecommerce_stores) { try { setEcommerceStores(JSON.parse(cfg._ecommerce_stores)); setEcommerceStatus('ok'); } catch { /* ignore */ } }
+          if (i.sync_schedule) setSyncSchedule({ enabled: false, times: [], timezone: 'America/Sao_Paulo', ...i.sync_schedule });
         }
         if (c) {
           const ccfg = c.chatbot_config || {};
@@ -501,12 +497,12 @@ const StoreMapping = () => {
             </Alert>
           )}
 
-          {ecommercePlatform && ecommercePlatform !== 'nuvemshop' && ecommercePlatform !== 'olist' && (
+          {ecommercePlatform === 'vtex' && (
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription className="text-xs">
-                A sincronização completa de catálogo está disponível apenas para <strong>Nuvemshop</strong> e <strong>Olist</strong> no momento.
-                Outras plataformas continuam recebendo produtos via webhooks normalmente.
+                A sincronização em lote de catálogo ainda não está disponível para <strong>VTEX</strong>.
+                Produtos continuam sendo recebidos via webhooks normalmente.
               </AlertDescription>
             </Alert>
           )}

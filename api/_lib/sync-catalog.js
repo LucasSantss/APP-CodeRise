@@ -1,10 +1,13 @@
 import pool from "./db.js";
 import { requireAuth } from "../_auth.js";
-<<<<<<< HEAD
-=======
 
 const SUPPORTED_PLATFORMS = ["nuvemshop", "olist", "shopify", "woocommerce", "tray", "vtex"];
 
+/**
+ * Cada plataforma tem uma assinatura de credenciais diferente.
+ * Esta função resolve os adaptadores corretos (listProducts, getVariants,
+ * normalizeProduct, fetchCategories) para a plataforma configurada.
+ */
 async function resolvePlatformAdapters(platform, ecommerceConfig) {
   switch (platform) {
     case "nuvemshop": {
@@ -40,7 +43,7 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       const { store_url, api_token, api_version } = ecommerceConfig;
       return {
         listProductsFn: (params) => client.listProducts(store_url, api_token, params, api_version),
-        getVariantsFn: null,
+        getVariantsFn: null, // Shopify já retorna variantes dentro do próprio produto
         normalizeProduct: (raw) => normalizeProduct(raw, store_url),
         fetchCategories: () => fetchCategories({ store_url, api_token, api_version }),
         storeKeyValid: !!store_url && !!api_token,
@@ -54,6 +57,7 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       return {
         listProductsFn: (params) => client.listProducts(site_url, consumer_key, consumer_secret, params),
         getVariantsFn: async (productId) => {
+          // WooCommerce só tem variações para produtos do tipo "variable" — buscamos sob demanda
           try {
             return await client.getProductVariations(site_url, consumer_key, consumer_secret, productId, { per_page: 100 });
           } catch { return []; }
@@ -86,6 +90,8 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       const { fetchCategories } = await import("./ecommerce/vtex/categories.js");
       const { account_name, app_key, app_token } = ecommerceConfig;
       return {
+        // VTEX não tem listagem paginada simples de produtos por padrão REST —
+        // usamos a árvore de SKUs como fallback simplificado de IDs.
         listProductsFn: async () => [],
         getVariantsFn: null,
         normalizeProduct,
@@ -98,19 +104,6 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
   }
 }
 
-export async function handleSyncCatalog(req, res) {
-  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
-  const caller = await requireAuth(req, res);
-  if (!caller) return;
-
-  const row = await pool.query(
-    "SELECT ecommerce_platform, ecommerce_config, chatbot_config, suri_endpoint, suri_token FROM user_integrations WHERE user_id = $1",
-    [caller.id]
-  ).then(r => r.rows[0]).catch(() => null);
-
-  if (!row) return res.status(404).json({ success: false, message: "Integração não encontrada." });
->>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
-
 // Lógica de sincronização pura, reaproveitada tanto pelo endpoint manual (handleSyncCatalog)
 // quanto pelo endpoint de agendamento (cron-sync-stores.js).
 export async function syncCatalogForIntegrationRow(row) {
@@ -120,46 +113,18 @@ export async function syncCatalogForIntegrationRow(row) {
   const suriEndpoint = chatbotCfg.endpoint || row.suri_endpoint || null;
   const suriToken    = chatbotCfg.token    || row.suri_token    || null;
 
-<<<<<<< HEAD
-  if (!platform || (!ecommerceConfig.store_id && !ecommerceConfig.store_url))
-    return { success: false, message: "E-commerce não configurado." };
+  if (!platform || !SUPPORTED_PLATFORMS.includes(platform))
+    return { success: false, message: `Sincronização ainda não disponível para ${platform || "(nenhuma plataforma)"}.` };
   if (!suriEndpoint || !suriToken)
     return { success: false, message: "Chatbot (Suri) não configurado." };
-  if (platform !== "nuvemshop" && platform !== "olist")
-    return { success: false, message: `Sincronização ainda não disponível para ${platform}.` };
-
-  const store_id   = ecommerceConfig.store_id;
-  const store_url  = ecommerceConfig.store_url;
-  const { access_token } = ecommerceConfig;
-
-  const ecommercePath = platform === "olist" ? "./ecommerce/olist" : "./ecommerce/nuvemshop";
-  const { fetchCategories: fetchPlatformCategories } = await import(`${ecommercePath}/categories.js`);
-  const platformClient                               = await import(`${ecommercePath}/client.js`);
-  const { normalizeProduct }                         = await import(`${ecommercePath}/products.js`);
-  const { syncProduct }                              = await import("./chatbot/suri/products.js");
-  const { syncCategory, listCategories }             = await import("./chatbot/suri/categories.js");
-
-  // Abstrações de cliente — Olist usa store_url, Nuvemshop usa store_id
-  const _storeKey = platform === "olist" ? store_url : store_id;
-  const listProductsFn       = (params)    => platformClient.listProducts(_storeKey, access_token, params);
-  const getProductVariantsFn = (productId) => platformClient.getProductVariants(_storeKey, access_token, productId);
-  const ecommerceConfigNorm  = platform === "olist"
-    ? { store_url, access_token }
-    : { store_id, access_token };
-=======
-  if (!platform || !SUPPORTED_PLATFORMS.includes(platform))
-    return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform || "(nenhuma plataforma)"}.` });
-  if (!suriEndpoint || !suriToken)
-    return res.status(400).json({ success: false, message: "Chatbot (Suri) não configurado." });
 
   const adapters = await resolvePlatformAdapters(platform, ecommerceConfig);
-  if (!adapters) return res.status(400).json({ success: false, message: `Sincronização ainda não disponível para ${platform}.` });
-  if (!adapters.storeKeyValid) return res.status(400).json({ success: false, message: "E-commerce não configurado corretamente — credenciais ausentes." });
-  if (platform === "vtex") return res.status(400).json({ success: false, message: "Sincronização em lote da VTEX ainda não disponível — utilize o fluxo de webhooks para sincronização incremental por produto." });
+  if (!adapters) return { success: false, message: `Sincronização ainda não disponível para ${platform}.` };
+  if (!adapters.storeKeyValid) return { success: false, message: "E-commerce não configurado corretamente — credenciais ausentes." };
+  if (platform === "vtex") return { success: false, message: "Sincronização em lote da VTEX ainda não disponível — utilize o fluxo de webhooks para sincronização incremental por produto." };
 
   const { syncProduct } = await import("./chatbot/suri/products.js");
   const { syncCategory, listCategories } = await import("./chatbot/suri/categories.js");
->>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
 
   // Resolve store mapping: ecommerce store_id → suri storeId
   let resolvedStoreId = null;
@@ -181,11 +146,7 @@ export async function syncCatalogForIntegrationRow(row) {
 
   // 1. Categorias em paralelo — coleta mapa platform_id → suri_id
   try {
-<<<<<<< HEAD
-    const cats = await fetchPlatformCategories(ecommerceConfigNorm);
-=======
     const cats = await adapters.fetchCategories();
->>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
     await runConcurrent(cats, async (cat) => {
       try {
         const r = await syncCategory(suriEndpoint, suriToken, cat, resolvedStoreId);
@@ -216,16 +177,6 @@ export async function syncCatalogForIntegrationRow(row) {
   try {
     let page = 1, hasMore = true;
     while (hasMore) {
-<<<<<<< HEAD
-      const batch = await listProductsFn({ page, per_page: 50 });
-      if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
-      await Promise.all(batch.map(async (p) => {
-        try {
-          const variants = await getProductVariantsFn(p.id);
-          if (Array.isArray(variants) && variants.length > 0) p.variants = variants;
-        } catch { /* mantém variants do listProducts */ }
-      }));
-=======
       const batch = await adapters.listProductsFn({ page, per_page: 50, limit: 50 });
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
 
@@ -238,11 +189,10 @@ export async function syncCatalogForIntegrationRow(row) {
         }));
       }
 
->>>>>>> c6f754607bc7415d4f6693ba47f700b996e0ef0c
       for (const raw of batch) allRawProducts.push(raw);
       hasMore = batch.length >= 50;
       page++;
-      if (page > 200) break;
+      if (page > 200) break; // proteção contra loop infinito
     }
   } catch (err) {
     allResults.push({ type: "error", entity: "product", message: err.message });
@@ -251,7 +201,7 @@ export async function syncCatalogForIntegrationRow(row) {
   // Sincroniza produtos em paralelo (10 por vez)
   await runConcurrent(allRawProducts, async (raw) => {
     try {
-      const normalized = normalizeProduct(raw, raw.variants);
+      const normalized = adapters.normalizeProduct(raw, raw._fetchedVariants);
       if (normalized.categoryId && !categoryIdMap.has(String(normalized.categoryId))) {
         categoryIdMap.set(String(normalized.categoryId), String(normalized.categoryId));
       }
