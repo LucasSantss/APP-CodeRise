@@ -41,7 +41,21 @@ function minutesSinceMidnight(hhmm) {
 export default async function handler(req, res) {
   if (setCors(req, res)) return;
   if (req.method !== "GET" && req.method !== "POST") { res.setHeader("Allow", ["GET", "POST"]); return res.status(405).end(); }
-  if (!isAuthorized(req)) return res.status(401).json({ success: false, message: "Não autorizado." });
+  if (!isAuthorized(req)) {
+    // Diagnóstico temporário — não expõe o valor do segredo, só metadados para achar a divergência.
+    const envSecret = process.env.CRON_SECRET || "";
+    const querySecret = req.query?.secret || "";
+    return res.status(401).json({
+      success: false,
+      message: "Não autorizado.",
+      debug: {
+        envConfigured: !!envSecret,
+        envLength: envSecret.length,
+        receivedQuerySecretLength: querySecret.length,
+        receivedViaHeader: !!(req.headers["x-cron-secret"] || (req.headers.authorization || "").startsWith("Bearer ")),
+      },
+    });
+  }
 
   const startedAt = Date.now();
   const rows = await pool.query(
