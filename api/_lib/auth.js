@@ -1,5 +1,6 @@
 import pool from "./db.js";
 import crypto from "crypto";
+import { verifyPassword } from "./_auth.js";
 
 export async function handleAuth(req, res) {
   if (req.method !== "POST") return res.status(405).end();
@@ -8,10 +9,9 @@ export async function handleAuth(req, res) {
     if (action === "login") {
       const { email, password } = req.body || {};
       if (!email || !password) return res.status(400).json({ success: false, message: "email e password obrigatórios" });
-      const r = await pool.query("SELECT id, name, email, role, active, password, token FROM users WHERE email = $1", [email]);
+      const r = await pool.query("SELECT id, name, email, role, active, password, token FROM users WHERE email = $1 AND active = true", [email]);
       const user = r.rows[0];
-      if (!user || user.password !== password) return res.status(401).json({ success: false, message: "Credenciais inválidas" });
-      if (!user.active) return res.status(403).json({ success: false, message: "Conta desativada" });
+      if (!user || !(await verifyPassword(password, user.password))) return res.status(401).json({ success: false, message: "Credenciais inválidas" });
       return res.status(200).json({ success: true, token: user.token, user: { id: user.id, name: user.name, email: user.email, role: user.role, active: user.active } });
     }
     if (action === "logout") {
