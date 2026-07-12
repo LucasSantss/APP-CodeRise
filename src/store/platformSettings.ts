@@ -21,7 +21,7 @@ export const usePlatformSettingsStore = create<PlatformSettingsState>()((set: (p
     // While not yet loaded, show all (optimistic)
     if (!loaded) return true;
     // If a key was never explicitly set in DB → enabled by default
-    return platforms[key] !== false;
+    return platforms[key] !== false && platforms[key] !== "false";
   },
   setSettings: (platforms) => set({ platforms, loaded: true }),
   reset: () => set({ platforms: {}, loaded: false }),

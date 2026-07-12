@@ -49,7 +49,7 @@ const AdminSettings = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  const isEnabled = (key: string) => platforms[key] !== false; // default true if not set
+  const isEnabled = (key: string) => platforms[key] !== false && platforms[key] !== "false"; // default true if not set
 
   const handleToggle = async (key: string, value: boolean) => {
     setSaving(key);

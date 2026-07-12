@@ -13,12 +13,20 @@ export async function handlePlatformSettings(req, res) {
     )
   `).catch(() => {});
 
+  // Normaliza linhas do banco: ignora chaves legadas "platform:*", converte para boolean real
+  function normalizeRows(rows) {
+    const out = {};
+    for (const row of rows) {
+      if (row.key.startsWith("platform:")) continue; // chaves legadas, ignorar
+      out[row.key] = row.value === true || row.value === "true";
+    }
+    return out;
+  }
+
   if (req.method === "GET") {
     try {
       const r = await pool.query("SELECT key, value FROM platform_settings");
-      const platforms = {};
-      for (const row of r.rows) platforms[row.key] = row.value;
-      return res.status(200).json({ success: true, platforms });
+      return res.status(200).json({ success: true, platforms: normalizeRows(r.rows) });
     } catch {
       return res.status(200).json({ success: true, platforms: {} });
     }
@@ -31,15 +39,14 @@ export async function handlePlatformSettings(req, res) {
     if (!platforms || typeof platforms !== "object")
       return res.status(400).json({ success: false, message: "Campo 'platforms' obrigatório." });
     for (const [key, value] of Object.entries(platforms)) {
+      const boolVal = value === true || value === "true";
       await pool.query(
-        "INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()",
-        [key, JSON.stringify(value)]
+        "INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()",
+        [key, JSON.stringify(boolVal)]
       );
     }
     const r = await pool.query("SELECT key, value FROM platform_settings");
-    const updated = {};
-    for (const row of r.rows) updated[row.key] = row.value;
-    return res.status(200).json({ success: true, platforms: updated });
+    return res.status(200).json({ success: true, platforms: normalizeRows(r.rows) });
   }
 
   res.setHeader("Allow", ["GET", "PATCH"]);
