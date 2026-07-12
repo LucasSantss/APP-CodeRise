@@ -290,6 +290,13 @@ const Clients = () => {
               />
             </div>
             <div className="space-y-2">
+              <Label>Senha atual</Label>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/40 text-sm text-muted-foreground font-mono">
+                <span>••••••••••••</span>
+                <span className="text-xs ml-auto">(criptografada)</span>
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label>Nova Senha <span className="text-xs text-muted-foreground">(deixe em branco para não alterar)</span></Label>
               <div className="relative">
                 <Input
