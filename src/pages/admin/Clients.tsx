@@ -291,9 +291,11 @@ const Clients = () => {
             </div>
             <div className="space-y-2">
               <Label>Senha atual</Label>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/40 text-sm text-muted-foreground font-mono">
-                <span>••••••••••••</span>
-                <span className="text-xs ml-auto">(criptografada)</span>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/40 text-sm font-mono">
+                {editTarget?.plain_password
+                  ? <span className="flex-1">{editTarget.plain_password}</span>
+                  : <span className="flex-1 text-muted-foreground">—</span>
+                }
               </div>
             </div>
             <div className="space-y-2">

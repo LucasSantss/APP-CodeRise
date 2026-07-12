@@ -5,6 +5,7 @@ export interface User {
   role: 'admin' | 'user';
   active: boolean;
   token?: string;
+  plain_password?: string;
   created_at: string;
   updated_at: string;
 }
