@@ -24,6 +24,7 @@ const ECOMMERCE_LABELS: Record<string, string> = {
   woocommerce: 'WooCommerce',
   tray:        'Tray',
   nuvemshop:   'Nuvemshop',
+  olist:       'Olist',
   vtex:        'VTEX',
   custom:      'Customizada',
 };
