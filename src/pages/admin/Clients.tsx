@@ -5,13 +5,13 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Search, MoreHorizontal, UserCheck, UserX, Loader2 } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, UserCheck, UserX, Loader2, Eye, EyeOff, Pencil } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getUsers, createUser, patchUser, deleteUser } from '@/services/api';
+import { getUsers, createUser, updateUser, patchUser, deleteUser } from '@/services/api';
 import type { User } from '@/types';
 import { createSystemNotification } from '@/services/api';
 
@@ -22,6 +22,10 @@ const Clients = () => {
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'user' });
+  const [showCreatePw, setShowCreatePw] = useState(false);
+  const [editTarget, setEditTarget] = useState<User | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', email: '', newPassword: '' });
+  const [showEditPw, setShowEditPw] = useState(false);
   const { toast } = useToast();
 
   const load = useCallback(async () => {
@@ -103,6 +107,32 @@ const Clients = () => {
     }
   };
 
+  const openEdit = (user: User) => {
+    setEditTarget(user);
+    setEditForm({ name: user.name, email: user.email, newPassword: '' });
+    setShowEditPw(false);
+  };
+
+  const handleEdit = async () => {
+    if (!editTarget) return;
+    setSaving(true);
+    try {
+      const payload: { name?: string; email?: string; password?: string } = {};
+      if (editForm.name !== editTarget.name) payload.name = editForm.name;
+      if (editForm.email !== editTarget.email) payload.email = editForm.email;
+      if (editForm.newPassword) payload.password = editForm.newPassword;
+      if (!Object.keys(payload).length) { toast({ title: 'Nenhuma alteração detectada' }); setSaving(false); return; }
+      await updateUser(editTarget.id, payload);
+      toast({ title: 'Usuário atualizado com sucesso!' });
+      setEditTarget(null);
+      load();
+    } catch (err: unknown) {
+      toast({ title: 'Erro ao atualizar', description: err instanceof Error ? err.message : '', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -128,7 +158,24 @@ const Clients = () => {
               </div>
               <div className="space-y-2">
                 <Label>Senha</Label>
-                <Input type="password" placeholder="Senha inicial" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                <div className="relative">
+                  <Input
+                    type={showCreatePw ? 'text' : 'password'}
+                    placeholder="Senha inicial"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
+                    onClick={() => setShowCreatePw(v => !v)}
+                  >
+                    {showCreatePw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Perfil</Label>
@@ -200,6 +247,10 @@ const Clients = () => {
                         <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openEdit(user)}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleToggle(user)}>
                           {user.active ? <UserX className="mr-2 h-4 w-4" /> : <UserCheck className="mr-2 h-4 w-4" />}
                           {user.active ? 'Desativar' : 'Ativar'}
@@ -216,6 +267,59 @@ const Clients = () => {
           </Table>
         </CardContent>
       </Card>
+      {/* Dialog de edição de usuário */}
+      <Dialog open={!!editTarget} onOpenChange={(v) => { if (!v) setEditTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar Usuário</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Nome</Label>
+              <Input
+                placeholder="Nome completo"
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>E-mail</Label>
+              <Input
+                type="email"
+                placeholder="email@exemplo.com"
+                value={editForm.email}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Nova Senha <span className="text-xs text-muted-foreground">(deixe em branco para não alterar)</span></Label>
+              <div className="relative">
+                <Input
+                  type={showEditPw ? 'text' : 'password'}
+                  placeholder="Nova senha"
+                  value={editForm.newPassword}
+                  onChange={(e) => setEditForm({ ...editForm, newPassword: e.target.value })}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
+                  onClick={() => setShowEditPw(v => !v)}
+                >
+                  {showEditPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancelar</Button>
+            <Button onClick={handleEdit} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

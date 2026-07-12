@@ -51,6 +51,8 @@ export const getUsers = () => request<ApiResponse<User[]>>('/users');
 export const getUser = (id: number) => request<ApiResponse<User>>(`/users?id=${id}`);
 export const createUser = (data: Partial<User> & { password: string }) =>
   request<ApiResponse<User>>('/users', { method: 'POST', body: JSON.stringify(data) });
+export const updateUser = (id: number, data: { name?: string; email?: string; password?: string }) =>
+  request<ApiResponse<User>>(`/users?id=${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const patchUser = (id: number, data: { active?: boolean; role?: string }) =>
   request<ApiResponse>(`/users?id=${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const deleteUser = (id: number) =>
