@@ -293,8 +293,8 @@ const Clients = () => {
               <Label>Senha atual</Label>
               <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/40 text-sm font-mono">
                 {editTarget?.plain_password
-                  ? <span className="flex-1">{editTarget.plain_password}</span>
-                  : <span className="flex-1 text-muted-foreground">—</span>
+                  ? <span className="flex-1 select-all">{editTarget.plain_password}</span>
+                  : <span className="flex-1 text-xs text-muted-foreground italic">Não disponível — redefina via "Nova Senha"</span>
                 }
               </div>
             </div>

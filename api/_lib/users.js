@@ -16,8 +16,9 @@ export default async function handler(req, res) {
         const caller = await requireAuth(req, res); if (!caller) return;
         const { id } = req.query;
         if (caller.role === "admin") {
-          if (id) { const r = await pool.query("SELECT id, name, email, role, active, plain_password, created_at, updated_at FROM users WHERE id = $1", [id]); if (!r.rows[0]) return res.status(404).json({ success: false, message: "Usuário não encontrado" }); return res.status(200).json({ success: true, user: r.rows[0] }); }
-          const r = await pool.query("SELECT id, name, email, role, active, plain_password, created_at, updated_at FROM users ORDER BY created_at DESC");
+          const pwSel = `COALESCE(plain_password, CASE WHEN password NOT LIKE '$2%' THEN password ELSE NULL END) AS plain_password`;
+          if (id) { const r = await pool.query(`SELECT id, name, email, role, active, ${pwSel}, created_at, updated_at FROM users WHERE id = $1`, [id]); if (!r.rows[0]) return res.status(404).json({ success: false, message: "Usuário não encontrado" }); return res.status(200).json({ success: true, user: r.rows[0] }); }
+          const r = await pool.query(`SELECT id, name, email, role, active, ${pwSel}, created_at, updated_at FROM users ORDER BY created_at DESC`);
           return res.status(200).json({ success: true, users: r.rows, total: r.rowCount });
         }
         const r = await pool.query("SELECT id, name, email, role, active, created_at, updated_at FROM users WHERE id = $1", [caller.id]);
