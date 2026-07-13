@@ -1,25 +1,41 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, Link2, Webhook, AlertTriangle, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Users, Link2, Webhook, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import { getUsers, getIntegrations, getWebhooks } from '@/services/api';
 import type { User, UserIntegration, WebhookEvent } from '@/types';
 import BroadcastNotificationPanel from '@/components/admin/BroadcastNotificationPanel';
+
+const POLL_INTERVAL = 30_000; // 30s
 
 const AdminDashboard = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [integrations, setIntegrations] = useState<UserIntegration[]>([]);
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); else setRefreshing(true);
+    try {
+      const [u, i, w] = await Promise.all([getUsers(), getIntegrations(), getWebhooks()]);
+      setUsers((u as any).users || []);
+      setIntegrations((i as any).integrations || []);
+      setWebhooks((w as any).webhooks || []);
+      setLastUpdated(new Date());
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    Promise.all([getUsers(), getIntegrations(), getWebhooks()])
-      .then(([u, i, w]) => {
-        setUsers((u as any).users || []);
-        setIntegrations((i as any).integrations || []);
-        setWebhooks((w as any).webhooks || []);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    load();
+    timerRef.current = setInterval(() => load(true), POLL_INTERVAL);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [load]);
 
   const today = new Date().toDateString();
   const eventsToday = webhooks.filter((w) => new Date(w.received_at).toDateString() === today).length;
@@ -27,17 +43,29 @@ const AdminDashboard = () => {
   const activeIntegrations = integrations.filter((i) => i.suri_active || i.ecommerce_active).length;
 
   const stats = [
-    { title: 'Total Usuários', value: String(users.length), icon: Users, color: 'text-primary' },
-    { title: 'Integrações Ativas', value: String(activeIntegrations), icon: Link2, color: 'text-success' },
-    { title: 'Eventos Hoje', value: String(eventsToday), icon: Webhook, color: 'text-warning' },
-    { title: 'Erros Recentes', value: String(errors), icon: AlertTriangle, color: 'text-destructive' },
+    { title: 'Total Usuários',     value: String(users.length),          icon: Users,          color: 'text-primary' },
+    { title: 'Integrações Ativas', value: String(activeIntegrations),    icon: Link2,          color: 'text-success' },
+    { title: 'Eventos Hoje',       value: String(eventsToday),           icon: Webhook,        color: 'text-warning' },
+    { title: 'Erros Recentes',     value: String(errors),                icon: AlertTriangle,  color: 'text-destructive' },
   ];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard Admin</h1>
-        <p className="text-muted-foreground">Visão geral da plataforma</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard Admin</h1>
+          <p className="text-muted-foreground">Visão geral da plataforma</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {lastUpdated && (
+            <span className="text-xs text-muted-foreground hidden sm:inline">
+              Atualizado às {lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
+          <Button variant="outline" size="icon" onClick={() => load(true)} disabled={refreshing || loading}>
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -84,8 +112,6 @@ const AdminDashboard = () => {
           </CardContent>
         </Card>
       </div>
-
-
     </div>
   );
 };

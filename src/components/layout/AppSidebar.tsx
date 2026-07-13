@@ -40,7 +40,7 @@ const AppSidebar = () => {
   const items = isAdmin ? adminItems : userItems;
 
   return (
-    <Sidebar collapsible="icon" className="border-r-0">
+    <Sidebar collapsible="icon" className="border-r-0 dark">
       {/* Background */}
       <div className="absolute inset-0 gradient-sidebar-bg pointer-events-none" />
       {/* Aurora orbs */}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +53,53 @@ interface SyncCatalogResult {
 }
 
 const SYNC_RESULT_KEY = 'coderise_sync_catalog_result';
+
+// ─── SyncProgress ─────────────────────────────────────────────────────────────
+const SYNC_STEPS = [
+  'Conectando ao e-commerce...',
+  'Buscando categorias...',
+  'Sincronizando categorias...',
+  'Buscando produtos...',
+  'Sincronizando produtos...',
+  'Finalizando...',
+];
+
+const SyncProgress = () => {
+  const [elapsed, setElapsed] = useState(0);
+  const [stepIdx, setStepIdx] = useState(0);
+
+  useEffect(() => {
+    const tick = setInterval(() => setElapsed(s => s + 1), 1000);
+    const stepTick = setInterval(() => setStepIdx(i => Math.min(i + 1, SYNC_STEPS.length - 1)), 4000);
+    return () => { clearInterval(tick); clearInterval(stepTick); };
+  }, []);
+
+  const pct = Math.min(95, Math.round(((stepIdx + 1) / SYNC_STEPS.length) * 100));
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+  return (
+    <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          <span>{SYNC_STEPS[stepIdx]}</span>
+        </div>
+        <span className="text-xs text-muted-foreground font-mono">{timeStr}</span>
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all duration-1000"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Sincronizando catálogo completo. Pode levar alguns minutos dependendo do tamanho do catálogo.
+      </p>
+    </div>
+  );
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -677,12 +724,7 @@ const StoreMapping = () => {
             </Button>
           </div>
 
-          {syncing && (
-            <div className="rounded-lg border bg-muted/30 p-4 flex items-center gap-3 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              <span>Buscando e sincronizando categorias e produtos... Pode levar alguns minutos dependendo do tamanho do catálogo.</span>
-            </div>
-          )}
+          {syncing && <SyncProgress />}
 
           {/* ── Results Panel ── */}
           {syncResult && !syncing && (

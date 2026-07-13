@@ -9,6 +9,18 @@ export async function handleSetup(req, res) {
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(20) NOT NULL DEFAULT 'user', active BOOLEAN NOT NULL DEFAULT true, token VARCHAR(64) UNIQUE, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW());`);
     await pool.query(`CREATE TABLE IF NOT EXISTS user_integrations (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ecommerce_platform VARCHAR(50), ecommerce_config JSONB, ecommerce_active BOOLEAN NOT NULL DEFAULT false, webhook_token VARCHAR(64) UNIQUE NOT NULL, chatbot_platform VARCHAR(50), chatbot_config JSONB, chatbot_active BOOLEAN NOT NULL DEFAULT false, chatbot_token VARCHAR(64) UNIQUE, suri_endpoint TEXT, suri_token TEXT, suri_active BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW(), UNIQUE(user_id));`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plain_password TEXT`).catch(()=>{});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP`).catch(()=>{});
+    // Índices de performance
+    for (const idx of [
+      `CREATE INDEX IF NOT EXISTS idx_users_token ON users(token)`,
+      `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
+      `CREATE INDEX IF NOT EXISTS idx_webhooks_user_id ON user_webhooks(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_webhooks_status ON user_webhooks(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_webhooks_received_at ON user_webhooks(received_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_notifications_target_user ON notifications(target_user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_notifications_target_role ON notifications(target_role)`,
+    ]) { await pool.query(idx).catch(()=>{}); }
     for (const sql of [
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_platform VARCHAR(50)`,
       `ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_config JSONB`,

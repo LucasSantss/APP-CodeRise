@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Search, MoreHorizontal, UserCheck, UserX, Loader2, Eye, EyeOff, Pencil } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, UserCheck, UserX, Loader2, Eye, EyeOff, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
@@ -26,6 +27,9 @@ const Clients = () => {
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', newPassword: '' });
   const [showEditPw, setShowEditPw] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   const { toast } = useToast();
 
   const load = useCallback(async () => {
@@ -47,6 +51,8 @@ const Clients = () => {
       u.name.toLowerCase().includes(search.toLowerCase()) ||
       u.email.toLowerCase().includes(search.toLowerCase())
   );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleCreate = async () => {
     if (!form.name || !form.email || !form.password) {
@@ -96,11 +102,12 @@ const Clients = () => {
     }
   };
 
-  const handleDelete = async (user: User) => {
-    if (!confirm(`Excluir "${user.name}"? Esta ação não pode ser desfeita.`)) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteUser(user.id);
+      await deleteUser(deleteTarget.id);
       toast({ title: 'Usuário excluído' });
+      setDeleteTarget(null);
       load();
     } catch (err: unknown) {
       toast({ title: 'Erro ao excluir', description: err instanceof Error ? err.message : '', variant: 'destructive' });
@@ -225,9 +232,9 @@ const Clients = () => {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={5} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-              ) : filtered.length === 0 ? (
+              ) : paginated.length === 0 ? (
                 <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhum usuário encontrado</TableCell></TableRow>
-              ) : filtered.map((user) => (
+              ) : paginated.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.name}</TableCell>
                   <TableCell className="text-muted-foreground">{user.email}</TableCell>
@@ -255,7 +262,7 @@ const Clients = () => {
                           {user.active ? <UserX className="mr-2 h-4 w-4" /> : <UserCheck className="mr-2 h-4 w-4" />}
                           {user.active ? 'Desativar' : 'Ativar'}
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(user)}>
+                        <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(user)}>
                           Excluir
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -267,6 +274,46 @@ const Clients = () => {
           </Table>
         </CardContent>
       </Card>
+      {/* Paginação */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-1 py-2">
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} usuário{filtered.length !== 1 ? 's' : ''} — página {page} de {totalPages}
+          </p>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+              <Button key={p} variant={p === page ? 'default' : 'outline'} size="icon" className="h-7 w-7 text-xs" onClick={() => setPage(p)}>
+                {p}
+              </Button>
+            ))}
+            <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* AlertDialog de confirmação de exclusão */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir usuário?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. O usuário <strong>{deleteTarget?.name}</strong> ({deleteTarget?.email}) será permanentemente removido da plataforma.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Dialog de edição de usuário */}
       <Dialog open={!!editTarget} onOpenChange={(v) => { if (!v) setEditTarget(null); }}>
         <DialogContent>

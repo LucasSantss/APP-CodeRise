@@ -13,7 +13,7 @@ export async function getUserByToken(req) {
   if (!authHeader.startsWith("Bearer ")) return null;
   const token = authHeader.replace("Bearer ", "").trim();
   const result = await pool.query(
-    "SELECT id, name, email, role, active FROM users WHERE token = $1",
+    "SELECT id, name, email, role, active FROM users WHERE token = $1 AND (token_expires_at IS NULL OR token_expires_at > NOW())",
     [token]
   );
   return result.rows[0] || null;
