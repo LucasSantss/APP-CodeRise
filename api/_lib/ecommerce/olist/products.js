@@ -38,16 +38,25 @@ export async function fetchAndNormalizeProduct(config, productId) {
  *   p.id, p.name, p.description, p.reference (sku do produto pai),
  *   p.available, p.price, p.promotional_price,
  *   p.category_tags (array de { name, tag_type, title }),
- *   p.images (array de { url }),
+ *   p.images (array de { id, url, updated_at, variant_ids }),
  *   p.variants (array de variantes)
  *
- * Variante:
- *   v.sku, v.price, v.promotional_price, v.quantity (estoque),
- *   v.weight_g, v.height_cm, v.width_cm, v.length_cm,
- *   v.properties (array de { name, value } — atributos da variante)
+ * Variante (conforme https://developers.vnda.com.br/api/operations/get-api-v2-products/):
+ *   v.sku, v.price, v.sale_price, v.quantity, v.stock,
+ *   v.weight, v.height, v.width, v.length (sem sufixo _g/_cm),
+ *   v.image_url, v.properties (array de { name, value })
+ *
+ * @param {object} p - produto bruto da API
+ * @param {Array} [fetchedVariants] - variantes buscadas via /products/{id}/variants
+ *   (GET /products em lote pode retornar variantes menos completas; quando disponível,
+ *   os dados desta busca dedicada têm prioridade sobre p.variants).
  */
-export function normalizeProduct(p) {
-  const variants = (p.variants || []).map(v => {
+export function normalizeProduct(p, fetchedVariants) {
+  const rawVariants = Array.isArray(fetchedVariants) && fetchedVariants.length > 0
+    ? fetchedVariants
+    : (p.variants || []);
+
+  const variants = rawVariants.map(v => {
     const rawSku = v.sku != null ? String(v.sku).trim() : "";
     const safeSku = rawSku && rawSku !== "null" && rawSku !== "undefined"
       ? rawSku
@@ -56,12 +65,12 @@ export function normalizeProduct(p) {
     return {
       sku: safeSku,
       price: parseFloat(v.price || p.price || 0),
-      promotionalPrice: parseFloat(v.promotional_price || p.promotional_price || 0),
-      weightInGrams: parseFloat(v.weight_g || 0),
+      promotionalPrice: parseFloat(v.sale_price || v.promotional_price || p.promotional_price || 0),
+      weightInGrams: parseFloat(v.weight || v.weight_g || 0),
       dimensions: {
-        heightInCm: parseFloat(v.height_cm || 0),
-        widthInCm:  parseFloat(v.width_cm  || 0),
-        lengthInCm: parseFloat(v.length_cm || 0),
+        heightInCm: parseFloat(v.height || v.height_cm || 0),
+        widthInCm:  parseFloat(v.width  || v.width_cm  || 0),
+        lengthInCm: parseFloat(v.length || v.length_cm || 0),
       },
       stock: parseInt(v.quantity ?? v.stock ?? 0),
       attributes: (v.properties || []).map(prop => ({
