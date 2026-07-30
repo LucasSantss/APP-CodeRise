@@ -36,7 +36,7 @@ export async function fetchAndNormalizeProduct(config, productId) {
  * Estrutura típica da Olist:
  *   p.id, p.name, p.description, p.reference (sku do produto pai),
  *   p.available, p.price, p.promotional_price,
- *   p.tags (array de { name, tag_type }),
+ *   p.category_tags (array de { name, tag_type, title }),
  *   p.images (array de { url }),
  *   p.variants (array de variantes)
  *
@@ -73,8 +73,9 @@ export function normalizeProduct(p) {
 
   const firstVariant = variants[0] || {};
 
-  // Categoria: pega a primeira tag do tipo "Categoria" (ou qualquer tag)
-  const categoryTag = (p.tags || []).find(t => t.tag_type === "Categoria") || (p.tags || [])[0];
+  // Categoria: pega a primeira tag do tipo "categoria" (ou qualquer tag)
+  const productTags = p.category_tags || p.tags || [];
+  const categoryTag = productTags.find(t => String(t.tag_type || "").toLowerCase() === "categoria") || productTags[0];
   const categoryId = categoryTag ? String(categoryTag.name || "") : "";
 
   return {
