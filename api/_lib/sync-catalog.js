@@ -30,7 +30,10 @@ async function resolvePlatformAdapters(platform, ecommerceConfig) {
       const { store_url, access_token } = ecommerceConfig;
       return {
         listProductsFn: (params) => client.listProducts(store_url, access_token, params),
-        getVariantsFn: (productId) => client.getProductVariants(store_url, access_token, productId),
+        // normalizeProduct usa apenas p.variants/p.images (já vêm no GET /products) —
+        // buscar /products/{id}/variants por produto aqui seria uma chamada extra
+        // descartada, e dobra a carga na API contribuindo para rate limit (HTTP 429).
+        getVariantsFn: null,
         normalizeProduct,
         fetchCategories: () => fetchCategories({ store_url, access_token }),
         storeKeyValid: !!store_url && !!access_token,
