@@ -1,15 +1,21 @@
 /**
  * ecommerce/olist/client.js
  * Client HTTP da API Olist Ecommerce (Vnda).
- * Autenticação via Bearer Token no header Authorization.
- * Base URL: https://{store_url}/api/v2
+ * Autenticação via Bearer Token no header Authorization + X-Shop-Host com o domínio da loja.
+ * Base URL: https://api.vnda.com.br/api/v2
  */
 
 const USER_AGENT = "CodeRise Integration (suporte@coderise.com.br)";
 
-function headers(accessToken) {
+function shopHost(storeUrl) {
+  return storeUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
+function headers(storeUrl, accessToken) {
   return {
-    "Authorization": `Token ${accessToken}`,
+    "Accept": "application/json",
+    "Authorization": `Bearer ${accessToken}`,
+    "X-Shop-Host": shopHost(storeUrl),
     "User-Agent": USER_AGENT,
     "Content-Type": "application/json",
   };
@@ -32,12 +38,11 @@ async function withRetry(fn, maxAttempts = 3, baseDelayMs = 600) {
 }
 
 async function request(storeUrl, accessToken, method, path, body) {
-  const base = storeUrl.replace(/\/+$/, "");
   const url = `https://api.vnda.com.br/api/v2${path}`;
   return withRetry(async () => {
     const res = await fetch(url, {
       method,
-      headers: headers(accessToken),
+      headers: headers(storeUrl, accessToken),
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(10000),
     });
