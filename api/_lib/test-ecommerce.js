@@ -88,7 +88,7 @@ async function testTray({ api_address, access_token }) {
 async function testOlist({ store_url, access_token }) {
   if (!store_url || !access_token) throw new Error("store_url e access_token são obrigatórios.");
   const base = store_url.replace(/\/+$/, "");
-  const res = await fetch(`${base}/api/v2/products`, {
+  const res = await fetch(`https://api.vnda.com.br/api/v2/products`, {
     headers: { "Authorization": `Bearer ${access_token}`, "X-Shop-Host": `${base}`, "Accept": "application/json" },
     signal: AbortSignal.timeout(10000),
   });
