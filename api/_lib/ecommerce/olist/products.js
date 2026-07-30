@@ -10,6 +10,13 @@
 import * as client from "./client.js";
 import { UNCATEGORIZED_ID } from "./categories.js";
 
+// A Olist retorna image_url como URL protocol-relative (ex: "//cdn.vnda.com.br/...");
+// sem o "https:" na frente, alguns consumidores da Suri não resolvem a imagem.
+function toAbsoluteUrl(url) {
+  if (!url) return null;
+  return url.startsWith("//") ? `https:${url}` : url;
+}
+
 /**
  * Busca o produto completo na API da Olist e normaliza.
  * Garante dados sempre atualizados, independente do que veio no webhook.
@@ -42,9 +49,9 @@ export async function fetchAndNormalizeProduct(config, productId) {
  *   p.variants (array de variantes)
  *
  * Variante:
- *   v.sku, v.price, v.promotional_price, v.quantity (estoque),
- *   v.weight_g, v.height_cm, v.width_cm, v.length_cm,
- *   v.properties (array de { name, value } — atributos da variante)
+ *   v.sku, v.price, v.sale_price, v.quantity/v.stock (estoque),
+ *   v.weight, v.height, v.width, v.length, v.image_url,
+ *   v.properties (objeto { property1: { name, value }, property2: {...}, ... } — não é array)
  */
 export function normalizeProduct(p) {
   const productImages = p.images || [];
@@ -62,23 +69,24 @@ export function normalizeProduct(p) {
     return {
       sku: safeSku,
       price: parseFloat(v.price || p.price || 0),
-      promotionalPrice: parseFloat(v.promotional_price || p.promotional_price || 0),
-      weightInGrams: parseFloat(v.weight_g || 0),
+      promotionalPrice: parseFloat(v.sale_price || v.promotional_price || p.promotional_price || 0),
+      weightInGrams: parseFloat(v.weight || v.weight_g || 0),
       dimensions: {
-        heightInCm: parseFloat(v.height_cm || 0),
-        widthInCm:  parseFloat(v.width_cm  || 0),
-        lengthInCm: parseFloat(v.length_cm || 0),
+        heightInCm: parseFloat(v.height || v.height_cm || 0),
+        widthInCm:  parseFloat(v.width  || v.width_cm  || 0),
+        lengthInCm: parseFloat(v.length || v.length_cm || 0),
       },
+      // A Olist retorna "properties" como objeto ({ property1: {...}, property2: {...} }),
+      // não array — Object.values normaliza ambos os formatos com segurança.
       stock: parseInt(v.quantity ?? v.stock ?? 0),
-      attributes: (v.properties || []).map(prop => ({
+      attributes: Object.values(v.properties || {}).map(prop => ({
         name:  String(prop.name  || ""),
         value: String(prop.value || ""),
       })),
-      imageUrl: v.image_url || linkedImage?.url || null,
+      imageUrl: toAbsoluteUrl(v.image_url || linkedImage?.url),
     };
   });
 
-  
   const firstVariant = variants[0] || {};
 
   // Categoria: pega a primeira tag do tipo "categoria". Tags de outros tipos
@@ -101,7 +109,7 @@ export function normalizeProduct(p) {
     promotionalPrice: firstVariant.promotionalPrice || parseFloat(p.promotional_price || 0),
     url: p.url || null,
     images: (p.images || []).map(i => ({
-      url:         i.url  || i.src || "",
+      url:         toAbsoluteUrl(i.url || i.src) || "",
       description: i.alt  || null,
     })),
     weightInGrams: firstVariant.weightInGrams || 0,
