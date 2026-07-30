@@ -8,6 +8,7 @@
  */
 
 import * as client from "./client.js";
+import { UNCATEGORIZED_ID } from "./categories.js";
 
 /**
  * Busca o produto completo na API da Olist e normaliza.
@@ -73,10 +74,13 @@ export function normalizeProduct(p) {
 
   const firstVariant = variants[0] || {};
 
-  // Categoria: pega a primeira tag do tipo "categoria" (ou qualquer tag)
+  // Categoria: pega a primeira tag do tipo "categoria". Tags de outros tipos
+  // (estampa, coleção, etc.) nunca são sincronizadas como categoria na Suri,
+  // então usá-las aqui causaria "Category with id X not found".
+  // Sem tag de categoria (ex: Gift Cards) → usa a categoria "Sem categoria".
   const productTags = p.category_tags || p.tags || [];
-  const categoryTag = productTags.find(t => String(t.tag_type || "").toLowerCase() === "categoria") || productTags[0];
-  const categoryId = categoryTag ? String(categoryTag.name || "") : "";
+  const categoryTag = productTags.find(t => String(t.tag_type || "").toLowerCase() === "categoria");
+  const categoryId = categoryTag ? String(categoryTag.name || "") : UNCATEGORIZED_ID;
 
   return {
     id: String(p.id),

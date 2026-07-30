@@ -174,19 +174,29 @@ export async function syncCatalogForIntegrationRow(row) {
 
   // 2. Produtos paginados com variantes atualizadas em paralelo por batch
   const allRawProducts = [];
-  try {
+  {
     let page = 1, hasMore = true;
     while (hasMore) {
-      const batch = await adapters.listProductsFn({ page, per_page: 50, limit: 50 });
+      let batch;
+      try {
+        batch = await adapters.listProductsFn({ page, per_page: 50, limit: 50 });
+      } catch (err) {
+        // Página falhou mesmo após retries (ex: rate limit persistente) — para a
+        // paginação aqui, mas preserva os produtos já coletados das páginas anteriores.
+        allResults.push({ type: "error", entity: "product", message: `Falha ao buscar página ${page} de produtos: ${err.message}` });
+        break;
+      }
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
 
       if (adapters.getVariantsFn) {
-        await Promise.all(batch.map(async (p) => {
+        // Concorrência limitada: buscar variantes de todo o batch de uma vez
+        // (até 50 requisições simultâneas) derruba APIs protegidas por rate limit.
+        await runConcurrent(batch, async (p) => {
           try {
             const variants = await adapters.getVariantsFn(p.id || p.Id);
             if (Array.isArray(variants) && variants.length > 0) p._fetchedVariants = variants;
           } catch { /* mantém variants já presentes no produto, se houver */ }
-        }));
+        }, 5);
       }
 
       for (const raw of batch) allRawProducts.push(raw);
@@ -194,8 +204,6 @@ export async function syncCatalogForIntegrationRow(row) {
       page++;
       if (page > 200) break; // proteção contra loop infinito
     }
-  } catch (err) {
-    allResults.push({ type: "error", entity: "product", message: err.message });
   }
 
   // Sincroniza produtos em paralelo (10 por vez)

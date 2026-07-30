@@ -13,6 +13,19 @@ import * as client from "./client.js";
 
 const CATEGORY_TAG_TYPE = "categoria";
 
+// Categoria de fallback para produtos sem nenhuma tag do tipo "categoria"
+// (ex: Gift Cards). A Suri rejeita produtos sem categoryId, então esta
+// categoria é sempre criada/atualizada junto com as demais.
+export const UNCATEGORIZED_ID = "sem-categoria";
+const UNCATEGORIZED_CATEGORY = {
+  id: UNCATEGORIZED_ID,
+  name: "Sem categoria",
+  description: "",
+  parentId: null,
+  tagType: CATEGORY_TAG_TYPE,
+  handle: UNCATEGORIZED_ID,
+};
+
 /**
  * Busca todas as categorias (tags do tipo "categoria") da loja Olist.
  * Fallback: se o endpoint /tags falhar ou não retornar nada, deriva as
@@ -20,12 +33,16 @@ const CATEGORY_TAG_TYPE = "categoria";
  */
 export async function fetchCategories(config) {
   const { store_url, access_token } = config;
+  let categories;
   try {
-    const fromTagsEndpoint = await fetchCategoriesFromTagsEndpoint(store_url, access_token);
-    if (fromTagsEndpoint.length > 0) return fromTagsEndpoint;
-  } catch { /* /tags indisponível — cai para o fallback abaixo */ }
+    categories = await fetchCategoriesFromTagsEndpoint(store_url, access_token);
+    if (categories.length === 0) categories = await fetchCategoriesFromProducts(store_url, access_token);
+  } catch {
+    // /tags indisponível — cai para o fallback abaixo
+    categories = await fetchCategoriesFromProducts(store_url, access_token);
+  }
 
-  return fetchCategoriesFromProducts(store_url, access_token);
+  return [...categories, UNCATEGORIZED_CATEGORY];
 }
 
 async function fetchCategoriesFromTagsEndpoint(store_url, access_token) {
