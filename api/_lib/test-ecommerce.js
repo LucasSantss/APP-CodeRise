@@ -88,8 +88,8 @@ async function testTray({ api_address, access_token }) {
 async function testOlist({ store_url, access_token }) {
   if (!store_url || !access_token) throw new Error("store_url e access_token são obrigatórios.");
   const base = store_url.replace(/\/+$/, "");
-  const res = await fetch(`${base}/api/v2/orders?per_page=1`, {
-    headers: { "Authorization": `Token ${access_token}`, "User-Agent": "CodeRise Integration (suporte@coderise.com.br)", "Content-Type": "application/json" },
+  const res = await fetch(`${base}/api/v2/products`, {
+    headers: { "Authorization": `Bearer ${access_token}`, "X-Shop-Host": `${base}`, "Accept": "application/json" },
     signal: AbortSignal.timeout(10000),
   });
   const body = await res.json().catch(() => ({}));
