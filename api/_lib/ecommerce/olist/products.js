@@ -78,6 +78,7 @@ export function normalizeProduct(p) {
     };
   });
 
+  
   const firstVariant = variants[0] || {};
 
   // Categoria: pega a primeira tag do tipo "categoria". Tags de outros tipos
