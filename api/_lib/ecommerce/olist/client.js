@@ -33,7 +33,7 @@ async function withRetry(fn, maxAttempts = 3, baseDelayMs = 600) {
 
 async function request(storeUrl, accessToken, method, path, body) {
   const base = storeUrl.replace(/\/+$/, "");
-  const url = `${base}/api/v2${path}`;
+  const url = `https://api.vnda.com.br/api/v2${path}`;
   return withRetry(async () => {
     const res = await fetch(url, {
       method,
