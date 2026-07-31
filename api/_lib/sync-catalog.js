@@ -202,6 +202,19 @@ export async function syncCatalogForIntegrationRow(row) {
         console.log(`[sync-catalog][diagnostic] raw sample:`, JSON.stringify(sample).slice(0, 2000));
       }
 
+      // DIAGNÓSTICO TEMPORÁRIO 2: estoque não está chegando na Suri — confirma
+      // quais campos de quantidade a listagem retorna dentro de cada variant
+      // (v.quantity/v.stock podem vir zerados/ausentes na listagem, com o
+      // valor real só dentro de v.inventories, por depósito). Grava em
+      // user_webhooks para aparecer na tela de Logs. Remover após investigação.
+      if (page === 1 && row.user_id) {
+        const sampleVariant = (batch[0]?.variants || [])[0] || null;
+        await pool.query(
+          `INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, $4, $5)`,
+          [row.user_id, "diagnostic.variant_sample", JSON.stringify({ platform, sampleVariant }), "received", "ecommerce"]
+        ).catch(() => {});
+      }
+
       if (adapters.getVariantsFn) {
         // Concorrência limitada: buscar variantes de todo o batch de uma vez
         // (até 50 requisições simultâneas) derruba APIs protegidas por rate limit.
@@ -269,6 +282,7 @@ export async function handleSyncCatalog(req, res) {
 
   if (!row) return res.status(404).json({ success: false, message: "Integração não encontrada." });
 
+  row.user_id = caller.id;
   const result = await syncCatalogForIntegrationRow(row);
   const httpStatus = result.message && !result.summary ? 400 : 200;
   return res.status(httpStatus).json(result);
