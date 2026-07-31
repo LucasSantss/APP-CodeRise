@@ -30,15 +30,30 @@ function toSuriFormat(product, storeId) {
     return { providerId: null, url: validUrl, description: null };
   }
 
+  // Helper: resolve price/promotionalPrice pro significado que a Suri usa.
+  // Internamente "price" é o preço cheio e "promotionalPrice" é o preço com
+  // desconto — mas na Suri é o oposto: "price" é o "Preço atual" (o que é
+  // cobrado) e "promotionalPrice" é o "Preço antigo" (riscado). Sem essa
+  // inversão, produtos em promoção apareciam com o preço cheio como atual.
+  function resolveSuriPrices(regularPrice, promoPrice) {
+    const hasDiscount = promoPrice > 0 && promoPrice < regularPrice;
+    return hasDiscount
+      ? { price: promoPrice, promotionalPrice: regularPrice }
+      : { price: regularPrice, promotionalPrice: 0 };
+  }
+
+  const basePrices = resolveSuriPrices(product.price, product.promotionalPrice ?? 0);
+
   const dimensions = (product.variants && product.variants.length > 0)
     ? product.variants.map(v => {
+      const variantPrices = resolveSuriPrices(v.price ?? product.price, v.promotionalPrice ?? product.promotionalPrice ?? 0);
       const variantObj = {
         sku: buildSku(v.sku || product.sku, product.id),
         dimensions: Object.fromEntries(
           (v.attributes || []).map(a => [String(a.name), String(a.value)])
         ),
-        price: v.price ?? product.price,
-        promotionalPrice: v.promotionalPrice ?? product.promotionalPrice ?? 0,
+        price: variantPrices.price,
+        promotionalPrice: variantPrices.promotionalPrice,
         priceTables: {},
         stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
         measurements: {
@@ -61,8 +76,8 @@ function toSuriFormat(product, storeId) {
       sku: buildSku(product.sku, product.id),
       dimensions: {},
       image: buildImage(null),
-      price: product.price,
-      promotionalPrice: product.promotionalPrice ?? 0,
+      price: basePrices.price,
+      promotionalPrice: basePrices.promotionalPrice,
       priceTables: {},
       stocks: buildStocks(storeId, product.stock ?? 0),
       measurements: {
@@ -98,9 +113,9 @@ function toSuriFormat(product, storeId) {
     ...(product.url && product.url !== "null" && product.url !== "undefined"
       ? { url: product.url }
       : {}),
-    price: product.price,
-    promotionalPrice: product.promotionalPrice || 0,
-    minPrice: product.price,
+    price: basePrices.price,
+    promotionalPrice: basePrices.promotionalPrice,
+    minPrice: basePrices.price,
     hasShippingRestriction: false,
     // images no nível raiz: usa as imagens do produto ou das variações.
     // Quando não há nenhuma imagem, envia null (formato nativo da Suri, conforme retornado pela API).
