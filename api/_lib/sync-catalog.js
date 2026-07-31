@@ -191,6 +191,17 @@ export async function syncCatalogForIntegrationRow(row) {
       }
       if (!Array.isArray(batch) || batch.length === 0) { hasMore = false; break; }
 
+      // DIAGNÓSTICO TEMPORÁRIO: confirma se o endpoint de listagem já retorna
+      // images/variants completos (hipótese: pode vir só um resumo, causando
+      // produtos sem imagem/variante na Suri). Remover após a investigação.
+      if (page === 1) {
+        const sample = batch[0] || {};
+        console.log(`[sync-catalog][diagnostic] platform=${platform} sample product keys:`, Object.keys(sample));
+        console.log(`[sync-catalog][diagnostic] has images=${Array.isArray(sample.images)} count=${sample.images?.length ?? "n/a"}`);
+        console.log(`[sync-catalog][diagnostic] has variants=${Array.isArray(sample.variants)} count=${sample.variants?.length ?? "n/a"}`);
+        console.log(`[sync-catalog][diagnostic] raw sample:`, JSON.stringify(sample).slice(0, 2000));
+      }
+
       if (adapters.getVariantsFn) {
         // Concorrência limitada: buscar variantes de todo o batch de uma vez
         // (até 50 requisições simultâneas) derruba APIs protegidas por rate limit.
