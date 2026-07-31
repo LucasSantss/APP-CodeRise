@@ -12,9 +12,13 @@ import { UNCATEGORIZED_ID } from "./categories.js";
 
 // A Olist retorna image_url como URL protocol-relative (ex: "//cdn.vnda.com.br/...");
 // sem o "https:" na frente, alguns consumidores da Suri não resolvem a imagem.
+// Além disso, a imagem de variante costuma vir com um path de redimensionamento
+// (ex: "/x120/") que serve uma versão em baixa resolução — removemos esse
+// segmento pra usar a imagem original em tamanho completo.
 function toAbsoluteUrl(url) {
   if (!url) return null;
-  return url.startsWith("//") ? `https:${url}` : url;
+  const fullRes = url.replace(/(cdn\.vnda\.com\.br)\/x\d+\//, "$1/");
+  return fullRes.startsWith("//") ? `https:${fullRes}` : fullRes;
 }
 
 // A Olist retorna cada item de "variants" embrulhado num objeto cuja única
