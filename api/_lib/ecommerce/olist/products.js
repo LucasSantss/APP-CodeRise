@@ -89,23 +89,33 @@ function parseDescLanguageBlock(lines, headers) {
     else if (t === headers.impact) idx.impact = i;
     else if (t === headers.more) idx.more = i;
   });
-  if (idx.title == null || idx.measures == null || idx.impact == null) return null;
+  // "Diferenciais de impacto"/"Impact differences" é o único header que
+  // aparece em todo produto — tratamos como obrigatório pra reconhecer o
+  // texto. "Medidas"/"Sizing" nem sempre existe (acessórios como cintos e
+  // colares não têm), e o bloco em inglês às vezes nem repete o header
+  // "Description" antes do parágrafo — por isso ambos são opcionais.
+  if (idx.impact == null) return null;
 
-  const titleLines    = lines.slice(idx.title + 1, idx.measures).map(l => l.trim()).filter(Boolean);
-  const measuresLines = lines.slice(idx.measures + 1, idx.impact).map(l => l.trim()).filter(Boolean);
-  const impactEnd     = idx.more != null ? idx.more : lines.length;
-  const impactLines   = lines.slice(idx.impact + 1, impactEnd).map(l => l.trim()).filter(Boolean);
-  const urlLine        = idx.more != null ? (lines.slice(idx.more + 1).map(l => l.trim()).find(Boolean) || "") : "";
+  const titleStart     = idx.title != null ? idx.title + 1 : 0;
+  const titleEnd       = idx.measures != null ? idx.measures : idx.impact;
+  const titleLines     = lines.slice(titleStart, titleEnd).map(l => l.trim()).filter(Boolean);
+  const measuresLines  = idx.measures != null ? lines.slice(idx.measures + 1, idx.impact).map(l => l.trim()).filter(Boolean) : null;
+  const impactEnd      = idx.more != null ? idx.more : lines.length;
+  const impactLines    = lines.slice(idx.impact + 1, impactEnd).map(l => l.trim()).filter(Boolean);
+  const urlLine         = idx.more != null ? (lines.slice(idx.more + 1).map(l => l.trim()).find(Boolean) || "") : "";
   const compositionLabel = headers.title === "Descrição" ? "Composição" : "Composition";
 
   const html = [
     `  <h2>${headers.title}</h2>`,
     `  ${renderDescTitleBlock(titleLines, compositionLabel)}`,
-    `  <h2>${headers.measures}</h2>`,
-    `  ${renderDescMeasuresBlock(measuresLines)}`,
+  ];
+  if (measuresLines) {
+    html.push(`  <h2>${headers.measures}</h2>`, `  ${renderDescMeasuresBlock(measuresLines)}`);
+  }
+  html.push(
     `  <h2>${headers.impact}</h2>`,
     `  <ul>\n    ${impactLines.map(renderDescImpactLine).join("\n    ")}\n  </ul>`,
-  ];
+  );
   if (urlLine) {
     html.push(`  <p>${headers.more} <a href="${escapeHtml(urlLine)}" target="_blank" rel="noopener">${escapeHtml(urlLine)}</a></p>`);
   }
