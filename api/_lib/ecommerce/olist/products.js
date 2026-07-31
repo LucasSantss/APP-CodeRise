@@ -90,7 +90,11 @@ export function normalizeProduct(p) {
       sku: safeSku,
       price: parseFloat(v.price || p.price || 0),
       promotionalPrice: parseFloat(v.sale_price || v.promotional_price || p.promotional_price || 0),
-      weightInGrams: parseFloat(v.weight || v.weight_g || 0),
+      // A Suri exige weightInGrams como inteiro. A Olist retorna "weight" em
+      // quilos (ex: 0.5, 0.2) — convertemos pra gramas e arredondamos, senão
+      // a Suri rejeita o produto inteiro com HTTP 400 (Input string '0.2' is
+      // not a valid integer).
+      weightInGrams: Math.round(v.weight_g != null ? parseFloat(v.weight_g) : parseFloat(v.weight || 0) * 1000),
       dimensions: {
         heightInCm: parseFloat(v.height || v.height_cm || 0),
         widthInCm:  parseFloat(v.width  || v.width_cm  || 0),
