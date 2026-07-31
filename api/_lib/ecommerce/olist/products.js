@@ -17,6 +17,19 @@ function toAbsoluteUrl(url) {
   return url.startsWith("//") ? `https:${url}` : url;
 }
 
+// A Olist retorna cada item de "variants" embrulhado num objeto cuja única
+// chave é o id da variante: { "5117": { id: 5117, sku: "...", quantity: 4, ... } }.
+// Sem desembrulhar, v.sku/v.quantity/v.properties etc. ficam todos undefined
+// e caem nos fallbacks do produto (mesmo SKU pra todas as variantes, estoque
+// sempre 0, sem atributos). Também aceita o formato já plano, caso algum
+// endpoint (ex: /products/{id}/variants) retorne direto.
+function unwrapVariant(entry) {
+  if (!entry || typeof entry !== "object") return entry;
+  if ("id" in entry) return entry;
+  const values = Object.values(entry);
+  return values.length === 1 ? values[0] : entry;
+}
+
 /**
  * Busca o produto completo na API da Olist e normaliza.
  * Garante dados sempre atualizados, independente do que veio no webhook.
@@ -63,7 +76,7 @@ export function normalizeProduct(p) {
   // quando o produto vem da listagem.
   const fallbackImageUrl = toAbsoluteUrl(p.image_url);
 
-  const variants = (p.variants || []).map(v => {
+  const variants = (p.variants || []).map(unwrapVariant).map(v => {
     const rawSku = v.sku != null ? String(v.sku).trim() : "";
     const safeSku = rawSku && rawSku !== "null" && rawSku !== "undefined"
       ? rawSku
