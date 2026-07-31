@@ -34,6 +34,105 @@ function unwrapVariant(entry) {
   return values.length === 1 ? values[0] : entry;
 }
 
+// ─── Descrição: padroniza o texto da Olist em HTML pra Suri ──────────────────
+// A Olist retorna plain_description como texto plano com headers fixos
+// (Descrição/Medidas/Diferenciais de impacto, seguido da versão em inglês
+// depois de uma linha "[idioma]" com os mesmos headers traduzidos). A Suri
+// aceita HTML no campo description e é assim que a loja exibe corretamente.
+const PT_DESC_HEADERS = { title: "Descrição", measures: "Medidas", impact: "Diferenciais de impacto", more: "Saiba mais:" };
+const EN_DESC_HEADERS = { title: "Description", measures: "Sizing", impact: "Impact differences", more: "Find out more:" };
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderDescImpactLine(line) {
+  const pipeIdx = line.indexOf(" | ");
+  if (pipeIdx !== -1) {
+    const before = escapeHtml(line.slice(0, pipeIdx));
+    const after = escapeHtml(line.slice(pipeIdx + 3));
+    return `<li><strong>${before}</strong> | ${after}</li>`;
+  }
+  // Linhas em caixa alta (certificações, ex: "FEITO NO BRASIL") ficam em negrito;
+  // o restante (frases normais) fica sem formatação.
+  if (line === line.toUpperCase()) return `<li><strong>${escapeHtml(line)}</strong></li>`;
+  return `<li>${escapeHtml(line)}</li>`;
+}
+
+function renderDescMeasuresBlock(lines) {
+  if (lines.length <= 1) return `<p>${escapeHtml(lines[0] || "")}</p>`;
+  const items = lines.map(line => {
+    const m = line.match(/^(\S{1,4})\s*([-:])\s*(.*)$/);
+    if (m) return `<li><strong>${escapeHtml(m[1])}</strong> ${m[2]} ${escapeHtml(m[3])}</li>`;
+    return `<li>${escapeHtml(line)}</li>`;
+  });
+  return `<ul>\n    ${items.join("\n    ")}\n  </ul>`;
+}
+
+function renderDescTitleBlock(lines, compositionLabel) {
+  return lines.map(line => {
+    if (/^OBS:/i.test(line)) return `<p><em>${escapeHtml(line)}</em></p>`;
+    if (line.toLowerCase().startsWith(`${compositionLabel.toLowerCase()}:`)) {
+      const rest = line.slice(line.indexOf(":") + 1).trim();
+      return `<p><strong>${compositionLabel}:</strong> ${escapeHtml(rest)}</p>`;
+    }
+    return `<p>${escapeHtml(line)}</p>`;
+  }).join("\n  ");
+}
+
+function parseDescLanguageBlock(lines, headers) {
+  const idx = {};
+  lines.forEach((line, i) => {
+    const t = line.trim();
+    if (t === headers.title) idx.title = i;
+    else if (t === headers.measures) idx.measures = i;
+    else if (t === headers.impact) idx.impact = i;
+    else if (t === headers.more) idx.more = i;
+  });
+  if (idx.title == null || idx.measures == null || idx.impact == null) return null;
+
+  const titleLines    = lines.slice(idx.title + 1, idx.measures).map(l => l.trim()).filter(Boolean);
+  const measuresLines = lines.slice(idx.measures + 1, idx.impact).map(l => l.trim()).filter(Boolean);
+  const impactEnd     = idx.more != null ? idx.more : lines.length;
+  const impactLines   = lines.slice(idx.impact + 1, impactEnd).map(l => l.trim()).filter(Boolean);
+  const urlLine        = idx.more != null ? (lines.slice(idx.more + 1).map(l => l.trim()).find(Boolean) || "") : "";
+  const compositionLabel = headers.title === "Descrição" ? "Composição" : "Composition";
+
+  const html = [
+    `  <h2>${headers.title}</h2>`,
+    `  ${renderDescTitleBlock(titleLines, compositionLabel)}`,
+    `  <h2>${headers.measures}</h2>`,
+    `  ${renderDescMeasuresBlock(measuresLines)}`,
+    `  <h2>${headers.impact}</h2>`,
+    `  <ul>\n    ${impactLines.map(renderDescImpactLine).join("\n    ")}\n  </ul>`,
+  ];
+  if (urlLine) {
+    html.push(`  <p>${headers.more} <a href="${escapeHtml(urlLine)}" target="_blank" rel="noopener">${escapeHtml(urlLine)}</a></p>`);
+  }
+  return html.join("\n");
+}
+
+function buildDescriptionHtml(rawText) {
+  if (!rawText) return "";
+  const lines = String(rawText).replace(/\r\n/g, "\n").split("\n");
+  const langIdx = lines.findIndex(l => l.trim() === "[idioma]");
+  const ptLines = langIdx === -1 ? lines : lines.slice(0, langIdx);
+  const enLines = langIdx === -1 ? [] : lines.slice(langIdx + 1);
+
+  const ptBody = parseDescLanguageBlock(ptLines, PT_DESC_HEADERS);
+  // Texto não bate com o template esperado — não tenta adivinhar a
+  // estrutura, só envolve o texto puro em parágrafos.
+  if (!ptBody) {
+    const paragraphs = lines.map(l => l.trim()).filter(Boolean).map(l => `<p>${escapeHtml(l)}</p>`).join("\n");
+    return `<div class="descricao-produto">\n${paragraphs}\n</div>`;
+  }
+
+  const enBody = parseDescLanguageBlock(enLines, EN_DESC_HEADERS);
+  const parts = [`<div class="descricao-produto">\n${ptBody}\n</div>`];
+  if (enBody) parts.push(`<div class="product-description" lang="en">\n${enBody}\n</div>`);
+  return parts.join("\n\n");
+}
+
 /**
  * Busca o produto completo na API da Olist e normaliza.
  * Garante dados sempre atualizados, independente do que veio no webhook.
@@ -129,7 +228,7 @@ export function normalizeProduct(p) {
     id: String(p.id),
     sku: firstVariant.sku || p.reference || String(p.id),
     name: p.name || "",
-    description: (p.description || "").replace(/<[^>]+>/g, ""),
+    description: buildDescriptionHtml(p.plain_description || p.description || ""),
     categoryId,
     brand: p.brand || null,
     isActive: p.available === true || p.available === "true",
