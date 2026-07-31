@@ -193,23 +193,13 @@ export async function syncCatalogForIntegrationRow(row) {
 
       // DIAGNÓSTICO TEMPORÁRIO: confirma se o endpoint de listagem já retorna
       // images/variants completos (hipótese: pode vir só um resumo, causando
-      // produtos sem imagem/variante na Suri). Grava em user_webhooks para
-      // aparecer na tela de Logs. Remover após a investigação.
-      if (page === 1 && row.user_id) {
+      // produtos sem imagem/variante na Suri). Remover após a investigação.
+      if (page === 1) {
         const sample = batch[0] || {};
-        const diagnosticPayload = {
-          platform,
-          sample_keys: Object.keys(sample),
-          has_images: Array.isArray(sample.images),
-          images_count: Array.isArray(sample.images) ? sample.images.length : null,
-          has_variants: Array.isArray(sample.variants),
-          variants_count: Array.isArray(sample.variants) ? sample.variants.length : null,
-          raw_sample_truncated: JSON.stringify(sample).slice(0, 4000),
-        };
-        await pool.query(
-          `INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, $4, $5)`,
-          [row.user_id, "diagnostic.list_sample", JSON.stringify(diagnosticPayload), "received", "ecommerce"]
-        ).catch(() => {});
+        console.log(`[sync-catalog][diagnostic] platform=${platform} sample product keys:`, Object.keys(sample));
+        console.log(`[sync-catalog][diagnostic] has images=${Array.isArray(sample.images)} count=${sample.images?.length ?? "n/a"}`);
+        console.log(`[sync-catalog][diagnostic] has variants=${Array.isArray(sample.variants)} count=${sample.variants?.length ?? "n/a"}`);
+        console.log(`[sync-catalog][diagnostic] raw sample:`, JSON.stringify(sample).slice(0, 2000));
       }
 
       if (adapters.getVariantsFn) {
@@ -279,7 +269,6 @@ export async function handleSyncCatalog(req, res) {
 
   if (!row) return res.status(404).json({ success: false, message: "Integração não encontrada." });
 
-  row.user_id = caller.id;
   const result = await syncCatalogForIntegrationRow(row);
   const httpStatus = result.message && !result.summary ? 400 : 200;
   return res.status(httpStatus).json(result);

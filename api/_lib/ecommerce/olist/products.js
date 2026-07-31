@@ -56,6 +56,13 @@ export async function fetchAndNormalizeProduct(config, productId) {
 export function normalizeProduct(p) {
   const productImages = p.images || [];
 
+  // GET /products (listagem, usada na sincronização em lote) não retorna o
+  // array "images" — só um "image_url" único no nível do produto. GET
+  // /products/{id} (detalhe, usado no fluxo de webhook) retorna o array
+  // completo. Usamos p.image_url como fallback para não perder a imagem
+  // quando o produto vem da listagem.
+  const fallbackImageUrl = toAbsoluteUrl(p.image_url);
+
   const variants = (p.variants || []).map(v => {
     const rawSku = v.sku != null ? String(v.sku).trim() : "";
     const safeSku = rawSku && rawSku !== "null" && rawSku !== "undefined"
@@ -83,7 +90,7 @@ export function normalizeProduct(p) {
         name:  String(prop.name  || ""),
         value: String(prop.value || ""),
       })),
-      imageUrl: toAbsoluteUrl(v.image_url || linkedImage?.url),
+      imageUrl: toAbsoluteUrl(v.image_url || linkedImage?.url) || fallbackImageUrl,
     };
   });
 
@@ -108,10 +115,12 @@ export function normalizeProduct(p) {
     price: firstVariant.price || parseFloat(p.price || 0),
     promotionalPrice: firstVariant.promotionalPrice || parseFloat(p.promotional_price || 0),
     url: p.url || null,
-    images: (p.images || []).map(i => ({
-      url:         toAbsoluteUrl(i.url || i.src) || "",
-      description: i.alt  || null,
-    })),
+    images: productImages.length > 0
+      ? productImages.map(i => ({
+          url:         toAbsoluteUrl(i.url || i.src) || "",
+          description: i.alt  || null,
+        }))
+      : (fallbackImageUrl ? [{ url: fallbackImageUrl, description: null }] : []),
     weightInGrams: firstVariant.weightInGrams || 0,
     dimensions:    firstVariant.dimensions   || { heightInCm: 0, widthInCm: 0, lengthInCm: 0 },
     stock:         firstVariant.stock        || 0,
