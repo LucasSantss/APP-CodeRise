@@ -1,6 +1,7 @@
 import pool, { checkDb } from "./_lib/db.js";
 import { setCors } from "./_cors.js";
 import { requireAuth, requireAdmin } from "./_auth.js";
+import { notifyAdminIntegrationError } from "./_lib/error-webhook.js";
 import crypto from "crypto";
 // MELHORIA 7: hash de senha com bcryptjs
 import bcrypt from "bcryptjs";
@@ -69,7 +70,7 @@ export default async function handler(req, res) {
           try {
             const u = r.rows[0];
             await pool.query(`INSERT INTO notifications (type, title, message, target_role, target_user_id) VALUES ('status_change', 'Conta desativada', $1, 'user', $2)`, ['Sua conta foi desativada pelo administrador. Entre em contato com o suporte para mais informações.', u.id]);
-            await pool.query(`INSERT INTO notifications (type, title, message, target_role) VALUES ('integration_error', 'Usuário desativado', $1, 'admin')`, [`O usuário ${u.name} (${u.email}) foi desativado.`]);
+            await notifyAdminIntegrationError('Usuário desativado', `O usuário ${u.name} (${u.email}) foi desativado.`);
           } catch (_e) {}
         }
         return res.status(200).json({ success: true, message: "Usuário atualizado", user: r.rows[0] });

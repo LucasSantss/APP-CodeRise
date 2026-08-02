@@ -106,6 +106,14 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/error-webhook-settings",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/error-webhook-settings(.*)",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/sync-catalog",
       "destination": "/api/index.js"
     },

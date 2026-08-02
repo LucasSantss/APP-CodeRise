@@ -1,5 +1,6 @@
 import pool from "./db.js";
 import { requireAuth } from "../_auth.js";
+import { notifyAdminIntegrationError } from "./error-webhook.js";
 
 export async function handleTestSuri(req, res) {
   if (req.method !== "POST") { res.setHeader("Allow",["POST"]); return res.status(405).end(); }
@@ -23,8 +24,7 @@ export async function handleTestSuri(req, res) {
       const rawPlatform = intRow.rows[0]?.chatbot_platform || "suri";
       const PLATFORM_LABELS = { suri:"Suri", evolution_api:"Evolution API", kommo:"Kommo" };
       const platformLabel = PLATFORM_LABELS[rawPlatform] || rawPlatform;
-      await pool.query("INSERT INTO notifications (type, title, message, target_role) VALUES ('integration_error', $1, $2, 'admin')", [`Falha no teste de conexão — ${platformLabel}`, `Perfil: ${userName}\nPlataforma: ${platformLabel}\nURL: ${base?.hostname || endpoint}\nHorário: ${errorTime}\n\nDetalhe: ${errorMsg}`]);
-      await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
+      await notifyAdminIntegrationError(`Falha no teste de conexão — ${platformLabel}`, `Perfil: ${userName}\nPlataforma: ${platformLabel}\nURL: ${base?.hostname || endpoint}\nHorário: ${errorTime}\n\nDetalhe: ${errorMsg}`);
     } catch {}
   };
 

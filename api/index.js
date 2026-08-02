@@ -32,6 +32,7 @@ import { handleWebhook }          from "./_lib/webhook-receiver.js";
 import { handleRegisterWebhook, handleRegisterChatbotWebhook } from "./_lib/register-webhook.js";
 import { handleSyncCatalog }      from "./_lib/sync-catalog.js";
 import { handlePlatformSettings } from "./_lib/platform-settings.js";
+import { handleErrorWebhookSettings } from "./_lib/error-webhook.js";
 import { handleSetup }            from "./_lib/setup.js";
 import { handleTestSuri }         from "./_lib/test-suri.js";
 
@@ -68,6 +69,7 @@ export default async function handler(req, res) {
   if (path === "/register-chatbot-webhook" || path.startsWith("/register-chatbot-webhook?")) return handleRegisterChatbotWebhook(req, res);
   if (path === "/sync-catalog"      || path.startsWith("/sync-catalog?"))  return handleSyncCatalog(req, res);
   if (path === "/platform-settings" || path.startsWith("/platform-settings?")) return handlePlatformSettings(req, res);
+  if (path === "/error-webhook-settings" || path.startsWith("/error-webhook-settings?")) return handleErrorWebhookSettings(req, res);
   if (path === "/setup"             || path.startsWith("/setup?"))         return handleSetup(req, res);
   if (path === "/test-suri"         || path.startsWith("/test-suri?"))     return handleTestSuri(req, res);
   if (path === "/test-ecommerce"    || path.startsWith("/test-ecommerce?")) return handleTestEcommerce(req, res);

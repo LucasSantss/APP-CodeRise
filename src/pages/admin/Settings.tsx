@@ -4,10 +4,12 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, MessageSquare, ShoppingCart, Info } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Loader2, MessageSquare, ShoppingCart, Info, Webhook } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { getPlatformSettings, patchPlatformSettings } from '@/services/api';
+import { getPlatformSettings, patchPlatformSettings, getErrorWebhookSettings, patchErrorWebhookSettings } from '@/services/api';
 import { usePlatformSettingsStore, CHATBOT_PLATFORMS, ECOMMERCE_PLATFORMS } from '@/store/platformSettings';
 
 const CHATBOT_LABELS: Record<string, string> = {
@@ -33,6 +35,9 @@ const AdminSettings = () => {
   const [platforms, setPlatforms] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [webhookLoading, setWebhookLoading] = useState(true);
+  const [webhookSaving, setWebhookSaving] = useState(false);
   const { toast } = useToast();
   const { setSettings } = usePlatformSettingsStore();
 
@@ -48,7 +53,32 @@ const AdminSettings = () => {
     }
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadWebhook = useCallback(async () => {
+    setWebhookLoading(true);
+    try {
+      const res = await getErrorWebhookSettings();
+      setWebhookUrl(res.webhook_url || '');
+    } catch (err: unknown) {
+      toast({ title: 'Erro ao carregar webhook', description: err instanceof Error ? err.message : '', variant: 'destructive' });
+    } finally {
+      setWebhookLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => { load(); loadWebhook(); }, [load, loadWebhook]);
+
+  const handleSaveWebhook = async () => {
+    setWebhookSaving(true);
+    try {
+      const res = await patchErrorWebhookSettings(webhookUrl.trim());
+      setWebhookUrl(res.webhook_url || '');
+      toast({ title: '✅ Webhook salvo com sucesso' });
+    } catch (err: unknown) {
+      toast({ title: 'Erro ao salvar webhook', description: err instanceof Error ? err.message : '', variant: 'destructive' });
+    } finally {
+      setWebhookSaving(false);
+    }
+  };
 
   const isEnabled = (key: string) => platforms[key] !== false && platforms[key] !== "false"; // default true if not set
 
@@ -164,6 +194,43 @@ const AdminSettings = () => {
                   <PlatformRow key={key} platformKey={key} label={ECOMMERCE_LABELS[key]} />
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Webhook de erros */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center justify-center flex-shrink-0">
+                  <Webhook className="h-4.5 w-4.5 text-destructive" style={{ height: '1.05rem', width: '1.05rem' }} />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Webhook de Notificações de Erro</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Toda notificação de erro enviada aos admins também é disparada em JSON para esta URL
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {webhookLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    type="url"
+                    placeholder="https://seu-sistema.com/webhook"
+                    value={webhookUrl}
+                    onChange={(e) => setWebhookUrl(e.target.value)}
+                    disabled={webhookSaving}
+                  />
+                  <Button onClick={handleSaveWebhook} disabled={webhookSaving}>
+                    {webhookSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 

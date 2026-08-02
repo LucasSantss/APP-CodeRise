@@ -172,3 +172,14 @@ export const patchPlatformSettings = (platforms: Record<string, boolean>) =>
     '/platform-settings',
     { method: 'PATCH', body: JSON.stringify({ platforms }) }
   );
+
+// Webhook de notificações de erro (admin only) — repassa toda notificação de
+// erro enviada aos admins também para esta URL, em JSON.
+export const getErrorWebhookSettings = () =>
+  request<{ success: boolean; webhook_url: string | null }>('/error-webhook-settings');
+
+export const patchErrorWebhookSettings = (webhook_url: string) =>
+  request<{ success: boolean; webhook_url: string | null }>(
+    '/error-webhook-settings',
+    { method: 'PATCH', body: JSON.stringify({ webhook_url }) }
+  );

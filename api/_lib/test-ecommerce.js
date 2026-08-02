@@ -5,6 +5,7 @@
 import pool       from "./db.js";
 import { setCors }     from "../_cors.js";
 import { requireAuth } from "../_auth.js";
+import { notifyAdminIntegrationError } from "./error-webhook.js";
 
 const PLATFORM_LABELS = {
   shopify: "Shopify", woocommerce: "WooCommerce", nuvemshop: "Nuvemshop",
@@ -117,11 +118,10 @@ export default async function handler(req, res) {
       const errorTime = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
       const uRow = await pool.query("SELECT name FROM users WHERE id = $1", [caller.id]);
       const userName = uRow.rows[0]?.name || `ID ${caller.id}`;
-      await pool.query("INSERT INTO notifications (type, title, message, target_role) VALUES ('integration_error', $1, $2, 'admin')", [
+      await notifyAdminIntegrationError(
         `Falha no teste de conexão — ${platformLabel}`,
         `Perfil: ${userName}\nPlataforma: ${platformLabel} (E-commerce)\nHorário: ${errorTime}\n\nDetalhe: ${errorMsg}`,
-      ]);
-      await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
+      );
     } catch { /* silencioso */ }
   };
 
