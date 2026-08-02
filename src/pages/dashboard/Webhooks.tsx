@@ -227,33 +227,6 @@ const UserWebhooks = () => {
           </CardContent>
         </Card>
 
-      {/* Dados da Integração */}
-      <Card style={{ opacity: 0 }}>
-        <CardHeader><CardTitle>Dados da Integração</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-          ) : !integration ? (
-            <p className="text-center text-muted-foreground py-8">Nenhuma integração configurada</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>{INTEGRATION_FIELDS.map(({ label }) => <TableHead key={label}>{label}</TableHead>)}</TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  {INTEGRATION_FIELDS.map(({ key }) => (
-                    <TableCell key={key} className="text-sm text-muted-foreground font-mono break-all">
-                      {formatValue(key, (integration as any)[key])}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Eventos Recebidos */}
       <Card style={{ opacity: 0 }}>
         <CardHeader>
