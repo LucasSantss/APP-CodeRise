@@ -35,6 +35,7 @@ export async function handleSetup(req, res) {
     await pool.query(`ALTER TABLE user_webhooks ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'ecommerce'`).catch(()=>{});
     await pool.query(`CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, type VARCHAR(30) NOT NULL, title VARCHAR(100) NOT NULL, message TEXT NOT NULL, image_url TEXT, target_role VARCHAR(20) DEFAULT 'all', target_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, scheduled_at TIMESTAMP, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW());`);
     await pool.query(`CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, hidden BOOLEAN NOT NULL DEFAULT false, read_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (notification_id, user_id));`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS admin_webhook_settings (id SMALLINT PRIMARY KEY DEFAULT 1, webhook_url TEXT, updated_at TIMESTAMP NOT NULL DEFAULT NOW(), CONSTRAINT admin_webhook_settings_single_row CHECK (id = 1));`);
     const adminToken=crypto.randomBytes(32).toString("hex");
     await pool.query(`INSERT INTO users (name,email,password,role,token) VALUES ('Administrador','admin@plataforma.com','admin123','admin',$1) ON CONFLICT (email) DO NOTHING`,[adminToken]);
     const userToken=crypto.randomBytes(32).toString("hex");
@@ -43,6 +44,6 @@ export async function handleSetup(req, res) {
     if (testUser.rows[0]) { const wt=crypto.randomBytes(32).toString("hex"),ct=crypto.randomBytes(32).toString("hex"); await pool.query(`INSERT INTO user_integrations (user_id,webhook_token,chatbot_token) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO NOTHING`,[testUser.rows[0].id,wt,ct]); }
     const admin=await pool.query("SELECT id,email,token FROM users WHERE email='admin@plataforma.com'");
     const user=await pool.query("SELECT id,email,token FROM users WHERE email='teste@plataforma.com'");
-    return res.status(200).json({ success:true, message:"Tabelas criadas/migradas com sucesso!", tables:["users","user_integrations","sync_rules","user_webhooks","notifications","notification_reads"], seeds:{admin:admin.rows[0],user:user.rows[0]} });
+    return res.status(200).json({ success:true, message:"Tabelas criadas/migradas com sucesso!", tables:["users","user_integrations","sync_rules","user_webhooks","notifications","notification_reads","admin_webhook_settings"], seeds:{admin:admin.rows[0],user:user.rows[0]} });
   } catch (err) { return res.status(500).json({success:false,message:err.message}); }
 }
