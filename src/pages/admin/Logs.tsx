@@ -127,7 +127,7 @@ const AdminLogs = () => {
         <CardContent className="p-0">
           <div
             className="table-scroll-body"
-            style={{ height: '520px' }}
+            style={{ height: '69vh' }}
           >
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
