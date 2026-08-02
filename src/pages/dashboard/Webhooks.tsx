@@ -187,16 +187,9 @@ const UserWebhooks = () => {
               </Button>
             </div>
             <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">Documentação:</p>
-              <div className="grid grid-cols-2 gap-1">
-                {Object.entries(PLATFORM_DOCS).map(([name, url]) => (
-                  <Button key={name} variant="ghost" className="justify-start gap-1 h-7 text-xs px-2" asChild>
-                    <a href={url} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-2.5 w-2.5" /> {name}
-                    </a>
-                  </Button>
-                ))}
-              </div>
+             <p className="text-xs text-muted-foreground mt-1">
+              Configure no painel da Plataforma de E-commerce. Consulte a documentação da sua plataforma para mais detalhes.
+            </p>
             </div>
           </CardContent>
         </Card>
@@ -209,7 +202,7 @@ const UserWebhooks = () => {
               <CardTitle className="text-base">Webhook Chatbot</CardTitle>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Configure no painel da Suri ou plataforma de chatbot
+              Configure no painel da plataforma de chatbot
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
