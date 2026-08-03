@@ -253,15 +253,16 @@ export async function syncCatalogForIntegrationRow(row) {
   // Agrupa tudo numa notificação só por execução, em vez de uma por item, pra
   // não inundar o usuário quando muitos produtos falham na mesma sincronização.
   if (summary.errors > 0) {
-    const errorItems = allResults.filter(r => r.type === "error");
-    const preview = errorItems.slice(0, 5)
-      .map(e => `${e.entity === "product" ? "Produto" : "Categoria"} "${e.name || e.id}": ${e.message}`)
-      .join("\n");
-    const more = errorItems.length > 5 ? `\n... e mais ${errorItems.length - 5} erro(s).` : "";
+    let userName = row.user_id ? `ID ${row.user_id}` : "desconhecido";
+    try {
+      const uRow = await pool.query("SELECT name FROM users WHERE id = $1", [row.user_id]);
+      if (uRow.rows[0]) userName = uRow.rows[0].name;
+    } catch { /* mantém o fallback "ID {id}" */ }
+
     const title = `Sincronização com falhas — ${platform}`;
-    // Mensagem carrega o resumo completo (igual ao card "Resultado da
-    // sincronização" exibido na tela), não só a lista de erros.
-    const summaryText = [
+    // Mensagem traz só as quantidades do resumo (igual ao card "Resultado da
+    // sincronização" exibido na tela) — sem o texto técnico de cada erro.
+    const message = [
       `Loja Suri: #${resolvedStoreId || "—"}`,
       "",
       `Categorias criadas: ${summary.categories_created}`,
@@ -270,7 +271,6 @@ export async function syncCatalogForIntegrationRow(row) {
       `Produtos atualizados: ${summary.products_updated}`,
       `Erros: ${summary.errors}`,
     ].join("\n");
-    const message = `${summaryText}\n\nDetalhe dos erros:\n${preview}${more}`;
     try {
       if (row.user_id) {
         await pool.query(
@@ -281,10 +281,11 @@ export async function syncCatalogForIntegrationRow(row) {
       }
       // "extra" leva o resumo em campos estruturados pro payload do webhook
       // configurado em admin_webhook_settings, além do texto corrido.
-      await notifyAdminIntegrationError(title, `user_id: ${row.user_id || "desconhecido"}\n${message}`, {
+      await notifyAdminIntegrationError(title, `Perfil: ${userName}\n${message}`, {
         platform,
         storeId: resolvedStoreId,
         userId: row.user_id || null,
+        userName,
         summary,
       });
     } catch { /* notificação é best-effort — não pode quebrar a sincronização */ }
