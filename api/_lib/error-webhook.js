@@ -66,15 +66,19 @@ function dispatchErrorWebhook(payload) {
  * Usar sempre este helper (em vez de INSERT direto) para que nenhuma notificação
  * de erro deixe de ser encaminhada ao webhook.
  */
-export async function notifyAdminIntegrationError(title, message) {
+export async function notifyAdminIntegrationError(title, message, extra = {}) {
   // Disparado imediatamente, em paralelo com a gravação no banco — não depende
-  // do INSERT/RETURNING nem do pg_notify para sair.
+  // do INSERT/RETURNING nem do pg_notify para sair. "extra" carrega dados
+  // estruturados (ex: resumo da sincronização) além do texto, pra quem
+  // consome o webhook (Slack, monitoramento externo) não precisar reparsear
+  // a mensagem.
   dispatchErrorWebhook({
     type: "integration_error",
     title,
     message,
     target_role: "admin",
     created_at: new Date().toISOString(),
+    ...extra,
   });
 
   try {

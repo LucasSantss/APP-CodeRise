@@ -259,7 +259,18 @@ export async function syncCatalogForIntegrationRow(row) {
       .join("\n");
     const more = errorItems.length > 5 ? `\n... e mais ${errorItems.length - 5} erro(s).` : "";
     const title = `Sincronização com falhas — ${platform}`;
-    const message = `${summary.errors} item(ns) falharam ao sincronizar com a Suri.\n\n${preview}${more}`;
+    // Mensagem carrega o resumo completo (igual ao card "Resultado da
+    // sincronização" exibido na tela), não só a lista de erros.
+    const summaryText = [
+      `Loja Suri: #${resolvedStoreId || "—"}`,
+      "",
+      `Categorias criadas: ${summary.categories_created}`,
+      `Categorias atualizadas: ${summary.categories_updated}`,
+      `Produtos criados: ${summary.products_created}`,
+      `Produtos atualizados: ${summary.products_updated}`,
+      `Erros: ${summary.errors}`,
+    ].join("\n");
+    const message = `${summaryText}\n\nDetalhe dos erros:\n${preview}${more}`;
     try {
       if (row.user_id) {
         await pool.query(
@@ -268,7 +279,14 @@ export async function syncCatalogForIntegrationRow(row) {
         );
         await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
       }
-      await notifyAdminIntegrationError(title, `user_id: ${row.user_id || "desconhecido"}\nPlataforma: ${platform}\n\n${message}`);
+      // "extra" leva o resumo em campos estruturados pro payload do webhook
+      // configurado em admin_webhook_settings, além do texto corrido.
+      await notifyAdminIntegrationError(title, `user_id: ${row.user_id || "desconhecido"}\n${message}`, {
+        platform,
+        storeId: resolvedStoreId,
+        userId: row.user_id || null,
+        summary,
+      });
     } catch { /* notificação é best-effort — não pode quebrar a sincronização */ }
   }
 
