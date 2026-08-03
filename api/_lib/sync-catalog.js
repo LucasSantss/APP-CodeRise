@@ -1,5 +1,6 @@
 import pool from "./db.js";
 import { requireAuth } from "../_auth.js";
+import { notifyAdminIntegrationError } from "./error-webhook.js";
 
 const SUPPORTED_PLATFORMS = ["nuvemshop", "olist", "shopify", "woocommerce", "tray", "vtex"];
 
@@ -247,6 +248,30 @@ export async function syncCatalogForIntegrationRow(row) {
 
   const hasSuccess = (summary.categories_created + summary.categories_updated + summary.products_created + summary.products_updated) > 0;
 
+  // Notifica sobre falhas na sincronização — mesmo padrão usado pra erros de
+  // webhook (uma notificação pro usuário dono da integração + uma pro admin).
+  // Agrupa tudo numa notificação só por execução, em vez de uma por item, pra
+  // não inundar o usuário quando muitos produtos falham na mesma sincronização.
+  if (summary.errors > 0) {
+    const errorItems = allResults.filter(r => r.type === "error");
+    const preview = errorItems.slice(0, 5)
+      .map(e => `${e.entity === "product" ? "Produto" : "Categoria"} "${e.name || e.id}": ${e.message}`)
+      .join("\n");
+    const more = errorItems.length > 5 ? `\n... e mais ${errorItems.length - 5} erro(s).` : "";
+    const title = `Sincronização com falhas — ${platform}`;
+    const message = `${summary.errors} item(ns) falharam ao sincronizar com a Suri.\n\n${preview}${more}`;
+    try {
+      if (row.user_id) {
+        await pool.query(
+          "INSERT INTO notifications (type, title, message, target_role, target_user_id) VALUES ('error', $1, $2, 'user', $3)",
+          [title, message, row.user_id]
+        );
+        await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
+      }
+      await notifyAdminIntegrationError(title, `user_id: ${row.user_id || "desconhecido"}\nPlataforma: ${platform}\n\n${message}`);
+    } catch { /* notificação é best-effort — não pode quebrar a sincronização */ }
+  }
+
   return {
     success: hasSuccess,
     message: `Sincronização concluída: ${summary.categories_created + summary.categories_updated} categoria(s), ${summary.products_created + summary.products_updated} produto(s)${summary.errors > 0 ? `, ${summary.errors} erro(s)` : ""}.`,
@@ -269,6 +294,7 @@ export async function handleSyncCatalog(req, res) {
 
   if (!row) return res.status(404).json({ success: false, message: "Integração não encontrada." });
 
+  row.user_id = caller.id;
   const result = await syncCatalogForIntegrationRow(row);
   const httpStatus = result.message && !result.summary ? 400 : 200;
   return res.status(httpStatus).json(result);
