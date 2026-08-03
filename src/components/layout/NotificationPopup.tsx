@@ -31,7 +31,11 @@ function typeBadgeLabel(type: Notification['type']) {
   }
 }
 
-function stripTechnicalNoise(msg: string): string {
+function stripTechnicalNoise(msg: string, isSummary = false): string {
+  // Resumos de sincronização (contagens + lista de erros) já vêm formatados
+  // do backend — não tenta extrair "1 erro amigável" e descartar o resto.
+  if (isSummary) return msg;
+
   // Se parecer mensagem técnica de erro de API, traduz
   if (
     msg.includes('HTTP ') ||
@@ -135,7 +139,7 @@ const NotificationPopup = () => {
     : isStatus  ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
     : 'bg-primary/10 text-primary';
 
-  const cleanMessage = stripTechnicalNoise(current.message);
+  const cleanMessage = stripTechnicalNoise(current.message, current.title.startsWith('Sincronização com falhas'));
 
   return (
     <div
@@ -199,7 +203,7 @@ const NotificationPopup = () => {
                   </p>
                 );
               }
-              const isLabel = /^(Perfil|Plataforma|Evento|Horário|URL|Detalhe):/.test(line);
+              const isLabel = /^(Perfil|Plataforma|Evento|Horário|URL|Detalhe|Loja Suri|Categorias criadas|Categorias atualizadas|Produtos criados|Produtos atualizados|Erros):/.test(line);
               if (isLabel) {
                 const colonIdx = line.indexOf(':');
                 const label = line.slice(0, colonIdx);

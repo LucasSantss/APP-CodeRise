@@ -37,12 +37,13 @@ async function getCachedErrorWebhookUrl() {
   return cachedWebhookUrl;
 }
 
-// Dispara o webhook configurado com o payload em JSON. Fire-and-forget: quem chama
-// não aguarda esta função (nem sua busca de URL, nem a requisição HTTP em si) —
-// uma falha ou lentidão no webhook do admin não pode atrasar nem quebrar o fluxo
-// que gerou o erro.
-function dispatchErrorWebhook(payload) {
-  (async () => {
+// Dispara o webhook configurado com o payload em JSON. Roda em paralelo com a
+// gravação no banco (Promise.all em notifyAdminIntegrationError), mas PRECISA
+// ser aguardado até o fim pelo chamador — em ambiente serverless (Vercel), uma
+// promise não aguardada pode ser interrompida assim que a função retorna a
+// resposta, então "fire-and-forget" de fato perdia o disparo do webhook.
+async function dispatchErrorWebhook(payload) {
+  try {
     const url = await getCachedErrorWebhookUrl();
     if (!url) return;
     const controller = new AbortController();
@@ -57,22 +58,22 @@ function dispatchErrorWebhook(payload) {
     } finally {
       clearTimeout(timeout);
     }
-  })().catch(err => console.error("[error-webhook] Falha ao disparar webhook:", err.message));
+  } catch (err) {
+    console.error("[error-webhook] Falha ao disparar webhook:", err.message);
+  }
 }
 
 /**
- * Cria uma notificação de erro de integração para os admins e, em paralelo
- * (sem aguardar), repassa o mesmo evento para o webhook configurado em JSON.
- * Usar sempre este helper (em vez de INSERT direto) para que nenhuma notificação
- * de erro deixe de ser encaminhada ao webhook.
+ * Cria uma notificação de erro de integração para os admins e repassa o mesmo
+ * evento para o webhook configurado em JSON. Usar sempre este helper (em vez
+ * de INSERT direto) para que nenhuma notificação de erro deixe de ser
+ * encaminhada ao webhook.
  */
 export async function notifyAdminIntegrationError(title, message, extra = {}) {
-  // Disparado imediatamente, em paralelo com a gravação no banco — não depende
-  // do INSERT/RETURNING nem do pg_notify para sair. "extra" carrega dados
-  // estruturados (ex: resumo da sincronização) além do texto, pra quem
-  // consome o webhook (Slack, monitoramento externo) não precisar reparsear
-  // a mensagem.
-  dispatchErrorWebhook({
+  // "extra" carrega dados estruturados (ex: resumo da sincronização) além do
+  // texto, pra quem consome o webhook (Slack, monitoramento externo) não
+  // precisar reparsear a mensagem.
+  const webhookPromise = dispatchErrorWebhook({
     type: "integration_error",
     title,
     message,
@@ -81,12 +82,16 @@ export async function notifyAdminIntegrationError(title, message, extra = {}) {
     ...extra,
   });
 
-  try {
+  const dbPromise = (async () => {
     await pool.query(
       "INSERT INTO notifications (type, title, message, target_role) VALUES ('integration_error', $1, $2, 'admin')",
       [title, message]
     );
     await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
+  })();
+
+  try {
+    await Promise.all([webhookPromise, dbPromise]);
   } catch (err) {
     console.error("[error-webhook] Falha ao criar notificação de erro:", err.message);
   }
