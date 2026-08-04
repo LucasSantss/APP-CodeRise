@@ -56,9 +56,49 @@ function normalizeTray(payload) {
   const order=payload.Order||payload.order||payload;
   return { eventType, orderId:String(order.id||order.Id||order.order_id||""), paymentTracking:order.payment?.payment_method||order.PaymentMethod||"", logisticStatus:order.status||order.Status||"shipped", totalAmount:parseFloat(order.total||order.Total||0), items:(order.ProductsSold||order.products||order.items||[]).map(i=>({productId:String(i.Product?.id||i.product_id||i.id),sku:String(i.Product?.reference||i.sku||i.id),name:i.Product?.name||i.name,quantity:parseInt(i.quantity||i.Quantity||1),unitPrice:parseFloat(i.price||i.Price||0),discount:parseFloat(i.discount||i.Discount||0),sellerId:"all"})), shipping:{provider:order.shipping?.carrier||order.Carrier||"Entrega",type:1,price:parseFloat(order.shipping?.cost||order.ShippingCost||0),estimative:"5 dias úteis"} };
 }
+// A Olist (Vnda) não manda o nome do evento no corpo do webhook — usamos o
+// mesmo link para todos os eventos, então o tipo precisa ser inferido pelo
+// formato do payload (confirmado com exemplos reais de produção):
+//  - pedido:  { order: {...} } — o estágio real está em order.status
+//             ("confirmed" etc.) e nos timestamps confirmed_at/shipped_at/
+//             canceled_at/paid_at.
+//  - estoque: array de itens com { sku, quantity, inventories }.
+//  - preço:   array de itens com { sku, price } (sem quantity).
+//  - produto: a Olist manda só { id } no webhook — não há como diferenciar
+//             "ativado" de "alterado" pelo corpo; ambos caem em "product_changed".
+function classifyOlistTopic(payload) {
+  if (Array.isArray(payload)) {
+    const first = payload[0] || {};
+    if ("price" in first && !("quantity" in first)) return "prices_changed";
+    if ("quantity" in first || "inventories" in first) return "stocks_changed";
+    return "";
+  }
+  if (payload && typeof payload === "object" && payload.order) {
+    const o = payload.order;
+    const status = String(o.status || "").toLowerCase();
+    if (o.canceled_at || status.includes("cancel")) return "order_canceled";
+    if (o.shipped_at || o.tracking_code || status.includes("ship") || status.includes("sent")) return "order_sent";
+    if (o.confirmed_at || o.paid_at || status.includes("confirm") || status.includes("paid")) return "order_confirmed";
+    return "order_received";
+  }
+  if (payload && typeof payload === "object" && payload.id !== undefined) return "product_changed";
+  return "";
+}
+
+const OLIST_DISPLAY_LABELS = {
+  order_received:    "order-received",
+  order_confirmed:   "order-confirmed",
+  order_sent:         "order-sent",
+  order_canceled:     "order-canceled",
+  product_activated: "product-activated",
+  product_changed:    "product-changed",
+  prices_changed:      "prices-changed",
+  stocks_changed:      "stocks-changed",
+};
+
 function normalizeOlist(payload) {
   const rawTopic = payload.event || payload.topic || payload.type || "";
-  const topic = String(rawTopic).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const topic = String(rawTopic).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || classifyOlistTopic(payload);
   const statusMap = {
     "order_paid":       "order.created",
     "order_created":    "order.created",
@@ -75,18 +115,25 @@ function normalizeOlist(payload) {
     "product_updated":  "product.sync",
     "product_activated": "product.sync",
     "product_changed":  "product.sync",
-    "prices_changed":   "product.sync",
-    "stocks_changed":   "product.sync",
+    // Estoque/preço chegam como array de itens, não como objeto de produto —
+    // não são compatíveis com o fluxo de sync de produto (processProductSync).
+    // Ficam sem case no switch de processamento: registram e exibem o tipo
+    // certo, mas não disparam ação automática na Suri.
+    "prices_changed":   "product.price_changed",
+    "stocks_changed":   "product.stock_changed",
     "product_deleted":  "product.deleted",
     "tag_created":      "category.sync",
     "tag_updated":      "category.sync",
     "tag_deleted":      "category.deleted",
   };
   const eventType = statusMap[topic] || topic || rawTopic;
-  const displayEventType = rawTopic || eventType;
+  const displayEventType = OLIST_DISPLAY_LABELS[topic] || rawTopic || eventType;
   if (eventType === "product.sync" || eventType === "product.deleted") {
     const p = payload.product || payload;
     return { eventType, displayEventType, product: p };
+  }
+  if (eventType === "product.price_changed" || eventType === "product.stock_changed") {
+    return { eventType, displayEventType, items: Array.isArray(payload) ? payload : [] };
   }
   const order = payload.order || payload;
   return {
@@ -460,11 +507,18 @@ export async function handleWebhook(req, res) {
 
   let rawPayload = req.body || {};
 
-  // Algumas plataformas (ex: Olist/Vnda) não enviam o nome do evento no corpo do
-  // webhook — o evento é definido pela URL cadastrada no painel da loja (uma URL
-  // por evento, veja registerOlist). Usa o parâmetro ?event= como fallback.
-  if (!rawPayload.event && !rawPayload.topic && !rawPayload.type && (req.query.event || req.query.topic)) {
-    rawPayload = { ...rawPayload, event: String(req.query.event || req.query.topic) };
+  // Olist: o webhook de produto manda só { id } — busca o produto completo
+  // (com variantes) antes de normalizar, senão o sync envia um produto vazio.
+  if (ecommerce_platform === "olist" && classifyOlistTopic(rawPayload) === "product_changed" && rawPayload.id && !rawPayload.name) {
+    try {
+      const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [user_id]);
+      const { store_url, access_token } = intRow.rows[0]?.ecommerce_config || {};
+      if (store_url && access_token) {
+        const { getProduct } = await import("./ecommerce/olist/client.js");
+        const full = await getProduct(store_url, access_token, rawPayload.id);
+        if (full) rawPayload = { ...rawPayload, ...full };
+      }
+    } catch {}
   }
 
   // Nuvemshop: busca dados completos + variantes atualizadas

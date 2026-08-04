@@ -91,9 +91,9 @@ async function registerOlist(config, webhookUrl) {
     throw new Error("store_url e access_token são obrigatórios");
 
   // A Olist (Vnda) não tem API pública de registro de webhooks e não envia o nome
-  // do evento no corpo da requisição — cada evento é cadastrado como uma URL
-  // separada no painel admin. Por isso geramos uma URL por evento (com ?event=...)
-  // para que o backend saiba identificar o tipo ao receber o payload.
+  // do evento no corpo da requisição. Usa-se uma única URL para todos os eventos;
+  // o tipo é inferido pelo formato do payload (ver classifyOlistTopic em
+  // webhook-receiver.js) em vez de depender da URL cadastrada.
   const events = [
     "order-received", "order-confirmed", "order-sent", "order-canceled",
     "product-activated", "product-changed", "prices-changed", "stocks-changed",
@@ -102,8 +102,8 @@ async function registerOlist(config, webhookUrl) {
   return {
     success: true,
     manual:  true,
-    message: `A Olist não possui API pública de registro de webhooks. Configure manualmente no painel admin (Configurações → Integrações → API → Webhooks), colando a URL correspondente para cada evento abaixo.`,
-    details: events.map(event => ({ event, status: "manual", url: `${webhookUrl}&event=${event}` })),
+    message: `A Olist não possui API pública de registro de webhooks. Configure manualmente no painel admin (Configurações → Integrações → API → Webhooks), colando a URL abaixo para os eventos: ${events.join(", ")}.`,
+    details: events.map(event => ({ event, status: "manual" })),
   };
 }
 
