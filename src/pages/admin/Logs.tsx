@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeVariant } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectSeparator } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Loader2, RefreshCw, Eye } from 'lucide-react';
@@ -103,6 +103,16 @@ const AdminLogs = () => {
                 <SelectItem value="order.cancelled">Pedido Cancelado</SelectItem>
                 <SelectItem value="cart.abandoned">Carrinho Abandonado</SelectItem>
                 <SelectItem value="customer.created">Cliente Criado</SelectItem>
+                <SelectSeparator />
+                <SelectLabel>Olist</SelectLabel>
+                <SelectItem value="order-received">order-received</SelectItem>
+                <SelectItem value="order-confirmed">order-confirmed</SelectItem>
+                <SelectItem value="order-sent">order-sent</SelectItem>
+                <SelectItem value="order-canceled">order-canceled</SelectItem>
+                <SelectItem value="product-activated">product-activated</SelectItem>
+                <SelectItem value="product-changed">product-changed</SelectItem>
+                <SelectItem value="prices-changed">prices-changed</SelectItem>
+                <SelectItem value="stocks-changed">stocks-changed</SelectItem>
               </SelectContent>
             </Select>
 

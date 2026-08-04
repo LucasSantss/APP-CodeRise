@@ -460,6 +460,13 @@ export async function handleWebhook(req, res) {
 
   let rawPayload = req.body || {};
 
+  // Algumas plataformas (ex: Olist/Vnda) não enviam o nome do evento no corpo do
+  // webhook — o evento é definido pela URL cadastrada no painel da loja (uma URL
+  // por evento, veja registerOlist). Usa o parâmetro ?event= como fallback.
+  if (!rawPayload.event && !rawPayload.topic && !rawPayload.type && (req.query.event || req.query.topic)) {
+    rawPayload = { ...rawPayload, event: String(req.query.event || req.query.topic) };
+  }
+
   // Nuvemshop: busca dados completos + variantes atualizadas
   if (ecommerce_platform === "nuvemshop" && rawPayload.id && rawPayload.event) {
     try {
