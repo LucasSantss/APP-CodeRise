@@ -177,9 +177,7 @@ function toSuriFormat(product, storeId) {
  * @param {Map<string,string>|null} categoryIdMap - mapa nuvemshop_id → suri_id para categorias.
  */
 export async function syncProduct(endpoint, token, product, resolvedStoreId = null, categoryIdMap = null) {
-  // Always fetch the real Suri store ID from the API — the mapping's chatbotStoreId
-  // may be stale or wrong. getFirstStoreId is cached per execution context.
-  const storeId = await getFirstStoreId(endpoint, token) || resolvedStoreId;
+  const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token);
   if (!storeId) throw new Error("Nenhuma loja encontrada na Suri — configure uma loja antes de sincronizar produtos.");
 
   // Resolve o categoryId para o ID interno da Suri.

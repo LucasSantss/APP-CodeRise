@@ -217,7 +217,7 @@ export async function syncCatalogForIntegrationRow(row) {
     allResults = [];
     const categoryIdMap = new Map();
 
-  async function runConcurrent(items, fn, concurrency = 5) {
+  async function runConcurrent(items, fn, concurrency = 8) {
     const chunks = [];
     for (let i = 0; i < items.length; i += concurrency) chunks.push(items.slice(i, i + concurrency));
     for (const chunk of chunks) await Promise.all(chunk.map(fn));
@@ -235,7 +235,7 @@ export async function syncCatalogForIntegrationRow(row) {
       } catch (err) {
         allResults.push({ type: "error", entity: "category", id: String(cat.id), name: cat.name, storeId: resolvedStoreId, message: err.message });
       }
-    }, 5);
+    }, 8);
   } catch (err) {
     allResults.push({ type: "error", entity: "category", message: err.message });
   }
@@ -286,7 +286,7 @@ export async function syncCatalogForIntegrationRow(row) {
             const variants = await adapters.getVariantsFn(p.id || p.Id);
             if (Array.isArray(variants) && variants.length > 0) p._fetchedVariants = variants;
           } catch { /* mantém variants já presentes no produto, se houver */ }
-        }, 5);
+        }, 4);
       }
 
       for (const raw of batch) allRawProducts.push(raw);
@@ -311,7 +311,7 @@ export async function syncCatalogForIntegrationRow(row) {
       const nameStr = typeof rawName === 'string' ? rawName : (rawName?.pt || rawName?.es || rawName?.en || Object.values(rawName || {})[0] || String(raw.id || raw.Id));
       allResults.push({ type: "error", entity: "product", id: String(raw.id || raw.Id), name: nameStr, storeId: resolvedStoreId, message: err.message });
     }
-  }, 10);
+  }, 6);
 
   const summary = {
     categories_created: allResults.filter(r => r.type === "category_created").length,
