@@ -85,6 +85,15 @@ function classifyOlistTopic(payload) {
   return "";
 }
 
+// Resolve o tópico do evento Olist: prioriza o nome vindo da URL cadastrada
+// (?event=..., uma por evento — ver registerOlist) e só cai para a inferência
+// pelo formato do payload (classifyOlistTopic) se a URL não informar o evento.
+function resolveOlistTopic(payload) {
+  const rawTopic = payload.event || payload.topic || payload.type || "";
+  const topic = String(rawTopic).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return { rawTopic, topic: topic || classifyOlistTopic(payload) };
+}
+
 const OLIST_DISPLAY_LABELS = {
   order_received:    "order-received",
   order_confirmed:   "order-confirmed",
@@ -97,8 +106,7 @@ const OLIST_DISPLAY_LABELS = {
 };
 
 function normalizeOlist(payload) {
-  const rawTopic = payload.event || payload.topic || payload.type || "";
-  const topic = String(rawTopic).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || classifyOlistTopic(payload);
+  const { rawTopic, topic } = resolveOlistTopic(payload);
   const statusMap = {
     "order_paid":       "order.created",
     "order_created":    "order.created",
@@ -507,18 +515,29 @@ export async function handleWebhook(req, res) {
 
   let rawPayload = req.body || {};
 
+  // Olist: um link por evento (uma URL com ?event=... cadastrada para cada
+  // evento no painel admin — ver registerOlist). Isso é essencial para
+  // product-activated x product-changed, que chegam com o mesmo corpo
+  // (só { id }) e não têm nenhum outro campo que os diferencie.
+  if (ecommerce_platform === "olist" && !rawPayload.event && !rawPayload.topic && !rawPayload.type && req.query.event) {
+    rawPayload = { ...rawPayload, event: String(req.query.event) };
+  }
+
   // Olist: o webhook de produto manda só { id } — busca o produto completo
   // (com variantes) antes de normalizar, senão o sync envia um produto vazio.
-  if (ecommerce_platform === "olist" && classifyOlistTopic(rawPayload) === "product_changed" && rawPayload.id && !rawPayload.name) {
-    try {
-      const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [user_id]);
-      const { store_url, access_token } = intRow.rows[0]?.ecommerce_config || {};
-      if (store_url && access_token) {
-        const { getProduct } = await import("./ecommerce/olist/client.js");
-        const full = await getProduct(store_url, access_token, rawPayload.id);
-        if (full) rawPayload = { ...rawPayload, ...full };
-      }
-    } catch {}
+  if (ecommerce_platform === "olist") {
+    const { topic: _olistTopic } = resolveOlistTopic(rawPayload);
+    if ((_olistTopic === "product_activated" || _olistTopic === "product_changed") && rawPayload.id && !rawPayload.name) {
+      try {
+        const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [user_id]);
+        const { store_url, access_token } = intRow.rows[0]?.ecommerce_config || {};
+        if (store_url && access_token) {
+          const { getProduct } = await import("./ecommerce/olist/client.js");
+          const full = await getProduct(store_url, access_token, rawPayload.id);
+          if (full) rawPayload = { ...rawPayload, ...full };
+        }
+      } catch {}
+    }
   }
 
   // Nuvemshop: busca dados completos + variantes atualizadas

@@ -239,6 +239,11 @@ const EcommerceConfig = () => {
     if (webhookUrl) { navigator.clipboard.writeText(webhookUrl); toast({ title: 'URL copiada!' }); }
   };
 
+  const copyText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: 'URL copiada!' });
+  };
+
   const containerRef = useGsapStagger<HTMLDivElement>([loading], { stagger: 0.1, y: 20, delay: 0.05 });
 
   if (loading) {
@@ -529,6 +534,19 @@ const EcommerceConfig = () => {
                           )}
                           {d.status === 'wrong_url' && d.url && (
                             <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-0.5 break-all">registrado em: {d.url}</p>
+                          )}
+                          {isManual && d.url && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <code className="flex-1 text-xs bg-muted rounded px-1.5 py-1 break-all">{d.url}</code>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                onClick={() => copyText(d.url as string)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
                           )}
                         </div>
                       );
