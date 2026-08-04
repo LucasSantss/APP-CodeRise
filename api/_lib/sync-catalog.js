@@ -4,6 +4,53 @@ import { notifyAdminIntegrationError } from "./error-webhook.js";
 
 const SUPPORTED_PLATFORMS = ["nuvemshop", "olist", "shopify", "woocommerce", "tray", "vtex"];
 
+async function notifySyncFailure(row, platform, message, extra = {}) {
+  let userName = row.user_id ? `ID ${row.user_id}` : "desconhecido";
+  try {
+    const uRow = await pool.query("SELECT name FROM users WHERE id = $1", [row.user_id]);
+    if (uRow.rows[0]) userName = uRow.rows[0].name;
+  } catch { /* mantém o fallback */ }
+
+  const title = `Sincronização com falhas — ${platform || "integração"}`;
+  const detailLines = [
+    `Loja Suri: #${extra.resolvedStoreId || "—"}`,
+    "",
+    `Motivo: ${message}`,
+  ];
+
+  if (extra.summary) {
+    detailLines.push(
+      "",
+      `Categorias criadas: ${extra.summary.categories_created}`,
+      `Categorias atualizadas: ${extra.summary.categories_updated}`,
+      `Produtos criados: ${extra.summary.products_created}`,
+      `Produtos atualizados: ${extra.summary.products_updated}`,
+      `Erros: ${extra.summary.errors}`,
+    );
+  }
+
+  const notificationMessage = detailLines.join("\n");
+
+  try {
+    if (row.user_id) {
+      await pool.query(
+        "INSERT INTO notifications (type, title, message, target_role, target_user_id) VALUES ('error', $1, $2, 'user', $3)",
+        [title, notificationMessage, row.user_id]
+      );
+      await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
+    }
+
+    await notifyAdminIntegrationError(title, `Perfil: ${userName}\n${notificationMessage}`, {
+      platform,
+      storeId: extra.resolvedStoreId || null,
+      userId: row.user_id || null,
+      userName,
+      summary: extra.summary || null,
+      errorMessage: message,
+    });
+  } catch { /* notificação é best-effort — não pode quebrar a sincronização */ }
+}
+
 /**
  * Cada plataforma tem uma assinatura de credenciais diferente.
  * Esta função resolve os adaptadores corretos (listProducts, getVariants,
@@ -116,31 +163,59 @@ export async function syncCatalogForIntegrationRow(row) {
   const chatbotCfg = row.chatbot_config || {};
   const suriEndpoint = chatbotCfg.endpoint || row.suri_endpoint || null;
   const suriToken    = chatbotCfg.token    || row.suri_token    || null;
-
-  if (!platform || !SUPPORTED_PLATFORMS.includes(platform))
-    return { success: false, message: `Sincronização ainda não disponível para ${platform || "(nenhuma plataforma)"}.` };
-  if (!suriEndpoint || !suriToken)
-    return { success: false, message: "Chatbot (Suri) não configurado." };
-
-  const adapters = await resolvePlatformAdapters(platform, ecommerceConfig);
-  if (!adapters) return { success: false, message: `Sincronização ainda não disponível para ${platform}.` };
-  if (!adapters.storeKeyValid) return { success: false, message: "E-commerce não configurado corretamente — credenciais ausentes." };
-  if (platform === "vtex") return { success: false, message: "Sincronização em lote da VTEX ainda não disponível — utilize o fluxo de webhooks para sincronização incremental por produto." };
-
-  const { syncProduct } = await import("./chatbot/suri/products.js");
-  const { syncCategory, listCategories } = await import("./chatbot/suri/categories.js");
-
-  // Resolve store mapping: ecommerce store_id → suri storeId
   let resolvedStoreId = null;
-  try {
-    const mappings = ecommerceConfig._store_mappings ? JSON.parse(ecommerceConfig._store_mappings) : [];
-    const storeKeyForMapping = ecommerceConfig.store_id || ecommerceConfig.store_url || ecommerceConfig.account_name || "";
-    const match = mappings.find(m => String(m.ecommerceStoreId) === String(storeKeyForMapping));
-    if (match) resolvedStoreId = String(match.chatbotStoreId);
-  } catch { /* sem mapeamento */ }
+  let allResults = [];
 
-  const allResults = [];
-  const categoryIdMap = new Map();
+  const emptySummary = {
+    categories_created: 0,
+    categories_updated: 0,
+    products_created: 0,
+    products_updated: 0,
+    errors: 1,
+  };
+
+  try {
+    if (!platform || !SUPPORTED_PLATFORMS.includes(platform)) {
+      const message = `Sincronização ainda não disponível para ${platform || "(nenhuma plataforma)"}.`;
+      await notifySyncFailure(row, platform, message, { resolvedStoreId, summary: emptySummary });
+      return { success: false, message, summary: emptySummary, results: [{ type: "error", entity: "sync", message }], resolvedStoreId, platform };
+    }
+    if (!suriEndpoint || !suriToken) {
+      const message = "Chatbot (Suri) não configurado.";
+      await notifySyncFailure(row, platform, message, { resolvedStoreId, summary: emptySummary });
+      return { success: false, message, summary: emptySummary, results: [{ type: "error", entity: "sync", message }], resolvedStoreId, platform };
+    }
+
+    const adapters = await resolvePlatformAdapters(platform, ecommerceConfig);
+    if (!adapters) {
+      const message = `Sincronização ainda não disponível para ${platform}.`;
+      await notifySyncFailure(row, platform, message, { resolvedStoreId, summary: emptySummary });
+      return { success: false, message, summary: emptySummary, results: [{ type: "error", entity: "sync", message }], resolvedStoreId, platform };
+    }
+    if (!adapters.storeKeyValid) {
+      const message = "E-commerce não configurado corretamente — credenciais ausentes.";
+      await notifySyncFailure(row, platform, message, { resolvedStoreId, summary: emptySummary });
+      return { success: false, message, summary: emptySummary, results: [{ type: "error", entity: "sync", message }], resolvedStoreId, platform };
+    }
+    if (platform === "vtex") {
+      const message = "Sincronização em lote da VTEX ainda não disponível — utilize o fluxo de webhooks para sincronização incremental por produto.";
+      await notifySyncFailure(row, platform, message, { resolvedStoreId, summary: emptySummary });
+      return { success: false, message, summary: emptySummary, results: [{ type: "error", entity: "sync", message }], resolvedStoreId, platform };
+    }
+
+    const { syncProduct } = await import("./chatbot/suri/products.js");
+    const { syncCategory, listCategories } = await import("./chatbot/suri/categories.js");
+
+    // Resolve store mapping: ecommerce store_id → suri storeId
+    try {
+      const mappings = ecommerceConfig._store_mappings ? JSON.parse(ecommerceConfig._store_mappings) : [];
+      const storeKeyForMapping = ecommerceConfig.store_id || ecommerceConfig.store_url || ecommerceConfig.account_name || "";
+      const match = mappings.find(m => String(m.ecommerceStoreId) === String(storeKeyForMapping));
+      if (match) resolvedStoreId = String(match.chatbotStoreId);
+    } catch { /* sem mapeamento */ }
+
+    allResults = [];
+    const categoryIdMap = new Map();
 
   async function runConcurrent(items, fn, concurrency = 5) {
     const chunks = [];
@@ -253,42 +328,10 @@ export async function syncCatalogForIntegrationRow(row) {
   // Agrupa tudo numa notificação só por execução, em vez de uma por item, pra
   // não inundar o usuário quando muitos produtos falham na mesma sincronização.
   if (summary.errors > 0) {
-    let userName = row.user_id ? `ID ${row.user_id}` : "desconhecido";
-    try {
-      const uRow = await pool.query("SELECT name FROM users WHERE id = $1", [row.user_id]);
-      if (uRow.rows[0]) userName = uRow.rows[0].name;
-    } catch { /* mantém o fallback "ID {id}" */ }
-
-    const title = `Sincronização com falhas — ${platform}`;
-    // Mensagem traz só as quantidades do resumo (igual ao card "Resultado da
-    // sincronização" exibido na tela) — sem o texto técnico de cada erro.
-    const message = [
-      `Loja Suri: #${resolvedStoreId || "—"}`,
-      "",
-      `Categorias criadas: ${summary.categories_created}`,
-      `Categorias atualizadas: ${summary.categories_updated}`,
-      `Produtos criados: ${summary.products_created}`,
-      `Produtos atualizados: ${summary.products_updated}`,
-      `Erros: ${summary.errors}`,
-    ].join("\n");
-    try {
-      if (row.user_id) {
-        await pool.query(
-          "INSERT INTO notifications (type, title, message, target_role, target_user_id) VALUES ('error', $1, $2, 'user', $3)",
-          [title, message, row.user_id]
-        );
-        await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
-      }
-      // "extra" leva o resumo em campos estruturados pro payload do webhook
-      // configurado em admin_webhook_settings, além do texto corrido.
-      await notifyAdminIntegrationError(title, `Perfil: ${userName}\n${message}`, {
-        platform,
-        storeId: resolvedStoreId,
-        userId: row.user_id || null,
-        userName,
-        summary,
-      });
-    } catch { /* notificação é best-effort — não pode quebrar a sincronização */ }
+    await notifySyncFailure(row, platform, `Sincronização concluída com ${summary.errors} erro(s).`, {
+      resolvedStoreId,
+      summary,
+    });
   }
 
   return {
@@ -299,6 +342,18 @@ export async function syncCatalogForIntegrationRow(row) {
     resolvedStoreId,
     platform,
   };
+  } catch (err) {
+    const message = err?.message || "Erro inesperado ao executar a sincronização.";
+    await notifySyncFailure(row, platform, message, { resolvedStoreId, summary: { ...emptySummary, errors: 1 } });
+    return {
+      success: false,
+      message: `Falha na sincronização: ${message}`,
+      summary: { ...emptySummary, errors: 1 },
+      results: [{ type: "error", entity: "sync", message }],
+      resolvedStoreId,
+      platform,
+    };
+  }
 }
 
 export async function handleSyncCatalog(req, res) {
@@ -315,6 +370,6 @@ export async function handleSyncCatalog(req, res) {
 
   row.user_id = caller.id;
   const result = await syncCatalogForIntegrationRow(row);
-  const httpStatus = result.message && !result.summary ? 400 : 200;
+  const httpStatus = result.success === false ? 500 : 200;
   return res.status(httpStatus).json(result);
 }
