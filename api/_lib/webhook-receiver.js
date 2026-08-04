@@ -514,7 +514,10 @@ export async function handleWebhook(req, res) {
   }
 
   const eventType = normalized.eventType;
-  const logEventType = normalized.displayEventType || eventType;
+  // Prefer the original event name sent by the platform (rawPayload.event/topic/type)
+  // so the UI 'Tipo' column shows the exact webhook name configured on the store.
+  // Fall back to the normalized displayEventType or the internal eventType.
+  const logEventType = (rawPayload && (rawPayload.event || rawPayload.topic || rawPayload.type)) || normalized.displayEventType || eventType;
   let webhookId;
   try {
     const webhookSource = isViaWebhookToken ? "ecommerce" : "chatbot";
