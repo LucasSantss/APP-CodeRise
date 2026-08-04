@@ -20,6 +20,7 @@ vi.mock("../../api/_auth.js", () => ({
 }));
 
 import { syncCatalogForIntegrationRow } from "../../api/_lib/sync-catalog.js";
+import { normalizePayload } from "../../api/_lib/webhook-receiver.js";
 
 describe("syncCatalogForIntegrationRow", () => {
   beforeEach(() => {
@@ -47,5 +48,24 @@ describe("syncCatalogForIntegrationRow", () => {
         userId: 42,
       })
     );
+  });
+
+  it("mapeia os webhooks da Olist para tipos internos preservando o evento original para logs", () => {
+    const cases = [
+      { event: "prices-changed", expectedEventType: "product.sync", expectedDisplay: "prices-changed" },
+      { event: "stocks-changed", expectedEventType: "product.sync", expectedDisplay: "stocks-changed" },
+      { event: "product-activated", expectedEventType: "product.sync", expectedDisplay: "product-activated" },
+      { event: "product-changed", expectedEventType: "product.sync", expectedDisplay: "product-changed" },
+      { event: "order-canceled", expectedEventType: "order.cancelled", expectedDisplay: "order-canceled" },
+      { event: "order-confirmed", expectedEventType: "order.created", expectedDisplay: "order-confirmed" },
+      { event: "order-received", expectedEventType: "order.created", expectedDisplay: "order-received" },
+      { event: "order-sent", expectedEventType: "order.shipped", expectedDisplay: "order-sent" },
+    ];
+
+    for (const testCase of cases) {
+      const result = normalizePayload("olist", { event: testCase.event, product: { id: "123" } });
+      expect(result.eventType).toBe(testCase.expectedEventType);
+      expect(result.displayEventType).toBe(testCase.expectedDisplay);
+    }
   });
 });

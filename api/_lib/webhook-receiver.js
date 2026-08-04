@@ -57,31 +57,41 @@ function normalizeTray(payload) {
   return { eventType, orderId:String(order.id||order.Id||order.order_id||""), paymentTracking:order.payment?.payment_method||order.PaymentMethod||"", logisticStatus:order.status||order.Status||"shipped", totalAmount:parseFloat(order.total||order.Total||0), items:(order.ProductsSold||order.products||order.items||[]).map(i=>({productId:String(i.Product?.id||i.product_id||i.id),sku:String(i.Product?.reference||i.sku||i.id),name:i.Product?.name||i.name,quantity:parseInt(i.quantity||i.Quantity||1),unitPrice:parseFloat(i.price||i.Price||0),discount:parseFloat(i.discount||i.Discount||0),sellerId:"all"})), shipping:{provider:order.shipping?.carrier||order.Carrier||"Entrega",type:1,price:parseFloat(order.shipping?.cost||order.ShippingCost||0),estimative:"5 dias úteis"} };
 }
 function normalizeOlist(payload) {
-  const topic = payload.event || payload.topic || payload.type || "";
+  const rawTopic = payload.event || payload.topic || payload.type || "";
+  const topic = String(rawTopic).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   const statusMap = {
     "order_paid":       "order.created",
     "order_created":    "order.created",
     "order_confirmed":  "order.created",
+    "order_received":   "order.created",
     "order_shipped":    "order.shipped",
+    "order_sent":       "order.shipped",
     "order_delivered":  "order.shipped",
+    "order_canceled":   "order.cancelled",
     "order_cancelled":  "order.cancelled",
     "order_voided":     "order.cancelled",
     "order_refunded":   "order.cancelled",
     "product_created":  "product.sync",
     "product_updated":  "product.sync",
+    "product_activated": "product.sync",
+    "product_changed":  "product.sync",
+    "prices_changed":   "product.sync",
+    "stocks_changed":   "product.sync",
     "product_deleted":  "product.deleted",
     "tag_created":      "category.sync",
     "tag_updated":      "category.sync",
     "tag_deleted":      "category.deleted",
   };
-  const eventType = statusMap[topic] || topic;
+  const eventType = statusMap[topic] || topic || rawTopic;
+  const displayEventType = rawTopic || eventType;
   if (eventType === "product.sync" || eventType === "product.deleted") {
     const p = payload.product || payload;
-    return { eventType, product: p };
+    return { eventType, displayEventType, product: p };
   }
   const order = payload.order || payload;
   return {
     eventType,
+    displayEventType,
     orderId:         String(order.code || order.id || ""),
     paymentTracking: order.payment_method || order.payment_type || "",
     logisticStatus:  order.shipping_status || order.status || "shipped",
