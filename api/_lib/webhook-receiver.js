@@ -86,10 +86,15 @@ function classifyOlistTopic(payload) {
 }
 
 // Resolve o tópico do evento Olist: prioriza o nome vindo da URL cadastrada
-// (?event=..., uma por evento — ver registerOlist) e só cai para a inferência
-// pelo formato do payload (classifyOlistTopic) se a URL não informar o evento.
-function resolveOlistTopic(payload) {
-  const rawTopic = payload.event || payload.topic || payload.type || "";
+// (?event=..., uma por evento — ver registerOlist), recebido aqui como
+// queryEvent em vez de misturado no payload — os eventos de estoque/preço
+// chegam como ARRAY, e fazer spread num array pra "injetar" um campo o
+// transformaria num objeto comum, quebrando a detecção pelo formato.
+// Só cai para a inferência pelo formato (classifyOlistTopic) se não vier
+// pela URL nem por um campo no corpo.
+function resolveOlistTopic(payload, queryEvent) {
+  const bodyTopic = (payload && !Array.isArray(payload)) ? (payload.event || payload.topic || payload.type || "") : "";
+  const rawTopic = queryEvent || bodyTopic || "";
   const topic = String(rawTopic).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   return { rawTopic, topic: topic || classifyOlistTopic(payload) };
 }
@@ -105,8 +110,8 @@ const OLIST_DISPLAY_LABELS = {
   stocks_changed:      "stocks-changed",
 };
 
-function normalizeOlist(payload) {
-  const { rawTopic, topic } = resolveOlistTopic(payload);
+function normalizeOlist(payload, queryEvent) {
+  const { rawTopic, topic } = resolveOlistTopic(payload, queryEvent);
   const statusMap = {
     "order_paid":       "order.created",
     "order_created":    "order.created",
@@ -123,10 +128,9 @@ function normalizeOlist(payload) {
     "product_updated":  "product.sync",
     "product_activated": "product.sync",
     "product_changed":  "product.sync",
-    // Estoque/preço chegam como array de itens, não como objeto de produto —
-    // não são compatíveis com o fluxo de sync de produto (processProductSync).
-    // Ficam sem case no switch de processamento: registram e exibem o tipo
-    // certo, mas não disparam ação automática na Suri.
+    // Estoque/preço chegam como array de itens (sku/reference), não como
+    // objeto de produto — tipo próprio, tratado em processOlistStockOrPriceChanged
+    // (busca o produto completo pela referência e reaproveita o sync padrão).
     "prices_changed":   "product.price_changed",
     "stocks_changed":   "product.stock_changed",
     "product_deleted":  "product.deleted",
@@ -168,14 +172,14 @@ function normalizeOlist(payload) {
     },
   };
 }
-export function normalizePayload(platform, payload) {
+export function normalizePayload(platform, payload, queryEvent) {
   switch (platform) {
     case "vtex":        return normalizeVtex(payload);
     case "shopify":     return normalizeShopify(payload);
     case "woocommerce": return normalizeWoocommerce(payload);
     case "nuvemshop":   return normalizeNuvemshop(payload);
     case "tray":        return normalizeTray(payload);
-    case "olist":       return normalizeOlist(payload);
+    case "olist":       return normalizeOlist(payload, queryEvent);
     default: return { eventType:payload.type||payload.event||payload.event_type||"desconhecido", orderId:String(payload.order_id||payload.orderId||payload.id||""), paymentTracking:"", logisticStatus:payload.status||"shipped", totalAmount:parseFloat(payload.total||payload.total_price||0), items:payload.items||payload.line_items||[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} };
   }
 }
@@ -263,6 +267,44 @@ export async function processProductSync(ep, tk, n, platform) {
   }
 
   return syncProduct(ep, tk, product, null, categoryIdMap.size > 0 ? categoryIdMap : null);
+}
+
+/**
+ * Cenário stocks-changed / prices-changed (Olist → Suri).
+ * Esses webhooks só trazem { sku, reference, quantity? / price? } por item —
+ * não um produto completo. A Suri exige o objeto de produto inteiro (com
+ * todas as variações) pra qualquer atualização, então: localizamos o produto
+ * na Olist pela referência, buscamos os dados completos e reaproveitamos o
+ * mesmo fluxo de sync usado em product-changed. Isso garante que o valor
+ * sincronizado é o estoque/preço ATUAL da Olist, não um delta calculado aqui.
+ */
+export async function processOlistStockOrPriceChanged(suriEndpoint, suriToken, normalized, userId) {
+  const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
+  const { store_url, access_token } = intRow.rows[0]?.ecommerce_config || {};
+  if (!store_url || !access_token) return { action: "skipped", reason: "Credenciais da Olist não configuradas" };
+
+  const client = await import("./ecommerce/olist/client.js");
+  const { findProductByReference } = await import("./ecommerce/olist/products.js");
+
+  const items = normalized.items || [];
+  const references = [...new Set(items.map(i => i.reference).filter(Boolean))];
+  if (references.length === 0) return { action: "skipped", reason: "Payload sem campo 'reference' pra localizar o produto na Olist" };
+
+  const results = [];
+  for (const reference of references) {
+    try {
+      const found = await findProductByReference(store_url, access_token, reference);
+      if (!found) { results.push({ reference, status: "not_found_in_olist" }); continue; }
+      const full = await client.getProduct(store_url, access_token, found.id);
+      const syncResult = await processProductSync(suriEndpoint, suriToken, { product: full || found }, "olist");
+      results.push({ reference, status: "synced", ...syncResult });
+    } catch (err) {
+      results.push({ reference, status: "error", detail: err.message });
+    }
+  }
+  const allFailed = results.length > 0 && results.every(r => r.status !== "synced");
+  if (allFailed) throw new Error(`Nenhum produto sincronizado: ${JSON.stringify(results).slice(0, 300)}`);
+  return { action: "stock_price_synced", items: results };
 }
 
 // ─── Processadores de pedido da Suri (chatbot → E-commerce) ─────────────────
@@ -516,17 +558,16 @@ export async function handleWebhook(req, res) {
   let rawPayload = req.body || {};
 
   // Olist: um link por evento (uma URL com ?event=... cadastrada para cada
-  // evento no painel admin — ver registerOlist). Isso é essencial para
-  // product-activated x product-changed, que chegam com o mesmo corpo
-  // (só { id }) e não têm nenhum outro campo que os diferencie.
-  if (ecommerce_platform === "olist" && !rawPayload.event && !rawPayload.topic && !rawPayload.type && req.query.event) {
-    rawPayload = { ...rawPayload, event: String(req.query.event) };
-  }
+  // evento no painel admin — ver registerOlist) é a fonte da verdade pro tipo.
+  // Guardamos à parte em vez de misturar no payload: os eventos de estoque/
+  // preço chegam como ARRAY, e um spread pra "injetar" um campo o
+  // transformaria num objeto comum, quebrando a detecção pelo formato.
+  const olistQueryEvent = ecommerce_platform === "olist" ? String(req.query.event || req.query.topic || "") : "";
 
   // Olist: o webhook de produto manda só { id } — busca o produto completo
   // (com variantes) antes de normalizar, senão o sync envia um produto vazio.
   if (ecommerce_platform === "olist") {
-    const { topic: _olistTopic } = resolveOlistTopic(rawPayload);
+    const { topic: _olistTopic } = resolveOlistTopic(rawPayload, olistQueryEvent);
     if ((_olistTopic === "product_activated" || _olistTopic === "product_changed") && rawPayload.id && !rawPayload.name) {
       try {
         const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [user_id]);
@@ -589,7 +630,7 @@ export async function handleWebhook(req, res) {
       : displayEventType;
     normalized = { eventType: routeEventType, displayEventType, orderId: String(rawPayload.OrderId || rawPayload.Id || ""), suriOrderId: String(rawPayload.Id || "") };
   } else {
-    try { normalized = normalizePayload(ecommerce_platform, rawPayload); }
+    try { normalized = normalizePayload(ecommerce_platform, rawPayload, olistQueryEvent); }
     catch { normalized = { eventType: rawPayload.type||rawPayload.event||"desconhecido", orderId:"", items:[], shipping:{provider:"Entrega",type:1,price:0,estimative:"5 dias úteis"} }; }
   }
 
@@ -622,6 +663,8 @@ export async function handleWebhook(req, res) {
       case "order.cancelled.suri": result = await processSuriOrderCancelledGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.paid.olist":           result = await processSuriOrderPaidOlist(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.cancelled.olist":      result = await processSuriOrderCancelledOlist(suri_endpoint, suri_token, normalized, user_id); break;
+      case "product.price_changed":
+      case "product.stock_changed":      result = await processOlistStockOrPriceChanged(suri_endpoint, suri_token, normalized, user_id); break;
       default:
         await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Evento '${eventType}' sem mapeamento`, webhookId]);
         return res.status(200).json({ success:true, message:"Evento registrado sem processamento", event_type:eventType, webhook_id:webhookId });

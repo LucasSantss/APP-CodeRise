@@ -267,3 +267,21 @@ export function normalizeWebhookProduct(payload) {
   if (p.variants && p.name) return { fromWebhook: true, product: normalizeProduct(p) };
   return { fromWebhook: false, productId: String(p.id || payload.id || "") };
 }
+
+/**
+ * Localiza o produto na Olist pela referência (reference — SKU do produto
+ * pai). Os webhooks de estoque/preço (stocks-changed/prices-changed) só
+ * trazem { sku, reference } por item, não o ID do produto — precisamos
+ * desse lookup pra chegar no produto completo antes de sincronizar.
+ *
+ * Confirma a referência do resultado antes de retornar: se o filtro da API
+ * não for suportado e a Olist ignorar o parâmetro, listProducts devolveria
+ * a primeira página do catálogo inteiro — sem essa checagem, arriscaríamos
+ * sincronizar o produto errado na Suri.
+ */
+export async function findProductByReference(storeUrl, accessToken, reference) {
+  if (!reference) return null;
+  const batch = await client.listProducts(storeUrl, accessToken, { reference, per_page: 5 }).catch(() => null);
+  const list = Array.isArray(batch) ? batch : [];
+  return list.find(p => String(p.reference || "") === String(reference)) || null;
+}
