@@ -60,6 +60,23 @@ export async function deactivateProduct(endpoint, token, productId) {
 }
 
 /**
+ * Atualiza só o preço de um ou mais SKUs de um produto — mais leve que
+ * PUT /api/shop/products (que exige o objeto inteiro do produto).
+ * https://documenter.getpostman.com/view/17684221/UUxz9mt5#6df344c4-6193-430a-8b66-bb6614d055d8
+ */
+export async function updateProductPrices(endpoint, token, productId, body) {
+  return request(endpoint, token, "PUT", `/api/shop/products/${productId}/prices`, body);
+}
+
+/**
+ * Atualiza só o estoque de um ou mais SKUs de um produto — mesma ideia do
+ * endpoint de preços, evita reenviar o produto inteiro pra ajustar estoque.
+ */
+export async function updateProductStocks(endpoint, token, productId, body) {
+  return request(endpoint, token, "PUT", `/api/shop/products/${productId}/stocks`, body);
+}
+
+/**
  * Verifica se um produto existe na Suri pelo ID.
  * Retorna true se existir, false se não existir (404).
  * Lança erro para outros problemas de rede/autenticação.

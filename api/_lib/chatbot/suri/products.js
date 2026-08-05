@@ -9,6 +9,19 @@
 import * as client from "./client.js";
 import { getFirstStoreId, buildStocks, buildPriceTables } from "./stores.js";
 
+// Resolve price/promotionalPrice pro significado que a Suri usa. Internamente
+// "price" é o preço cheio e "promotionalPrice" é o preço com desconto — mas na
+// Suri é o oposto: "price" é o "Preço atual" (o que é cobrado) e
+// "promotionalPrice" é o "Preço antigo" (riscado). Sem essa inversão, produtos
+// em promoção apareciam com o preço cheio como atual.
+// Módulo (não só dentro de toSuriFormat) pra reaproveitar em updateProductPricesOnly.
+function resolveSuriPrices(regularPrice, promoPrice) {
+  const hasDiscount = promoPrice > 0 && promoPrice < regularPrice;
+  return hasDiscount
+    ? { price: promoPrice, promotionalPrice: regularPrice }
+    : { price: regularPrice, promotionalPrice: 0 };
+}
+
 function toSuriFormat(product, storeId) {
   // Monta as variações (campo `dimensions` na Suri).
   // Cada variação recebe: sku, preço, estoque, medidas, imagem própria e atributos (Cor, Tamanho, etc.)
@@ -41,18 +54,6 @@ function toSuriFormat(product, storeId) {
   // opção vazia nem no `dimensions` nem no `attributes` da variação/produto.
   function hasValue(value) {
     return value != null && String(value).trim() !== "";
-  }
-
-  // Helper: resolve price/promotionalPrice pro significado que a Suri usa.
-  // Internamente "price" é o preço cheio e "promotionalPrice" é o preço com
-  // desconto — mas na Suri é o oposto: "price" é o "Preço atual" (o que é
-  // cobrado) e "promotionalPrice" é o "Preço antigo" (riscado). Sem essa
-  // inversão, produtos em promoção apareciam com o preço cheio como atual.
-  function resolveSuriPrices(regularPrice, promoPrice) {
-    const hasDiscount = promoPrice > 0 && promoPrice < regularPrice;
-    return hasDiscount
-      ? { price: promoPrice, promotionalPrice: regularPrice }
-      : { price: regularPrice, promotionalPrice: 0 };
   }
 
   const basePrices = resolveSuriPrices(product.price, product.promotionalPrice ?? 0);
@@ -246,6 +247,64 @@ export async function syncProduct(endpoint, token, product, resolvedStoreId = nu
     // Anexa o payload enviado ao erro — quem chama (ex: logChatbotProductSync)
     // usa isso pra registrar exatamente o que foi mandado à Suri, mesmo em falha.
     err.suriPayload = suriPayload;
+    throw err;
+  }
+}
+
+/**
+ * Atualiza só o preço de um ou mais SKUs de um produto que já existe na Suri,
+ * via PUT /api/shop/products/{id}/prices — bem mais leve que reenviar o
+ * produto inteiro (PUT /api/shop/products). Usado pelo webhook prices-changed
+ * da Olist, que já traz sku+price prontos, sem precisar buscar o produto completo.
+ * https://documenter.getpostman.com/view/17684221/UUxz9mt5#6df344c4-6193-430a-8b66-bb6614d055d8
+ *
+ * @param {Array<{sku: string, price: number, promotionalPrice?: number}>} items
+ */
+export async function updateProductPricesOnly(endpoint, token, productId, items, resolvedStoreId = null) {
+  const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token);
+  if (!storeId) throw new Error("Nenhuma loja encontrada na Suri — configure uma loja antes de sincronizar produtos.");
+
+  const skus = items.map(item => {
+    const prices = resolveSuriPrices(item.price, item.promotionalPrice ?? 0);
+    return {
+      sku: String(item.sku),
+      price: prices.price,
+      priceTables: buildPriceTables(storeId, prices.price),
+    };
+  });
+  const body = { listPrice: skus[0]?.price ?? 0, skus };
+
+  try {
+    await client.updateProductPrices(endpoint, token, productId, body);
+    return { action: "prices_updated", productId, storeId, sentPayload: body };
+  } catch (err) {
+    err.suriPayload = body;
+    throw err;
+  }
+}
+
+/**
+ * Atualiza só o estoque de um ou mais SKUs de um produto que já existe na
+ * Suri, via PUT /api/shop/products/{id}/stocks — mesmo racional do
+ * updateProductPricesOnly, para o webhook stocks-changed da Olist.
+ *
+ * @param {Array<{sku: string, stock: number}>} items
+ */
+export async function updateProductStocksOnly(endpoint, token, productId, items, resolvedStoreId = null) {
+  const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token);
+  if (!storeId) throw new Error("Nenhuma loja encontrada na Suri — configure uma loja antes de sincronizar produtos.");
+
+  const skus = items.map(item => ({
+    sku: String(item.sku),
+    stocks: buildStocks(storeId, item.stock ?? 0),
+  }));
+  const body = { skus };
+
+  try {
+    await client.updateProductStocks(endpoint, token, productId, body);
+    return { action: "stocks_updated", productId, storeId, sentPayload: body };
+  } catch (err) {
+    err.suriPayload = body;
     throw err;
   }
 }

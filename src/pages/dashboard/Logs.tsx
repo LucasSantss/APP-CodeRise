@@ -190,6 +190,8 @@ const UserLogs = () => {
                   <SelectItem value="all">Todos Tipos</SelectItem>
                   <SelectItem value="product.sync">Produto Criado/Atualizado</SelectItem>
                   <SelectItem value="product.deleted">Produto Deletado</SelectItem>
+                  <SelectItem value="product.price_updated">Preço Atualizado (Suri)</SelectItem>
+                  <SelectItem value="product.stock_updated">Estoque Atualizado (Suri)</SelectItem>
                   <SelectItem value="order.created">Pedido Criado</SelectItem>
                   <SelectItem value="order.shipped">Pedido Enviado</SelectItem>
                   <SelectItem value="order.cancelled">Pedido Cancelado</SelectItem>
