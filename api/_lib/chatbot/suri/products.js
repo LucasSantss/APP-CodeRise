@@ -29,6 +29,13 @@ function toSuriFormat(product, storeId) {
     return { url: validUrl };
   }
 
+  // Helper: a Suri espera weightInGrams como inteiro — valores com casas
+  // decimais (ex: 4030.0000000000005, por imprecisão de ponto flutuante em
+  // conversões de unidade) são rejeitados com HTTP 400 ("not a valid integer").
+  function roundWeight(value) {
+    return Math.round(Number(value) || 0);
+  }
+
   // Helper: descarta atributos sem valor (ex: "Tamanho": null vindo da Olist
   // quando a variante não tem essa dimensão) — a Suri não deve receber uma
   // opção vazia nem no `dimensions` nem no `attributes` da variação/produto.
@@ -64,7 +71,7 @@ function toSuriFormat(product, storeId) {
         priceTables: buildPriceTables(storeId, variantPrices.price),
         stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
         measurements: {
-          weightInGrams: v.weightInGrams || product.weightInGrams || 0,
+          weightInGrams: roundWeight(v.weightInGrams || product.weightInGrams || 0),
           heightInCm: v.dimensions?.heightInCm || product.dimensions?.heightInCm || 0,
           widthInCm: v.dimensions?.widthInCm || product.dimensions?.widthInCm || 0,
           lengthInCm: v.dimensions?.lengthInCm || product.dimensions?.lengthInCm || 0,
@@ -88,7 +95,7 @@ function toSuriFormat(product, storeId) {
       priceTables: buildPriceTables(storeId, basePrices.price),
       stocks: buildStocks(storeId, product.stock ?? 0),
       measurements: {
-        weightInGrams: product.weightInGrams || 0,
+        weightInGrams: roundWeight(product.weightInGrams || 0),
         heightInCm: product.dimensions?.heightInCm || 0,
         widthInCm: product.dimensions?.widthInCm || 0,
         lengthInCm: product.dimensions?.lengthInCm || 0,
@@ -162,7 +169,7 @@ function toSuriFormat(product, storeId) {
       }));
     })(),
     dimensions,
-    weightInGrams: product.weightInGrams || 0,
+    weightInGrams: roundWeight(product.weightInGrams || 0),
   };
 }
 
