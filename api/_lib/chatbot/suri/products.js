@@ -207,39 +207,46 @@ export async function syncProduct(endpoint, token, product, resolvedStoreId = nu
   const productWithResolvedCategory = { ...product, categoryId: resolvedCategoryId };
   const suriPayload = toSuriFormat(productWithResolvedCategory, storeId);
 
-  // 1) Verifica se o produto já existe na Suri pelo ID
-  let exists = false;
   try {
-    exists = await client.productExists(endpoint, token, product.id);
-  } catch {
-    // Se não conseguir verificar, tenta POST e deixa a Suri decidir
-    exists = false;
-  }
-
-  if (exists) {
-    // Produto já existe → PUT (atualizar)
-    await client.updateProduct(endpoint, token, suriPayload);
-    return { action: "product_updated", productId: product.id, storeId };
-  }
-
-  // Produto não existe → POST (criar)
-  try {
-    await client.createProduct(endpoint, token, suriPayload);
-    return { action: "product_created", productId: product.id, storeId };
-  } catch (createErr) {
-    const msg = createErr.message || "";
-    // Se a Suri retornar que o produto já existe (race condition ou ID duplicado),
-    // tenta PUT como fallback
-    const alreadyExists =
-      msg.includes("HTTP 409") ||
-      msg.includes("already exists") ||
-      msg.includes("duplicate") ||
-      msg.includes("já existe");
-    if (alreadyExists) {
-      await client.updateProduct(endpoint, token, suriPayload);
-      return { action: "product_updated", productId: product.id, storeId };
+    // 1) Verifica se o produto já existe na Suri pelo ID
+    let exists = false;
+    try {
+      exists = await client.productExists(endpoint, token, product.id);
+    } catch {
+      // Se não conseguir verificar, tenta POST e deixa a Suri decidir
+      exists = false;
     }
-    throw createErr;
+
+    if (exists) {
+      // Produto já existe → PUT (atualizar)
+      await client.updateProduct(endpoint, token, suriPayload);
+      return { action: "product_updated", productId: product.id, storeId, sentPayload: suriPayload };
+    }
+
+    // Produto não existe → POST (criar)
+    try {
+      await client.createProduct(endpoint, token, suriPayload);
+      return { action: "product_created", productId: product.id, storeId, sentPayload: suriPayload };
+    } catch (createErr) {
+      const msg = createErr.message || "";
+      // Se a Suri retornar que o produto já existe (race condition ou ID duplicado),
+      // tenta PUT como fallback
+      const alreadyExists =
+        msg.includes("HTTP 409") ||
+        msg.includes("already exists") ||
+        msg.includes("duplicate") ||
+        msg.includes("já existe");
+      if (alreadyExists) {
+        await client.updateProduct(endpoint, token, suriPayload);
+        return { action: "product_updated", productId: product.id, storeId, sentPayload: suriPayload };
+      }
+      throw createErr;
+    }
+  } catch (err) {
+    // Anexa o payload enviado ao erro — quem chama (ex: logChatbotProductSync)
+    // usa isso pra registrar exatamente o que foi mandado à Suri, mesmo em falha.
+    err.suriPayload = suriPayload;
+    throw err;
   }
 }
 

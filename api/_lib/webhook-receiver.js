@@ -223,7 +223,16 @@ export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOr
 // do lado da Suri realmente aconteceu com sucesso, e não só se o webhook foi recebido.
 async function logChatbotProductSync(userId, product, outcome) {
   if (!userId) return;
-  const payload = { productId: product?.id, sku: product?.sku, name: product?.name, ...(outcome.result || {}) };
+  // sentPayload vem em outcome.result (sucesso) ou outcome.sentPayload (erro,
+  // anexado ao erro dentro de syncProduct) — nos dois casos, mostra exatamente
+  // o corpo que foi enviado à Suri, não só o resultado/erro da chamada.
+  const payload = {
+    productId: product?.id,
+    sku: product?.sku,
+    name: product?.name,
+    ...(outcome.result || {}),
+    sentPayload: outcome.result?.sentPayload || outcome.sentPayload || null,
+  };
   try {
     await pool.query(
       "INSERT INTO user_webhooks (user_id, event_type, payload, status, error_message, source) VALUES ($1, $2, $3, $4, $5, 'chatbot')",
@@ -289,7 +298,7 @@ export async function processProductSync(ep, tk, n, platform, userId) {
     await logChatbotProductSync(userId, product, { status: "processed", result });
     return result;
   } catch (err) {
-    await logChatbotProductSync(userId, product, { status: "error", errorMessage: err.message });
+    await logChatbotProductSync(userId, product, { status: "error", errorMessage: err.message, sentPayload: err.suriPayload });
     throw err;
   }
 }
