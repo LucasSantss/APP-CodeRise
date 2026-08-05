@@ -29,6 +29,13 @@ function toSuriFormat(product, storeId) {
     return { url: validUrl };
   }
 
+  // Helper: descarta atributos sem valor (ex: "Tamanho": null vindo da Olist
+  // quando a variante não tem essa dimensão) — a Suri não deve receber uma
+  // opção vazia nem no `dimensions` nem no `attributes` da variação/produto.
+  function hasValue(value) {
+    return value != null && String(value).trim() !== "";
+  }
+
   // Helper: resolve price/promotionalPrice pro significado que a Suri usa.
   // Internamente "price" é o preço cheio e "promotionalPrice" é o preço com
   // desconto — mas na Suri é o oposto: "price" é o "Preço atual" (o que é
@@ -46,10 +53,11 @@ function toSuriFormat(product, storeId) {
   const dimensions = (product.variants && product.variants.length > 0)
     ? product.variants.map(v => {
       const variantPrices = resolveSuriPrices(v.price ?? product.price, v.promotionalPrice ?? product.promotionalPrice ?? 0);
+      const validAttributes = (v.attributes || []).filter(a => hasValue(a.value));
       const variantObj = {
         sku: buildSku(v.sku || product.sku, product.id),
         dimensions: Object.fromEntries(
-          (v.attributes || []).map(a => [String(a.name), String(a.value)])
+          validAttributes.map(a => [String(a.name), String(a.value)])
         ),
         price: variantPrices.price,
         promotionalPrice: variantPrices.promotionalPrice,
@@ -63,7 +71,7 @@ function toSuriFormat(product, storeId) {
           unitsPerPackage: 1,
         },
         // Atributos da variação (ex: [{ name: "Cor", value: "Azul" }, { name: "Tamanho", value: "M" }])
-        attributes: (v.attributes || []).map(a => ({
+        attributes: validAttributes.map(a => ({
           name: String(a.name || ""),
           value: String(a.value || ""),
         })),
@@ -143,6 +151,7 @@ function toSuriFormat(product, storeId) {
       const attrMap = new Map();
       for (const v of (product.variants || [])) {
         for (const a of (v.attributes || [])) {
+          if (!hasValue(a.value)) continue;
           if (!attrMap.has(a.name)) attrMap.set(a.name, new Set());
           attrMap.get(a.name).add(String(a.value));
         }
