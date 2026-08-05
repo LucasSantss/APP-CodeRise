@@ -38,6 +38,15 @@ export function buildStocks(storeId, stock) {
 }
 
 /**
+ * Retorna o objeto `priceTables` no formato exato que a Suri aceita:
+ * { "141301072": 200 } — mapa de lojaId → preço (número, sem aninhamento).
+ */
+export function buildPriceTables(storeId, price) {
+  if (price == null) return {};
+  return { [storeId]: Number(price) };
+}
+
+/**
  * Lista todas as lojas/depósitos disponíveis.
  */
 export async function listStores(endpoint, token) {

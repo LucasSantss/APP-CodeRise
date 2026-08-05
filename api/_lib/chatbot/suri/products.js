@@ -7,7 +7,7 @@
  */
 
 import * as client from "./client.js";
-import { getFirstStoreId, buildStocks } from "./stores.js";
+import { getFirstStoreId, buildStocks, buildPriceTables } from "./stores.js";
 
 function toSuriFormat(product, storeId) {
   // Monta as variações (campo `dimensions` na Suri).
@@ -21,13 +21,12 @@ function toSuriFormat(product, storeId) {
     return s && s !== "null" && s !== "undefined" ? s : String(fallbackId);
   }
 
-  // Helper: monta o objeto image no formato exato que a Suri espera.
-  // A Suri usa { providerId, url, description } — quando não há URL válida,
-  // envia o objeto com url: null em vez de omitir o campo (evita ArgumentNullException no servidor).
+  // Helper: monta o objeto `image` de cada variação (campo `dimensions[].image`).
+  // Diferente do array `images` no nível raiz, a Suri espera aqui só { url }.
   function buildImage(variantImageUrl) {
     const url = variantImageUrl || product.images?.[0]?.url || "";
     const validUrl = url && url !== "null" && url !== "undefined" ? url : null;
-    return { providerId: null, url: validUrl, description: null };
+    return { url: validUrl };
   }
 
   // Helper: resolve price/promotionalPrice pro significado que a Suri usa.
@@ -54,7 +53,7 @@ function toSuriFormat(product, storeId) {
         ),
         price: variantPrices.price,
         promotionalPrice: variantPrices.promotionalPrice,
-        priceTables: {},
+        priceTables: buildPriceTables(storeId, variantPrices.price),
         stocks: buildStocks(storeId, v.stock ?? product.stock ?? 0),
         measurements: {
           weightInGrams: v.weightInGrams || product.weightInGrams || 0,
@@ -78,7 +77,7 @@ function toSuriFormat(product, storeId) {
       image: buildImage(null),
       price: basePrices.price,
       promotionalPrice: basePrices.promotionalPrice,
-      priceTables: {},
+      priceTables: buildPriceTables(storeId, basePrices.price),
       stocks: buildStocks(storeId, product.stock ?? 0),
       measurements: {
         weightInGrams: product.weightInGrams || 0,
@@ -95,12 +94,9 @@ function toSuriFormat(product, storeId) {
     sku: buildSku(product.sku, product.id),
     categoryId: product.categoryId || null,
     subcategoryId: null,
-    // A Suri espera brand como objeto ShopBrand: { name: "..." }
-    // Nunca enviar como string pura (HTTP 400).
-    // Se não houver brand, omitir o campo completamente (null também causa erro).
-    ...(product.brand && product.brand !== "null"
-      ? { brand: { name: String(product.brand) } }
-      : {}),
+    // A Suri espera brand como objeto ShopBrand: { name: "..." } ou null
+    // quando não houver marca. Nunca enviar como string pura (HTTP 400).
+    brand: (product.brand && product.brand !== "null") ? { name: String(product.brand) } : null,
     sellerId: "all",
     sellerName: null,
     isActive: product.isActive,
@@ -123,7 +119,7 @@ function toSuriFormat(product, storeId) {
       // 1) Imagens do produto (nível raiz)
       const productImgs = (product.images || [])
         .filter(i => i && i.url && i.url !== "null" && i.url !== "undefined")
-        .map(i => ({ url: i.url, description: i.description || null }));
+        .map(i => ({ providerId: null, url: i.url, description: i.description || null }));
       if (productImgs.length > 0) return productImgs;
 
       // 2) Fallback: imagens das variações (deduplica por URL)
@@ -133,7 +129,7 @@ function toSuriFormat(product, storeId) {
         const u = v.imageUrl;
         if (u && u !== "null" && u !== "undefined" && !seen.has(u)) {
           seen.add(u);
-          variantImgs.push({ url: u, description: null });
+          variantImgs.push({ providerId: null, url: u, description: null });
         }
       }
       if (variantImgs.length > 0) return variantImgs;
