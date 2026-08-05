@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, RefreshCw, Eye } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare, Inbox, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
 
@@ -34,26 +34,45 @@ const filterByDate = (events: WebhookEvent[], period: string) => {
   return events.filter((e) => new Date(e.received_at) >= cutoff);
 };
 
+const SourceBadge = ({ source }: { source?: string }) => {
+  if (source === 'chatbot') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <MessageSquare className="h-3 w-3" /> Chatbot
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <ShoppingCart className="h-3 w-3" /> E-commerce
+    </span>
+  );
+};
+
 const AdminLogs = () => {
-  const [webhooks, setWebhooks] = useState<(WebhookEvent & { user_name?: string; user_email?: string })[]>([]);
+  const [webhooks, setWebhooks] = useState<(WebhookEvent & { user_name?: string; user_email?: string; source?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [selected, setSelected] = useState<WebhookEvent | null>(null);
 
+  // Status não é filtrado no servidor — assim o resumo de Recebidos/Processados/
+  // Erros abaixo reflete sempre o total da origem+tipo selecionados, não só a
+  // aba de status ativa (permite controlar erros separadamente por origem/tipo).
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string> = {};
-      if (statusFilter !== 'all') params.status = statusFilter;
       if (typeFilter !== 'all') params.event_type = typeFilter;
+      if (sourceFilter !== 'all') params.source = sourceFilter;
       const res = await getWebhooks(params);
       setWebhooks((res as any).webhooks || []);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, typeFilter]);
+  }, [typeFilter, sourceFilter]);
 
   useEffect(() => { load(); }, [load]);
   const { user } = useAuthStore();
@@ -65,8 +84,14 @@ const AdminLogs = () => {
     { enabled: !!user }
   );
 
-
-  const filtered = filterByDate(webhooks, dateFilter);
+  const dateFiltered = filterByDate(webhooks, dateFilter);
+  const counts = {
+    total:     dateFiltered.length,
+    received:  dateFiltered.filter((w) => w.status === 'received').length,
+    processed: dateFiltered.filter((w) => w.status === 'processed').length,
+    error:     dateFiltered.filter((w) => w.status === 'error').length,
+  };
+  const filtered = statusFilter === 'all' ? dateFiltered : dateFiltered.filter((w) => w.status === statusFilter);
 
   return (
     <div className="space-y-6">
@@ -80,6 +105,31 @@ const AdminLogs = () => {
         </Button>
       </div>
 
+      {/* Resumo de status — reflete origem+tipo selecionados, independente da aba de status ativa */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-sm font-medium text-muted-foreground">Recebidos</span>
+            <Inbox className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>{loading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : <div className="text-2xl font-bold">{counts.received}</div>}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-sm font-medium text-muted-foreground">Processados</span>
+            <CheckCircle2 className="h-4 w-4 text-success" />
+          </CardHeader>
+          <CardContent>{loading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : <div className="text-2xl font-bold text-success">{counts.processed}</div>}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-sm font-medium text-muted-foreground">Erros</span>
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+          </CardHeader>
+          <CardContent>{loading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : <div className="text-2xl font-bold text-destructive">{counts.error}</div>}</CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
@@ -90,6 +140,16 @@ const AdminLogs = () => {
                 {DATE_FILTERS.map((f) => (
                   <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+
+            {/* Filtro de origem */}
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Origem" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as origens</SelectItem>
+                <SelectItem value="ecommerce">E-commerce</SelectItem>
+                <SelectItem value="chatbot">Chatbot</SelectItem>
               </SelectContent>
             </Select>
 
@@ -146,6 +206,7 @@ const AdminLogs = () => {
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
                   <TableHead>Usuário</TableHead>
+                  <TableHead>Origem</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Recebido em</TableHead>
@@ -155,13 +216,13 @@ const AdminLogs = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                       Nenhum evento no período selecionado
                     </TableCell>
                   </TableRow>
@@ -171,6 +232,9 @@ const AdminLogs = () => {
                     <TableCell>
                       <div className="text-sm font-medium">{(w as any).user_name || '—'}</div>
                       <div className="text-xs text-muted-foreground">{(w as any).user_email}</div>
+                    </TableCell>
+                    <TableCell>
+                      <SourceBadge source={w.source} />
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{w.event_type || 'desconhecido'}</Badge>
@@ -224,6 +288,7 @@ const AdminLogs = () => {
                 </div>
                 <div><span className="text-muted-foreground">Usuário:</span> {(selected as any).user_name || '—'}</div>
                 <div><span className="text-muted-foreground">E-mail:</span> {(selected as any).user_email || '—'}</div>
+                <div><span className="text-muted-foreground">Origem:</span> <SourceBadge source={selected.source} /></div>
                 <div className="col-span-2">
                   <span className="text-muted-foreground">Recebido em:</span>{' '}
                   {new Date(selected.received_at).toLocaleString('pt-BR')}

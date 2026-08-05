@@ -8,7 +8,7 @@ import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare, Inbox, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
 
@@ -64,11 +64,13 @@ const UserLogs = () => {
   const [selected, setSelected] = useState<WebhookEvent | null>(null);
   const [lastWebhookId, setLastWebhookId] = useState<number | null>(null);
 
+  // Status não é filtrado no servidor — assim o resumo de Recebidos/Processados/
+  // Erros abaixo reflete sempre o total da origem+tipo selecionados, não só a
+  // aba de status ativa (permite controlar erros separadamente por origem/tipo).
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string> = {};
-      if (statusFilter !== 'all') params.status = statusFilter;
       if (typeFilter !== 'all') params.event_type = typeFilter;
       if (sourceFilter !== 'all') params.source = sourceFilter;
       const res = await getWebhooks(params);
@@ -82,7 +84,7 @@ const UserLogs = () => {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, typeFilter, sourceFilter]);
+  }, [typeFilter, sourceFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -106,7 +108,14 @@ const UserLogs = () => {
     { enabled: !!user }
   );
 
-  const filtered = filterByDate(webhooks, dateFilter);
+  const dateFiltered = filterByDate(webhooks, dateFilter);
+  const counts = {
+    total:     dateFiltered.length,
+    received:  dateFiltered.filter((w) => w.status === 'received').length,
+    processed: dateFiltered.filter((w) => w.status === 'processed').length,
+    error:     dateFiltered.filter((w) => w.status === 'error').length,
+  };
+  const filtered = statusFilter === 'all' ? dateFiltered : dateFiltered.filter((w) => w.status === statusFilter);
 
   return (
     <div className="space-y-6 table-scroll-body" >
@@ -118,6 +127,31 @@ const UserLogs = () => {
         <Button variant="outline" size="icon" onClick={load} disabled={loading}>
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
+      </div>
+
+      {/* Resumo de status — reflete origem+tipo selecionados, independente da aba de status ativa */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-sm font-medium text-muted-foreground">Recebidos</span>
+            <Inbox className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>{loading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : <div className="text-2xl font-bold">{counts.received}</div>}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-sm font-medium text-muted-foreground">Processados</span>
+            <CheckCircle2 className="h-4 w-4 text-success" />
+          </CardHeader>
+          <CardContent>{loading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : <div className="text-2xl font-bold text-success">{counts.processed}</div>}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-sm font-medium text-muted-foreground">Erros</span>
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+          </CardHeader>
+          <CardContent>{loading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : <div className="text-2xl font-bold text-destructive">{counts.error}</div>}</CardContent>
+        </Card>
       </div>
 
       <Card>

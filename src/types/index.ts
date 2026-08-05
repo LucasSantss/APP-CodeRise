@@ -84,6 +84,7 @@ export interface WebhookEvent {
   payload: Record<string, unknown> | null;
   status: 'received' | 'processed' | 'error';
   error_message: string | null;
+  source?: 'ecommerce' | 'chatbot';
   received_at: string;
 }
 
