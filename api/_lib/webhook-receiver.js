@@ -115,10 +115,12 @@ function normalizeOlist(payload, queryEvent) {
   const statusMap = {
     "order_paid":       "order.created",
     "order_created":    "order.created",
-    "order_confirmed":  "order.created",
-    "order_received":   "order.created",
+    // order-confirmed, order-received e order-sent são apenas registrados
+    // (aparecem em Logs) — não disparam nenhuma ação na Suri.
+    "order_confirmed":  "order.noop",
+    "order_received":   "order.noop",
     "order_shipped":    "order.shipped",
-    "order_sent":       "order.shipped",
+    "order_sent":       "order.noop",
     "order_delivered":  "order.shipped",
     "order_canceled":   "order.cancelled",
     "order_cancelled":  "order.cancelled",
@@ -656,7 +658,7 @@ export async function handleWebhook(req, res) {
       case "order.shipped":        result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
       case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
       case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized, ecommerce_platform); break;
-      case "order.noop":           { await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Ignorado: ${rawPayload.HookEvent || eventType} (sem ação)`, webhookId]); return res.status(200).json({ success:true, message:"Evento registrado sem ação (OrdersCreated não deduz estoque)", event_type:logEventType, webhook_id:webhookId }); }
+      case "order.noop":           { await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Ignorado: ${logEventType} (sem ação configurada)`, webhookId]); return res.status(200).json({ success:true, message:"Evento registrado sem ação.", event_type:logEventType, webhook_id:webhookId }); }
       case "order.paid":           result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.created.suri":   result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.shipped.suri":   result = await processSuriOrderShippedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
