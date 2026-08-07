@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare, Inbox, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
+import { WebhookErrorDetail } from '@/components/webhook-error-detail';
 
 const statusVariant = (status: string): "outline" | "destructive" | "secondary" | "default" => {
   if (status === 'processed') return 'outline';
@@ -296,11 +297,7 @@ const AdminLogs = () => {
                   <span className="text-muted-foreground">Recebido em:</span>{' '}
                   {new Date(selected.received_at).toLocaleString('pt-BR')}
                 </div>
-                {selected.error_message && (
-                  <div className="col-span-2 text-destructive text-xs bg-destructive/10 rounded p-2">
-                    {selected.error_message}
-                  </div>
-                )}
+                <WebhookErrorDetail status={selected.status} message={selected.error_message} eventType={selected.event_type} />
               </div>
               <div>
                 <p className="text-sm font-medium mb-2 text-muted-foreground">Payload JSON</p>

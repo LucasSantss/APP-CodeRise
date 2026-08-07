@@ -48,6 +48,20 @@ export interface SyncScheduleHistoryEntry {
   success: boolean;
   message: string | null;
   summary?: Record<string, number> | null;
+  // Itens de erro individuais da sincronização (mesmo formato do resultado da
+  // sincronização assistida), pra permitir a mesma identificação detalhada de
+  // erro no histórico da sincronização automática/agendada.
+  errors?: SyncResultItem[];
+}
+
+export interface SyncResultItem {
+  type: string;
+  entity: string;
+  id?: string;
+  name?: string;
+  storeId?: string | null;
+  message?: string;
+  page?: number;
 }
 
 export interface ChatbotIntegration {

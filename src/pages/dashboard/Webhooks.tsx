@@ -15,6 +15,7 @@ import { getIntegrations, getWebhooks, deleteWebhooks, getChatbot } from '@/serv
 import type { UserIntegration, WebhookEvent } from '@/types';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import gsap from 'gsap';
+import { WebhookErrorDetail } from '@/components/webhook-error-detail';
 
 const statusVariant = (status: string): "outline" | "destructive" | "secondary" | "default" => {
   if (status === 'processed') return 'outline';
@@ -345,11 +346,7 @@ const UserWebhooks = () => {
                   <span className="text-muted-foreground">Recebido em:</span>{' '}
                   <span>{new Date(selectedWebhook.received_at).toLocaleString('pt-BR')}</span>
                 </div>
-                {selectedWebhook.error_message && (
-                  <div className="col-span-2 text-destructive text-xs bg-destructive/10 rounded p-2">
-                    {selectedWebhook.error_message}
-                  </div>
-                )}
+                <WebhookErrorDetail status={selectedWebhook.status} message={selectedWebhook.error_message} eventType={selectedWebhook.event_type} />
               </div>
               <div>
                 <p className="text-sm font-medium mb-2 text-muted-foreground">Payload JSON</p>

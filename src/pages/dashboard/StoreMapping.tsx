@@ -13,7 +13,8 @@ import { getIntegrations, getChatbot, testEcommerceConnection, testSuriConnectio
 import { CHATBOT_FIELDS, type ChatbotPlatform } from '@/types';
 import { useGsapStagger } from '@/hooks/use-gsap';
 import { parseApiError } from '@/lib/parseApiError';
-import type { SyncSchedule, SyncScheduleHistoryEntry } from '@/types';
+import type { SyncSchedule, SyncScheduleHistoryEntry, SyncResultItem } from '@/types';
+import { SyncResultRow } from '@/components/sync-result-row';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -22,16 +23,6 @@ interface StoreMapping {
   ecommerceStoreName: string;
   chatbotStoreId: string;
   chatbotStoreName: string;
-}
-
-interface SyncResultItem {
-  type: string;
-  entity: string;
-  id?: string;
-  name?: string;
-  storeId?: string | null;
-  message?: string;
-  page?: number;
 }
 
 interface SyncSummary {
@@ -397,9 +388,15 @@ const StoreMapping = () => {
         const result = await performCatalogSync();
         setSyncResult(result);
         try { sessionStorage.setItem(SYNC_RESULT_KEY, JSON.stringify(result)); } catch { /* ignore */ }
-        historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: result.success, message: result.message || null, summary: result.summary || null };
+        // Guarda os erros individuais (não só o total) pra manter a mesma
+        // identificação detalhada da sincronização assistida, mesmo depois
+        // que a aba for fechada/recarregada. Limita a 50 pra não inflar
+        // demais o registro salvo (sync_schedule.history, até 15 execuções).
+        const errors = (result.results || []).filter(r => r.type === 'error').slice(0, 50);
+        historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: result.success, message: result.message || null, summary: result.summary || null, errors };
       } catch (err: unknown) {
-        historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: false, message: err instanceof Error ? err.message : 'Erro desconhecido', summary: null };
+        const message = err instanceof Error ? err.message : 'Erro desconhecido';
+        historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: false, message, summary: null, errors: [{ type: 'error', entity: 'general', message }] };
       }
       setSyncing(false);
 
@@ -421,28 +418,6 @@ const StoreMapping = () => {
     const id = setInterval(checkSchedule, 30000);
     return () => clearInterval(id);
   }, [syncSchedule, syncing]);
-
-  const getResultIcon = (type: string) => {
-    if (type === 'error') return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
-    if (type === 'info') return <Info className="h-3.5 w-3.5 text-blue-500 shrink-0" />;
-    return <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />;
-  };
-
-  const getResultLabel = (item: SyncResultItem) => {
-    const labels: Record<string, string> = {
-      category_created: 'Categoria criada', category_updated: 'Categoria atualizada',
-      product_created: 'Produto criado', product_updated: 'Produto atualizado',
-      error: 'Erro', info: 'Info',
-    };
-    return labels[item.type] || item.type;
-  };
-
-  const getResultBadgeVariant = (type: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
-    if (type === 'error') return 'destructive';
-    if (type === 'info') return 'secondary';
-    if (type.includes('created')) return 'default';
-    return 'outline';
-  };
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -707,7 +682,15 @@ const StoreMapping = () => {
                                 {(entry.summary.errors ?? 0) > 0 ? ` · ${entry.summary.errors} erro(s)` : ''}
                               </p>
                             )}
-                            {!entry.success && entry.message && (
+                            {!entry.success && entry.errors && entry.errors.length > 0 && (
+                              <div className="mt-1 rounded border divide-y overflow-hidden">
+                                {entry.errors.map((item, errIdx) => (
+                                  <SyncResultRow key={errIdx} item={item} />
+                                ))}
+                              </div>
+                            )}
+                            {/* Fallback pra execuções registradas antes de guardar os erros individuais */}
+                            {!entry.success && !entry.errors?.length && entry.message && (
                               <p className="text-destructive mt-0.5 break-words">{entry.message}</p>
                             )}
                           </div>
@@ -792,54 +775,9 @@ const StoreMapping = () => {
                   </div>
 
                   <div className="divide-y max-h-96 overflow-y-auto">
-                    {(showAllResults ? syncResult.results : syncResult.results.slice(0, PREVIEW_COUNT)).map((item, idx) => {
-                      // Formata mensagem de erro de forma amigável
-                      const isError = item.type === 'error';
-                      let displayMessage = item.message;
-                      let errorHint: string | undefined;
-                      const rawErrorMessage = isError ? item.message : undefined;
-                      if (isError && item.message) {
-                        const context = item.entity === 'category' ? 'category'
-                          : item.entity === 'product' ? 'product' : 'general';
-                        const parsed = parseApiError(item.message, context as 'product' | 'category' | 'general');
-                        displayMessage = parsed.description;
-                        errorHint = parsed.hint;
-                      }
-
-                      return (
-                        <div key={idx} className="flex items-start gap-3 px-4 py-2 text-xs hover:bg-muted/20 transition-colors">
-                          <div className="mt-0.5">{getResultIcon(item.type)}</div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant={getResultBadgeVariant(item.type)} className="text-xs py-0 h-4 shrink-0">
-                                {getResultLabel(item)}
-                              </Badge>
-                              {item.name != null && <span className="font-medium truncate">{typeof item.name === 'string' ? item.name : ((item.name as any)?.pt || (item.name as any)?.es || String(item.name))}</span>}
-                              {item.id && <code className="text-muted-foreground bg-muted px-1 rounded shrink-0">#{item.id}</code>}
-                            </div>
-                            {displayMessage && (
-                              <p className="text-muted-foreground mt-0.5 break-words">{displayMessage}</p>
-                            )}
-                            {errorHint && (
-                              <p className="text-[10px] mt-0.5 px-1.5 py-1 rounded bg-muted/50 text-muted-foreground/70 border border-border/30">
-                                💡 {errorHint}
-                              </p>
-                            )}
-                            {rawErrorMessage && rawErrorMessage !== displayMessage && (
-                              <details className="mt-0.5">
-                                <summary className="text-[10px] text-muted-foreground/50 cursor-pointer select-none hover:text-muted-foreground/80">
-                                  🔍 Detalhe técnico
-                                </summary>
-                                <p className="text-[10px] mt-0.5 px-1.5 py-1 rounded bg-muted/30 text-muted-foreground/60 border border-border/20 font-mono break-all whitespace-pre-wrap">
-                                  {rawErrorMessage}
-                                </p>
-                              </details>
-                            )}
-                          </div>
-                          {item.storeId && <code className="text-muted-foreground bg-muted px-1 rounded shrink-0 mt-0.5">loja #{item.storeId}</code>}
-                        </div>
-                      );
-                    })}
+                    {(showAllResults ? syncResult.results : syncResult.results.slice(0, PREVIEW_COUNT)).map((item, idx) => (
+                      <SyncResultRow key={idx} item={item} />
+                    ))}
                   </div>
 
                   {syncResult.results.length > PREVIEW_COUNT && (
