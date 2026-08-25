@@ -204,10 +204,11 @@ function mapLogisticStatus(status) {
 
 // ─── Processadores de evento ──────────────────────────────────────────────────
 export async function processOrderCreated(ep, tk, n) {
-  // Apenas cria o orçamento no Suri — NÃO chama orders/paid aqui.
-  // A dedução de estoque no e-commerce é responsabilidade exclusiva do
-  // webhook OrdersPaid vindo do Suri (processSuriOrderPaidGeneric),
-  // evitando dupla dedução quando o pedido já vem pago da plataforma.
+  // Apenas cria o orçamento no Suri (a partir do webhook nativo da plataforma).
+  // A dedução de estoque no e-commerce é responsabilidade exclusiva do webhook
+  // OrdersCreated vindo do Suri (processSuriOrderCreatedGeneric/Olist, roteados
+  // via "order.created.suri"/"order.created.olist"), disparado quando o
+  // orçamento é criado na Suri — não mais quando é pago.
   const existing = await findSuriOrder(ep, tk, n.orderId);
   if (existing) return { action: "already_exists", suriOrderId: existing.id };
   const budget={id:String(n.orderId),logistic:{providerId:"001",name:n.shipping.provider||"Entrega",description:"Padrão",type:n.shipping.type||1,price:n.shipping.price||0,minShippingTimeEstimative:n.shipping.estimative||"3 dias úteis",shippingTimeEstimative:n.shipping.estimative||"5 dias úteis"},items:n.items.map(i=>({fromSellerId:i.sellerId||"all",ProductId:String(i.productId||i.id),Sku:String(i.sku||i.productId),Name:i.name,quantity:i.quantity,unitPrice:i.unitPrice,discountAmount:i.discount||0})),errorMessages:[]};
@@ -386,13 +387,15 @@ async function fetchSuriOrderItems(suriEndpoint, suriToken, suriOrderId) {
   return (body?.data || body)?.items || [];
 }
 
-export async function processSuriOrderPaidGeneric(suriEndpoint, suriToken, normalized, userId) {
+// Dispara com o webhook OrdersCreated do Suri: baixa o estoque assim que o
+// orçamento é criado, sem esperar a confirmação de pagamento.
+export async function processSuriOrderCreatedGeneric(suriEndpoint, suriToken, normalized, userId) {
   const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
   const integration = intRow.rows[0];
   if (!integration) return { action: "skipped", reason: "Integração não encontrada" };
   const platform = integration.ecommerce_platform;
   const config = integration.ecommerce_config || {};
-  if (platform === "olist") return { action: "skipped", reason: "Olist usa handler dedicado (order.paid.olist)" };
+  if (platform === "olist") return { action: "skipped", reason: "Olist usa handler dedicado (order.created.olist)" };
   const suriOrderId = normalized.orderId || normalized.suriOrderId;
   if (!suriOrderId) return { action: "skipped", reason: "OrderId não encontrado no payload" };
   const items = await fetchSuriOrderItems(suriEndpoint, suriToken, suriOrderId);
@@ -434,7 +437,7 @@ export async function processSuriOrderPaidGeneric(suriEndpoint, suriToken, norma
   }
   return { platform, action: "stock_deducted", ...result };
 }
-export const processSuriOrderPaid = processSuriOrderPaidGeneric;
+export const processSuriOrderCreated = processSuriOrderCreatedGeneric;
 export async function processSuriOrderCancelledGeneric(suriEndpoint, suriToken, normalized, userId) {
   const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
   const integration = intRow.rows[0];
@@ -533,7 +536,8 @@ export async function processSuriOrderShippedGeneric(suriEndpoint, suriToken, no
 }
 
 
-export async function processSuriOrderPaidOlist(suriEndpoint, suriToken, normalized, userId) {
+// Dispara com o webhook OrdersCreated do Suri (variante Olist).
+export async function processSuriOrderCreatedOlist(suriEndpoint, suriToken, normalized, userId) {
   const { deductStockForOrderItems } = await import("./ecommerce/olist/stock.js");
   const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
   const integration = intRow.rows[0];
@@ -686,9 +690,9 @@ export async function handleWebhook(req, res) {
     const _isOlist = ecommerce_platform === "olist";
     const routeEventType = displayEventType === "order.cancelled"
       ? (_isOlist ? "order.cancelled.olist" : "order.cancelled.suri")
-      : displayEventType === "order.paid"         // OrdersPaid: única que deduz estoque
-      ? (_isOlist ? "order.paid.olist" : "order.created.suri")
-      : displayEventType === "order.created"      // OrdersCreated: pedido criado mas não pago — ignora
+      : displayEventType === "order.created"      // OrdersCreated: única que deduz estoque
+      ? (_isOlist ? "order.created.olist" : "order.created.suri")
+      : displayEventType === "order.paid"         // OrdersPaid: estoque já foi baixado na criação — ignora
       ? "order.noop"
       : displayEventType === "order.shipped"
       ? "order.shipped.suri"
@@ -722,11 +726,11 @@ export async function handleWebhook(req, res) {
       case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
       case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized, ecommerce_platform, user_id); break;
       case "order.noop":           { await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Ignorado: ${logEventType} (sem ação configurada)`, webhookId]); return res.status(200).json({ success:true, message:"Evento registrado sem ação.", event_type:logEventType, webhook_id:webhookId }); }
-      case "order.paid":           result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
-      case "order.created.suri":   result = await processSuriOrderPaidGeneric(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.paid":           result = await processSuriOrderCreatedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.created.suri":   result = await processSuriOrderCreatedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.shipped.suri":   result = await processSuriOrderShippedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.cancelled.suri": result = await processSuriOrderCancelledGeneric(suri_endpoint, suri_token, normalized, user_id); break;
-      case "order.paid.olist":           result = await processSuriOrderPaidOlist(suri_endpoint, suri_token, normalized, user_id); break;
+      case "order.created.olist":        result = await processSuriOrderCreatedOlist(suri_endpoint, suri_token, normalized, user_id); break;
       case "order.cancelled.olist":      result = await processSuriOrderCancelledOlist(suri_endpoint, suri_token, normalized, user_id); break;
       case "product.price_changed":
       case "product.stock_changed":      result = await processOlistStockOrPriceChanged(suri_endpoint, suri_token, normalized, user_id); break;

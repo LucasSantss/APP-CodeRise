@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "vercel-build": "vite build"
+    "vercel-build": "vite build",
+    "start": "node app.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -49,6 +50,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
+    "express": "^4.22.2",
     "gsap": "^3.12.5",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.462.0",

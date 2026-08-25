@@ -1,0 +1,10 @@
+name = "coderise-app"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Preencha `id` com o ID retornado por `wrangler hyperdrive create` (ver
+# instruções de deploy). Precisa ser o MESMO Hyperdrive usado em cron-worker/wrangler.toml.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "COLOQUE_AQUI_O_ID_DO_HYPERDRIVE"

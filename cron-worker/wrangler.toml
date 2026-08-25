@@ -1,0 +1,14 @@
+name = "coderise-cron-sync-stores"
+main = "index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Mesmo intervalo do cron-job.org atual (~10-15min). Ajuste se necessário.
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Preencha `id` com o ID retornado por `wrangler hyperdrive create` (mesmo
+# Hyperdrive usado pelo projeto Pages, apontando pro Neon).
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "COLOQUE_AQUI_O_ID_DO_HYPERDRIVE"

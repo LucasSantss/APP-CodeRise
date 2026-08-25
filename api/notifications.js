@@ -51,43 +51,20 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, notifications: immediate, has_new: true });
         }
 
-        // Aguarda notificação via LISTEN/NOTIFY
-        let client;
-        let resolved = false;
-        const respond = (notifications) => {
-          if (resolved) return;
-          resolved = true;
-          res.status(200).json({ success: true, notifications, has_new: notifications.length > 0 });
-        };
-
-        try {
-          client = await pool.connect();
-          await client.query(`CREATE OR REPLACE FUNCTION notify_notification_change() RETURNS trigger AS $$ BEGIN PERFORM pg_notify('notifications_changed', NEW.id::text); RETURN NEW; END; $$ LANGUAGE plpgsql`);
-          await client.query(`DROP TRIGGER IF EXISTS notification_insert_notify ON notifications; CREATE TRIGGER notification_insert_notify AFTER INSERT ON notifications FOR EACH ROW EXECUTE FUNCTION notify_notification_change()`);
-          await client.query("LISTEN notifications_changed");
-
-          const timer = setTimeout(async () => {
-            try { await client.query("UNLISTEN notifications_changed"); client.release(); } catch {}
-            respond([]);
-          }, timeout);
-
-          client.on("notification", async () => {
-            clearTimeout(timer);
-            try { await client.query("UNLISTEN notifications_changed"); client.release(); } catch {}
-            const fresh = await fetchNotificationsForCaller(caller, afterId);
-            respond(fresh);
-          });
-
-          req.on("close", () => {
-            clearTimeout(timer);
-            resolved = true;
-            try { client.query("UNLISTEN notifications_changed").then(() => client.release()).catch(() => {}); } catch {}
-          });
-        } catch (err) {
-          if (client) { try { client.release(); } catch {} }
-          if (!resolved) respond([]);
+        // Polling curto dentro do próprio request, em vez de LISTEN/NOTIFY: conexões
+        // via pool (Hyperdrive/Neon pooled) não sustentam sessão dedicada para
+        // pg_notify, então reconsultamos a cada ~1.5s até `timeout`. Mesmo contrato
+        // externo de sempre (até ~20s de espera, mesmo formato de resposta).
+        const started = Date.now();
+        const intervalMs = 1500;
+        while (Date.now() - started < timeout) {
+          await new Promise((r) => setTimeout(r, intervalMs));
+          const fresh = await fetchNotificationsForCaller(caller, afterId).catch(() => []);
+          if (fresh.length > 0) {
+            return res.status(200).json({ success: true, notifications: fresh, has_new: true });
+          }
         }
-        return; // resposta é assíncrona
+        return res.status(200).json({ success: true, notifications: [], has_new: false });
       }
       case "POST": {
         const caller = await requireAuth(req, res); if (!caller) return;
