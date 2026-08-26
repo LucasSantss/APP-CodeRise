@@ -8,7 +8,7 @@ export async function handlePlatformSettings(req, res) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS platform_settings (
       \`key\` VARCHAR(100) PRIMARY KEY,
-      value JSON NOT NULL DEFAULT ('true'),
+      value TEXT NOT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `).catch(() => {});

@@ -7,7 +7,7 @@ export async function handleSetup(req, res) {
   if (!isAdminSecret(req)) return res.status(401).json({ success:false, message:"Não autorizado" });
   try {
     // ── Tabelas (ordem importa: FKs referenciam users/notifications) ──────────
-    await pool.query(`CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(20) NOT NULL DEFAULT 'user', active BOOLEAN NOT NULL DEFAULT true, token VARCHAR(64) UNIQUE, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(20) NOT NULL DEFAULT 'user', active BOOLEAN NOT NULL DEFAULT true, token VARCHAR(64) UNIQUE, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, tenant_slug VARCHAR(255), tenant_domain VARCHAR(255));`);
     await pool.query(`CREATE TABLE IF NOT EXISTS user_integrations (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, ecommerce_platform VARCHAR(50), ecommerce_config JSON, ecommerce_active BOOLEAN NOT NULL DEFAULT false, webhook_token VARCHAR(64) UNIQUE NOT NULL, chatbot_platform VARCHAR(50), chatbot_config JSON, chatbot_active BOOLEAN NOT NULL DEFAULT false, chatbot_token VARCHAR(64) UNIQUE, suri_endpoint TEXT, suri_token TEXT, suri_active BOOLEAN NOT NULL DEFAULT false, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE);`);
     await pool.query(`CREATE TABLE IF NOT EXISTS sync_rules (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, event VARCHAR(100) NOT NULL, active BOOLEAN NOT NULL DEFAULT true, message_template TEXT, delay_minutes INT NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE);`);
     await pool.query(`CREATE TABLE IF NOT EXISTS user_webhooks (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, event_type VARCHAR(100), payload JSON, status VARCHAR(20) DEFAULT 'received', error_message TEXT, source VARCHAR(20) DEFAULT 'ecommerce', received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE);`);
@@ -18,6 +18,8 @@ export async function handleSetup(req, res) {
     // ── Colunas adicionadas depois (mantidas como ALTER lazy, idempotentes) ───
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plain_password TEXT`).catch(()=>{});
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_expires_at DATETIME`).catch(()=>{});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_slug VARCHAR(255)`).catch(()=>{});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_domain VARCHAR(255)`).catch(()=>{});
     await pool.query(`ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_platform VARCHAR(50)`).catch(()=>{});
     await pool.query(`ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_config JSON`).catch(()=>{});
     await pool.query(`ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS chatbot_active BOOLEAN NOT NULL DEFAULT false`).catch(()=>{});
