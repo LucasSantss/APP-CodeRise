@@ -51,14 +51,16 @@ export function initPool(env) {
   return pool;
 }
 
+const DB_NOT_CONFIGURED_MESSAGE =
+  "Banco de dados não configurado: a variável de ambiente DATABASE_URL não " +
+  "chegou até o processo (URL pooled do Neon, com -pooler no hostname). " +
+  "Configure-a no painel do seu provedor de hospedagem (Vercel: Settings → " +
+  "Environment Variables; Hostinger: Variáveis de ambiente do app Node.js; " +
+  "Cloudflare: binding do Hyperdrive) e REINICIE o app — variáveis de " +
+  "ambiente só são lidas quando o processo inicia.";
+
 export async function checkDb() {
-  if (!pool) {
-    throw new Error(
-      "Banco de dados não configurado. " +
-      "No Vercel: Settings → Environment Variables → DATABASE_URL (URL pooled do Neon, com -pooler no hostname). " +
-      "Na Cloudflare: configure o binding do Hyperdrive e confirme que initPool(env) é chamado antes do handler."
-    );
-  }
+  if (!pool) throw new Error(DB_NOT_CONFIGURED_MESSAGE);
 }
 
 // Proxy: encaminha pool.query()/pool.connect()/etc. para a instância real,
@@ -67,9 +69,7 @@ export async function checkDb() {
 // sem nenhuma alteração, em qualquer um dos dois ambientes.
 const poolProxy = new Proxy({}, {
   get(_target, prop) {
-    if (!pool) {
-      throw new Error("[db] Pool não inicializado. Na Cloudflare, chame initPool(env) antes de usar o banco.");
-    }
+    if (!pool) throw new Error(DB_NOT_CONFIGURED_MESSAGE);
     const value = pool[prop];
     return typeof value === "function" ? value.bind(pool) : value;
   },
