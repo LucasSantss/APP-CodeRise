@@ -39,11 +39,12 @@ function minutesSinceMidnight(hhmm) {
   return h * 60 + m;
 }
 
-export default async function handler(req, res) {
-  if (setCors(req, res)) return;
-  if (req.method !== "GET" && req.method !== "POST") { res.setHeader("Allow", ["GET", "POST"]); return res.status(405).end(); }
-  if (!isAuthorized(req)) return res.status(401).json({ success: false, message: "Não autorizado." });
-
+/**
+ * Lógica de disparo em si, extraída do handler HTTP para poder ser reaproveitada
+ * pelo Cron Trigger nativo da Cloudflare (cron-worker/index.js), que roda em
+ * `scheduled()` em vez de responder a uma requisição HTTP.
+ */
+export async function runDueCatalogSyncs() {
   const startedAt = Date.now();
   const rows = await pool.query(
     "SELECT id, user_id, ecommerce_platform, ecommerce_config, chatbot_config, suri_endpoint, suri_token, sync_schedule FROM user_integrations WHERE sync_schedule->>'enabled' = 'true'"
@@ -92,11 +93,20 @@ export default async function handler(req, res) {
     triggered.push({ user_id: row.user_id, slot: dueSlot, success: !!result.success, message: result.message || null });
   }
 
-  return res.status(200).json({
+  return {
     success: true,
     checked: rows.length,
     triggered,
     skippedBudget,
     elapsedMs: Date.now() - startedAt,
-  });
+  };
+}
+
+export default async function handler(req, res) {
+  if (setCors(req, res)) return;
+  if (req.method !== "GET" && req.method !== "POST") { res.setHeader("Allow", ["GET", "POST"]); return res.status(405).end(); }
+  if (!isAuthorized(req)) return res.status(401).json({ success: false, message: "Não autorizado." });
+
+  const result = await runDueCatalogSyncs();
+  return res.status(200).json(result);
 }

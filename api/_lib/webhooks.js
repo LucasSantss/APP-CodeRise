@@ -79,40 +79,19 @@ export async function handleWebhooksPoll(req, res) {
     return res.status(200).json({ success: true, webhooks: immediate.rows, has_new: true, server_time: new Date().toISOString() });
   }
 
-  let client;
-  let resolved = false;
-  const respond = (webhooks) => {
-    if (resolved) return;
-    resolved = true;
-    res.status(200).json({ success: true, webhooks, has_new: webhooks.length > 0, server_time: new Date().toISOString() });
-  };
-
-  try {
-    client = await pool.connect();
-    await client.query(`CREATE OR REPLACE FUNCTION notify_webhook_change() RETURNS trigger AS $$ BEGIN PERFORM pg_notify('webhooks_changed', NEW.id::text); RETURN NEW; END; $$ LANGUAGE plpgsql`);
-    await client.query(`DROP TRIGGER IF EXISTS webhook_insert_notify ON user_webhooks; CREATE TRIGGER webhook_insert_notify AFTER INSERT OR UPDATE ON user_webhooks FOR EACH ROW EXECUTE FUNCTION notify_webhook_change()`);
-    await client.query("LISTEN webhooks_changed");
-
-    const timer = setTimeout(async () => {
-      try { await client.query("UNLISTEN webhooks_changed"); client.release(); } catch {}
-      respond([]);
-    }, timeout);
-
-    client.on("notification", async () => {
-      clearTimeout(timer);
-      try { await client.query("UNLISTEN webhooks_changed"); client.release(); } catch {}
-      const { sql: s2, values: v2 } = buildQuery();
-      const fresh = await pool.query(s2, v2).catch(() => ({ rows: [] }));
-      respond(fresh.rows);
-    });
-
-    req.on("close", () => {
-      clearTimeout(timer);
-      resolved = true;
-      try { client.query("UNLISTEN webhooks_changed").then(() => client.release()).catch(() => {}); } catch {}
-    });
-  } catch (err) {
-    if (client) { try { client.release(); } catch {} }
-    if (!resolved) res.status(200).json({ success: true, webhooks: [], has_new: false, server_time: new Date().toISOString() });
+  // Polling curto dentro do próprio request, em vez de LISTEN/NOTIFY: conexões
+  // via pool (Hyperdrive/Neon pooled) não sustentam sessão dedicada para
+  // pg_notify, então reconsultamos a cada ~1.5s até `timeout`. Mesmo contrato
+  // externo de sempre (até ~20s de espera, mesmo formato de resposta).
+  const started = Date.now();
+  const intervalMs = 1500;
+  while (Date.now() - started < timeout) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    const { sql: s2, values: v2 } = buildQuery();
+    const fresh = await pool.query(s2, v2).catch(() => ({ rows: [] }));
+    if (fresh.rows.length > 0) {
+      return res.status(200).json({ success: true, webhooks: fresh.rows, has_new: true, server_time: new Date().toISOString() });
+    }
   }
+  return res.status(200).json({ success: true, webhooks: [], has_new: false, server_time: new Date().toISOString() });
 }

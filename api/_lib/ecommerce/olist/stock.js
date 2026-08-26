@@ -3,7 +3,7 @@
  * Baixa de estoque na Olist a partir dos itens de um pedido da Suri.
  *
  * FLUXO:
- *   Pedido pago na Suri (OrdersPaid)
+ *   Pedido criado na Suri (OrdersCreated)
  *   → buscamos o pedido via GET /api/shop/orders/:id na Suri
  *   → para cada item, localizamos a variante na Olist pelo SKU
  *   → subtraímos a quantidade vendida do estoque via POST /variants/{sku}/quantity

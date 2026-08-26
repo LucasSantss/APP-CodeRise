@@ -3,7 +3,7 @@
  * Baixa de estoque na Nuvemshop a partir dos itens de um pedido da Suri.
  *
  * FLUXO:
- *   Pedido pago na Suri (OrdersPaid)
+ *   Pedido criado na Suri (OrdersCreated)
  *   → buscamos o pedido via GET /api/shop/orders/:id na Suri
  *   → para cada item do pedido, localizamos o produto/variante na Nuvemshop pelo SKU
  *   → subtraímos a quantidade vendida do estoque via PUT /products/:id/variants/:variantId
