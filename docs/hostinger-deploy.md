@@ -21,15 +21,27 @@ framework, etc.). Esse guia foi reescrito pra esse fluxo.
 1. As mudanças (server.js, api/**, package.json) precisam ser commitadas e
    enviadas (`git push`) para o GitHub, na branch que o Hostinger está
    configurado pra observar (hoje: `LucasSantss`, conforme o print).
-2. No painel "Implantações" da Hostinger, conferir/ajustar (a tela mostra
-   "Framework: Express", "Diretório raiz: ./", "Configurações de compilação
-   e saída: Padrão" com um ícone de info — vale abrir essas configurações e
-   confirmar):
-   - **Arquivo de inicialização**: `server.js`
-   - **Comando de build**: `npm run build` (gera a pasta `dist/` que o
-     `server.js` serve como front-end)
-   - **Diretório raiz**: `./` (já está correto no print)
-3. Clicar em **"Reimplantar"** depois do push.
+2. Clicar em **"Reimplantar"** depois do push.
+
+### Sobre a pasta `dist/` (build do front-end)
+
+Não deu pra confirmar se o pipeline de deploy da Hostinger roda `npm run
+build` automaticamente (o painel mostra "Configurações de compilação e
+saída: Padrão", mas não é visível de fora se isso inclui um passo de build
+do Vite, nem se o `npm install` deles inclui `devDependencies` — o Vite é
+uma delas). Pra não depender disso, a pasta `dist/` já vem **commitada
+direto no repositório** (normalmente ela fica no `.gitignore`, mas nesse
+caso específico foi adicionada de propósito com `git add -f dist`).
+
+**Toda vez que atualizar o front-end**, antes de dar `git push`:
+```bash
+npm run build
+git add -f dist
+git commit -m "atualiza build do front-end"
+git push origin LucasSantss
+```
+Sem isso, o `server.js` não encontra `dist/index.html` pra servir e a
+página fica em branco/"Not Found".
 
 ## Variáveis de ambiente
 
