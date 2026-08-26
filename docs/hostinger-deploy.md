@@ -47,12 +47,41 @@ página fica em branco/"Not Found".
 
 Na aba "Variáveis de ambiente" do mesmo painel (visível na barra lateral do
 print), configure as três que o `api/` usa hoje:
-- `DATABASE_URL` — a connection string pooled do Neon.
+- `DATABASE_URL` — connection string do **MySQL** da Hostinger (banco criado
+  em "Bancos de dados" → "Gerenciamento"), no formato
+  `mysql://usuario:senha@host:3306/nome_do_banco`. Host, usuário e nome do
+  banco aparecem naquela tela ("u500692157_APPCodeRise" etc.); a senha é a
+  que você definiu ao criar o banco.
 - `ADMIN_SECRET`
 - `CRON_SECRET` (opcional — só se quiser manter também um gatilho HTTP
   externo pra `/cron-sync-stores`, além da sincronização interna do processo)
 
 `PORT` é definida automaticamente pela Hostinger — não precisa configurar.
+
+## Banco de dados: migração de Postgres (Neon) para MySQL
+
+O app foi migrado de PostgreSQL pra MySQL na branch `mysql-migration` (ver
+commit `2ea771a`). Passo a passo pra ativar:
+
+1. **Deploy do código da branch `mysql-migration`** (ainda não foi pra
+   `LucasSantss`/produção — só depois de validar).
+2. Configurar `DATABASE_URL` (acima) apontando pro MySQL novo e reiniciar o app.
+3. Criar o schema: acessar `GET /setup?secret=<ADMIN_SECRET>` uma vez —
+   cria as tabelas vazias no MySQL.
+4. **Migrar os dados que já existem no Neon**: rodar localmente (nunca com
+   senha colada em chat)
+   ```bash
+   npm install pg --no-save
+   NEON_DATABASE_URL="<a mesma DATABASE_URL do Neon que já está no .env>" \
+   MYSQL_DATABASE_URL="mysql://usuario:senha@host:3306/nome_do_banco" \
+   node scripts/migrate-neon-to-mysql.mjs
+   ```
+   Precisa liberar acesso remoto ao MySQL pro seu IP em "Bancos de dados" →
+   "MySQL remoto". O script aborta sem escrever nada se as tabelas do MySQL
+   já tiverem dado (evita duplicar rodando duas vezes), e preserva os IDs
+   originais pra não quebrar as referências entre tabelas.
+5. Testar tudo (checklist abaixo) com os dados reais já migrados, antes de
+   apontar produção (`LucasSantss`) pra essa branch.
 
 ## O que o server.js faz
 
