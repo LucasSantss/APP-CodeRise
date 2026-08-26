@@ -713,7 +713,7 @@ export async function handleWebhook(req, res) {
     const webhookSource = isViaWebhookToken ? "ecommerce" : "chatbot";
     const ins = await pool.query("INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, 'received', $4) RETURNING id", [user_id, logEventType, JSON.stringify(rawPayload), webhookSource]);
     webhookId = ins.rows[0].id;
-    await pool.query(`DELETE FROM user_webhooks WHERE user_id=$1 AND id NOT IN (SELECT id FROM user_webhooks WHERE user_id=$1 ORDER BY received_at DESC LIMIT 100)`,[user_id]).catch(()=>{});
+    await pool.query(`DELETE FROM user_webhooks WHERE user_id=$1 AND received_at < NOW() - INTERVAL '60 days'`,[user_id]).catch(()=>{});
   } catch (err) { return res.status(500).json({ success: false, message: "Erro ao salvar: " + err.message }); }
 
   if (!suri_active || !suri_endpoint || !suri_token) return res.status(200).json({ success:true, message:"Evento registrado. Suri não configurada ou inativa.", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId });
