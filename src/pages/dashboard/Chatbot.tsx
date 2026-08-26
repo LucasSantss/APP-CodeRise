@@ -247,6 +247,27 @@ const Chatbot = () => {
     }
   };
 
+  // ── Salva só a preferência de Retirada de Estoque — botão dedicado, já que
+  // essa seção fica longe do botão "Salvar" principal lá em cima ────────────
+  const [savingStock, setSavingStock] = useState(false);
+  const handleSaveStock = async () => {
+    setSavingStock(true);
+    try {
+      const finalConfig: Record<string, string> = {
+        ...config,
+        suri_topics: JSON.stringify(selectedTopics),
+        stockDeductionTrigger,
+        _connection_status: connectionStatus !== 'idle' ? connectionStatus : '',
+      };
+      await updateChatbot({ chatbot_platform: platform, chatbot_config: finalConfig });
+      toast({ title: 'Preferência de retirada de estoque salva!' });
+    } catch (err: unknown) {
+      toast({ title: 'Erro ao salvar', description: err instanceof Error ? err.message : '', variant: 'destructive' });
+    } finally {
+      setSavingStock(false);
+    }
+  };
+
   // ── Toggle ativo via PATCH /chatbot ───────────────────────────────────────
   const handleToggle = async () => {
     try {
@@ -607,6 +628,12 @@ const Chatbot = () => {
                 <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-[#2f7bb9]" />
                 {STOCK_TRIGGERS.find((o) => o.value === stockDeductionTrigger)?.desc}
               </p>
+              <div className="pt-2">
+                <Button onClick={handleSaveStock} disabled={savingStock || saving}>
+                  {savingStock && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Salvar
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
