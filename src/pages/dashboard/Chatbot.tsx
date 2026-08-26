@@ -24,6 +24,12 @@ const SURI_TOPICS = [
   { value: 'OrderLogisticUpdate', label: 'Atualização Logística', desc: 'Rastreamento / status de envio atualizado' },
 ];
 
+// ── Quando retirar o estoque do e-commerce ───────────────────────────────────
+const STOCK_TRIGGERS = [
+  { value: 'created', label: 'Quando o pedido for criado', desc: 'Baixa o estoque assim que o orçamento é criado na Suri (OrdersCreated), sem esperar o pagamento.' },
+  { value: 'paid', label: 'Quando o pedido for pago', desc: 'Baixa o estoque somente após a confirmação de pagamento (OrdersPaid).' },
+] as const;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Chatbot = () => {
@@ -46,6 +52,9 @@ const Chatbot = () => {
   const [selectedTopics, setSelectedTopics] = useState<string[]>([
     'OrdersCreated', 'OrdersPaid', 'OrdersCanceled', 'OrderLogisticUpdate',
   ]);
+
+  // Quando deduzir estoque do e-commerce: no pedido criado ou só quando pago
+  const [stockDeductionTrigger, setStockDeductionTrigger] = useState<'created' | 'paid'>('created');
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { toast } = useToast();
@@ -79,6 +88,11 @@ const Chatbot = () => {
               const t = JSON.parse(savedConfig.suri_topics);
               if (Array.isArray(t) && t.length > 0) setSelectedTopics(t);
             } catch { /* usa default */ }
+          }
+
+          // Restaura preferência de retirada de estoque
+          if (savedConfig.stockDeductionTrigger === 'paid' || savedConfig.stockDeductionTrigger === 'created') {
+            setStockDeductionTrigger(savedConfig.stockDeductionTrigger);
           }
 
           // Restore last known connection status from saved config
@@ -211,10 +225,11 @@ const Chatbot = () => {
     }
     setSaving(true);
     try {
-      // Monta config incluindo tópicos quando for Suri
+      // Monta config incluindo tópicos e preferência de retirada de estoque quando for Suri
       const finalConfig: Record<string, string> = { ...config };
       if (platform === 'suri') {
         finalConfig.suri_topics = JSON.stringify(selectedTopics);
+        finalConfig.stockDeductionTrigger = stockDeductionTrigger;
       }
 
       // Persist connection status alongside config so it survives page reload
@@ -553,6 +568,45 @@ const Chatbot = () => {
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">{topic.desc}</p>
                         <code className="text-[10px] text-muted-foreground/60 font-mono">{topic.value}</code>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Retirada de Estoque ── */}
+          <Card className="border-[#2f7bb9]/25 bg-gradient-to-br from-[#2f7bb9]/5 to-[#56388e]/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Retirada de Estoque</CardTitle>
+              <CardDescription>
+                Escolha em qual evento a Suri deve disparar a baixa de estoque no seu e-commerce.
+                Só o webhook escolhido deduz estoque — o outro é apenas registrado, sem ação.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid sm:grid-cols-2 gap-2">
+                {STOCK_TRIGGERS.map((option) => {
+                  const active = stockDeductionTrigger === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setStockDeductionTrigger(option.value)}
+                      className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all duration-200 ${active
+                          ? 'border-[#2f7bb9]/50 bg-[#2f7bb9]/8 shadow-sm'
+                          : 'border-border/50 bg-background hover:border-[#2f7bb9]/30 hover:bg-muted/30'
+                        }`}
+                    >
+                      <div className={`h-4 w-4 rounded-full flex-shrink-0 mt-0.5 border-2 flex items-center justify-center transition-colors ${active ? 'border-[#2f7bb9]' : 'border-muted-foreground/40'}`}>
+                        {active && <div className="h-1.5 w-1.5 rounded-full bg-[#2f7bb9]" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`text-sm font-medium leading-tight ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
+                          {option.label}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{option.desc}</p>
                       </div>
                     </button>
                   );

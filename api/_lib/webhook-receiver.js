@@ -387,8 +387,10 @@ async function fetchSuriOrderItems(suriEndpoint, suriToken, suriOrderId) {
   return (body?.data || body)?.items || [];
 }
 
-// Dispara com o webhook OrdersCreated do Suri: baixa o estoque assim que o
-// orçamento é criado, sem esperar a confirmação de pagamento.
+// Baixa o estoque no e-commerce a partir dos itens do pedido na Suri.
+// Disparada por OrdersCreated OU OrdersPaid, conforme a preferência
+// "Retirada de Estoque" configurada em Chatbot (chatbot_config.stockDeductionTrigger) —
+// o roteamento em handleWebhook garante que só um dos dois webhooks chega aqui.
 export async function processSuriOrderCreatedGeneric(suriEndpoint, suriToken, normalized, userId) {
   const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
   const integration = intRow.rows[0];
@@ -536,7 +538,8 @@ export async function processSuriOrderShippedGeneric(suriEndpoint, suriToken, no
 }
 
 
-// Dispara com o webhook OrdersCreated do Suri (variante Olist).
+// Mesma ideia de processSuriOrderCreatedGeneric, variante Olist — disparada por
+// OrdersCreated ou OrdersPaid conforme a preferência "Retirada de Estoque".
 export async function processSuriOrderCreatedOlist(suriEndpoint, suriToken, normalized, userId) {
   const { deductStockForOrderItems } = await import("./ecommerce/olist/stock.js");
   const intRow = await pool.query("SELECT ecommerce_platform, ecommerce_config FROM user_integrations WHERE user_id = $1", [userId]);
@@ -688,12 +691,18 @@ export async function handleWebhook(req, res) {
     const suriEventMap = { "OrdersPaid":"order.paid", "OrdersCreated":"order.created", "OrdersCancelled":"order.cancelled", "OrdersCanceled":"order.cancelled", "OrdersShipped":"order.shipped" };
     const displayEventType = suriEventMap[rawPayload.HookEvent] || rawPayload.HookEvent;
     const _isOlist = ecommerce_platform === "olist";
+    // Configurável em Chatbot > Retirada de Estoque ("created" ou "paid") —
+    // decide qual dos dois webhooks da Suri deduz estoque; o outro vira noop
+    // pra nunca deduzir duas vezes pro mesmo pedido. Default "created" mantém
+    // o comportamento anterior pra quem ainda não escolheu uma opção.
+    const stockDeductionTrigger = _ccfg.stockDeductionTrigger === "paid" ? "paid" : "created";
+    const deductOnCreated = stockDeductionTrigger === "created";
     const routeEventType = displayEventType === "order.cancelled"
       ? (_isOlist ? "order.cancelled.olist" : "order.cancelled.suri")
-      : displayEventType === "order.created"      // OrdersCreated: única que deduz estoque
-      ? (_isOlist ? "order.created.olist" : "order.created.suri")
-      : displayEventType === "order.paid"         // OrdersPaid: estoque já foi baixado na criação — ignora
-      ? "order.noop"
+      : displayEventType === "order.created"
+      ? (deductOnCreated ? (_isOlist ? "order.created.olist" : "order.created.suri") : "order.noop")
+      : displayEventType === "order.paid"
+      ? (!deductOnCreated ? (_isOlist ? "order.created.olist" : "order.created.suri") : "order.noop")
       : displayEventType === "order.shipped"
       ? "order.shipped.suri"
       : displayEventType;
