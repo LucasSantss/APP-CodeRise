@@ -581,37 +581,32 @@ const Chatbot = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Retirada de Estoque</CardTitle>
               <CardDescription>
-                Escolha em qual evento a Suri deve disparar a baixa de estoque no seu e-commerce.
-                Só o webhook escolhido deduz estoque — o outro é apenas registrado, sem ação.
+                Escolha qual webhook da Suri deve disparar a baixa de estoque no seu e-commerce.
+                Apenas o evento escolhido deduz estoque — o outro chega e fica só registrado, sem ação — nunca os dois ao mesmo tempo.
+                O cancelamento de pedido continua funcionando normalmente, sem depender desta escolha.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid sm:grid-cols-2 gap-2">
-                {STOCK_TRIGGERS.map((option) => {
-                  const active = stockDeductionTrigger === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setStockDeductionTrigger(option.value)}
-                      className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all duration-200 ${active
-                          ? 'border-[#2f7bb9]/50 bg-[#2f7bb9]/8 shadow-sm'
-                          : 'border-border/50 bg-background hover:border-[#2f7bb9]/30 hover:bg-muted/30'
-                        }`}
-                    >
-                      <div className={`h-4 w-4 rounded-full flex-shrink-0 mt-0.5 border-2 flex items-center justify-center transition-colors ${active ? 'border-[#2f7bb9]' : 'border-muted-foreground/40'}`}>
-                        {active && <div className="h-1.5 w-1.5 rounded-full bg-[#2f7bb9]" />}
-                      </div>
-                      <div className="min-w-0">
-                        <p className={`text-sm font-medium leading-tight ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
-                          {option.label}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{option.desc}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+            <CardContent className="space-y-2">
+              <Label>Evento que deduz o estoque</Label>
+              <Select
+                value={stockDeductionTrigger}
+                onValueChange={(v) => setStockDeductionTrigger(v as 'created' | 'paid')}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STOCK_TRIGGERS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      <span className="font-medium">{option.label}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground flex items-start gap-1.5 pt-1">
+                <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-[#2f7bb9]" />
+                {STOCK_TRIGGERS.find((o) => o.value === stockDeductionTrigger)?.desc}
+              </p>
             </CardContent>
           </Card>
 
