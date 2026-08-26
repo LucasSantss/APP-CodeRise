@@ -37,7 +37,6 @@ async function notifySyncFailure(row, platform, message, extra = {}) {
         "INSERT INTO notifications (type, title, message, target_role, target_user_id) VALUES ('error', $1, $2, 'user', $3)",
         [title, notificationMessage, row.user_id]
       );
-      await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
     }
 
     await notifyAdminIntegrationError(title, `Perfil: ${userName}\n${notificationMessage}`, {

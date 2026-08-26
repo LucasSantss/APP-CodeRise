@@ -6,7 +6,7 @@ async function ensureChatbotRow(userId) {
   const ex = await pool.query("SELECT webhook_token, chatbot_token FROM user_integrations WHERE user_id = $1", [userId]);
   if (!ex.rows[0]) {
     const wt = crypto.randomBytes(32).toString("hex"), ct = crypto.randomBytes(32).toString("hex");
-    await pool.query("INSERT INTO user_integrations (user_id, webhook_token, chatbot_token) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING", [userId, wt, ct]);
+    await pool.query("INSERT IGNORE INTO user_integrations (user_id, webhook_token, chatbot_token) VALUES ($1, $2, $3)", [userId, wt, ct]);
   } else if (!ex.rows[0].chatbot_token) {
     const ct = crypto.randomBytes(32).toString("hex");
     await pool.query("UPDATE user_integrations SET chatbot_token = $1 WHERE user_id = $2 AND chatbot_token IS NULL", [ct, userId]);

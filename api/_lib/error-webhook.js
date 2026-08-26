@@ -12,7 +12,7 @@ async function ensureTable() {
     CREATE TABLE IF NOT EXISTS admin_webhook_settings (
       id SMALLINT PRIMARY KEY DEFAULT 1,
       webhook_url TEXT,
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT admin_webhook_settings_single_row CHECK (id = 1)
     )
   `).catch(() => {});
@@ -87,7 +87,6 @@ export async function notifyAdminIntegrationError(title, message, extra = {}) {
       "INSERT INTO notifications (type, title, message, target_role) VALUES ('integration_error', $1, $2, 'admin')",
       [title, message]
     );
-    await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
   })();
 
   try {
@@ -115,7 +114,7 @@ export async function handleErrorWebhookSettings(req, res) {
       try { new URL(webhook_url); } catch { return res.status(400).json({ success: false, message: "URL de webhook inválida." }); }
     }
     await pool.query(
-      "INSERT INTO admin_webhook_settings (id, webhook_url, updated_at) VALUES (1, $1, NOW()) ON CONFLICT (id) DO UPDATE SET webhook_url = $1, updated_at = NOW()",
+      "INSERT INTO admin_webhook_settings (id, webhook_url, updated_at) VALUES (1, $1, NOW()) ON DUPLICATE KEY UPDATE webhook_url = $1, updated_at = NOW()",
       [webhook_url || null]
     );
     cachedWebhookUrl = webhook_url || null;

@@ -32,7 +32,7 @@ export default async function handler(req, res) {
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
         const r = await pool.query("INSERT INTO users (name, email, password, role, token) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, active, token, created_at", [name, email, hashedPassword, role, token]);
         const webhookToken = crypto.randomBytes(32).toString("hex");
-        await pool.query("INSERT INTO user_integrations (user_id, webhook_token) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING", [r.rows[0].id, webhookToken]);
+        await pool.query("INSERT IGNORE INTO user_integrations (user_id, webhook_token) VALUES ($1, $2)", [r.rows[0].id, webhookToken]);
         await pool.query(`DELETE FROM users WHERE role='user' AND id NOT IN (SELECT id FROM users WHERE role='user' ORDER BY created_at DESC LIMIT 100)`).catch(() => {});
         return res.status(201).json({ success: true, message: "Usuário criado", user: r.rows[0] });
       }

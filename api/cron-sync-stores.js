@@ -47,7 +47,7 @@ function minutesSinceMidnight(hhmm) {
 export async function runDueCatalogSyncs() {
   const startedAt = Date.now();
   const rows = await pool.query(
-    "SELECT id, user_id, ecommerce_platform, ecommerce_config, chatbot_config, suri_endpoint, suri_token, sync_schedule FROM user_integrations WHERE sync_schedule->>'enabled' = 'true'"
+    "SELECT id, user_id, ecommerce_platform, ecommerce_config, chatbot_config, suri_endpoint, suri_token, sync_schedule FROM user_integrations WHERE sync_schedule->>'$.enabled' = 'true'"
   ).then(r => r.rows).catch(() => []);
 
   const triggered = [];
@@ -86,7 +86,7 @@ export async function runDueCatalogSyncs() {
     const historyEntry = { at: new Date().toISOString(), slot: dueSlot, success: !!result.success, message: result.message || null, summary: result.summary || null };
     const history = [historyEntry, ...(Array.isArray(freshSchedule.history) ? freshSchedule.history : [])].slice(0, 15);
     await pool.query(
-      "UPDATE user_integrations SET sync_schedule = sync_schedule || $1::jsonb, updated_at = NOW() WHERE id = $2",
+      "UPDATE user_integrations SET sync_schedule = JSON_MERGE_PATCH(sync_schedule, $1), updated_at = NOW() WHERE id = $2",
       [JSON.stringify({ lastRun: updatedLastRun, lastResult: historyEntry, history }), row.id]
     ).catch(() => {});
 

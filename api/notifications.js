@@ -80,17 +80,17 @@ export default async function handler(req, res) {
         const { id, mark_all } = req.body || {};
         if (mark_all) {
           const ids = await getVisibleIds(caller);
-          for (const nid of ids) { await pool.query(`INSERT INTO notification_reads (notification_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [nid, caller.id]); }
+          for (const nid of ids) { await pool.query(`INSERT IGNORE INTO notification_reads (notification_id,user_id) VALUES ($1,$2)`, [nid, caller.id]); }
           return res.status(200).json({ success: true, message: "Todas marcadas como lidas" });
         }
         if (!id) return res.status(400).json({ success: false, message: "id ou mark_all obrigatório" });
-        await pool.query(`INSERT INTO notification_reads (notification_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [id, caller.id]);
+        await pool.query(`INSERT IGNORE INTO notification_reads (notification_id,user_id) VALUES ($1,$2)`, [id, caller.id]);
         return res.status(200).json({ success: true });
       }
       case "DELETE": {
         const caller = await requireAuth(req, res); if (!caller) return;
         const { id } = req.query; if (!id) return res.status(400).json({ success: false, message: "id obrigatório" });
-        await pool.query(`INSERT INTO notification_reads (notification_id,user_id,hidden) VALUES ($1,$2,true) ON CONFLICT (notification_id,user_id) DO UPDATE SET hidden=true`, [id, caller.id]);
+        await pool.query(`INSERT INTO notification_reads (notification_id,user_id,hidden) VALUES ($1,$2,true) ON DUPLICATE KEY UPDATE hidden=true`, [id, caller.id]);
         return res.status(200).json({ success: true });
       }
       default: res.setHeader("Allow", ["GET","POST","PATCH","DELETE"]); return res.status(405).end();
