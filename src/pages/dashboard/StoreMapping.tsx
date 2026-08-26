@@ -265,6 +265,10 @@ const StoreMapping = () => {
 
   // ── Sync Catalog ─────────────────────────────────────────────────────────
   // Chamada de rede pura, reaproveitada tanto pelo botão manual quanto pelo agendamento automático.
+  // A sincronização roda em segundo plano no servidor (pode levar minutos em
+  // catálogos grandes) — o POST só dispara e o GET consulta o progresso, pra
+  // não depender de uma única requisição ficar aberta o tempo todo (proxies
+  // de hospedagem costumam cortar isso bem antes de terminar).
   const performCatalogSync = async (): Promise<SyncCatalogResult> => {
     const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
     let authToken = '';
@@ -273,26 +277,36 @@ const StoreMapping = () => {
       authToken = useAuthStore.getState().token || '';
     } catch { /* fallback */ }
 
-    const res = await fetch(`${API_BASE}/sync-catalog`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      },
-    });
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    };
 
-    // Lê o corpo como texto primeiro para evitar "Unexpected end of JSON input"
-    const rawText = await res.text();
-    if (!rawText || rawText.trim() === '') {
-      throw new Error(`Servidor retornou resposta vazia (HTTP ${res.status}). Verifique se a rota /sync-catalog está configurada no vercel.json.`);
+    const fetchJson = async (method: 'POST' | 'GET') => {
+      const res = await fetch(`${API_BASE}/sync-catalog`, { method, headers });
+      // Lê o corpo como texto primeiro para evitar "Unexpected end of JSON input"
+      const rawText = await res.text();
+      if (!rawText || rawText.trim() === '') {
+        throw new Error(`Servidor retornou resposta vazia (HTTP ${res.status}). Verifique se a rota /sync-catalog está configurada no vercel.json.`);
+      }
+      try {
+        return JSON.parse(rawText);
+      } catch {
+        throw new Error(`Resposta inválida do servidor (HTTP ${res.status}): ${rawText.slice(0, 200)}`);
+      }
+    };
+
+    await fetchJson('POST');
+
+    const MAX_POLLS = 400; // ~20min a 3s por consulta — teto de segurança
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const data = await fetchJson('GET');
+      if (data.status !== 'running') {
+        return { ...data, syncedAt: new Date().toISOString() };
+      }
     }
-    let data: any;
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      throw new Error(`Resposta inválida do servidor (HTTP ${res.status}): ${rawText.slice(0, 200)}`);
-    }
-    return { ...data, syncedAt: new Date().toISOString() };
+    throw new Error('A sincronização está demorando mais que o esperado. Tente novamente em alguns minutos.');
   };
 
   const handleSyncCatalog = async () => {

@@ -356,10 +356,31 @@ export async function syncCatalogForIntegrationRow(row) {
   }
 }
 
+// Catálogos grandes podem levar minutos pra sincronizar — tempo maior do que
+// o proxy da Hostinger deixa uma requisição em aberto (ao contrário da Vercel,
+// que tinha maxDuration configurável). Por isso o POST só DISPARA a
+// sincronização em segundo plano (o processo do Node aqui é persistente) e
+// devolve na hora; o front-end consulta o progresso via GET no mesmo endpoint.
+// Estado em memória por usuário — funciona porque é um processo único e
+// persistente (não seria seguro em ambiente serverless/múltiplas instâncias).
+const syncJobs = new Map();
+
 export async function handleSyncCatalog(req, res) {
-  if (req.method !== "POST") { res.setHeader("Allow", ["POST"]); return res.status(405).end(); }
+  if (req.method === "GET") {
+    const caller = await requireAuth(req, res);
+    if (!caller) return;
+    const job = syncJobs.get(caller.id);
+    if (!job) return res.status(200).json({ status: "idle" });
+    if (job.status === "running") return res.status(200).json({ status: "running" });
+    return res.status(200).json({ status: "done", ...job.result });
+  }
+
+  if (req.method !== "POST") { res.setHeader("Allow", ["GET", "POST"]); return res.status(405).end(); }
   const caller = await requireAuth(req, res);
   if (!caller) return;
+
+  const existing = syncJobs.get(caller.id);
+  if (existing?.status === "running") return res.status(200).json({ status: "running" });
 
   const row = await pool.query(
     "SELECT ecommerce_platform, ecommerce_config, chatbot_config, suri_endpoint, suri_token FROM user_integrations WHERE user_id = $1",
@@ -369,7 +390,10 @@ export async function handleSyncCatalog(req, res) {
   if (!row) return res.status(404).json({ success: false, message: "Integração não encontrada." });
 
   row.user_id = caller.id;
-  const result = await syncCatalogForIntegrationRow(row);
-  const httpStatus = result.success === false ? 500 : 200;
-  return res.status(httpStatus).json(result);
+  syncJobs.set(caller.id, { status: "running", result: null });
+  syncCatalogForIntegrationRow(row)
+    .then((result) => syncJobs.set(caller.id, { status: "done", result }))
+    .catch((err) => syncJobs.set(caller.id, { status: "done", result: { success: false, message: err.message } }));
+
+  return res.status(200).json({ status: "started" });
 }
