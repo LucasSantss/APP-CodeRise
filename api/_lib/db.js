@@ -16,7 +16,7 @@ function createPool(connectionString) {
   const p = new Pool({
     connectionString: sanitizeConnectionString(connectionString),
     ssl: { rejectUnauthorized: false },
-    max: 15,
+    max: 30,
     min: connectionString ? 2 : 0,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 8000,
