@@ -7,9 +7,9 @@ export async function handlePlatformSettings(req, res) {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS platform_settings (
-      key VARCHAR(100) PRIMARY KEY,
-      value JSONB NOT NULL DEFAULT 'true',
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      \`key\` VARCHAR(100) PRIMARY KEY,
+      value JSON NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `).catch(() => {});
 
@@ -25,7 +25,7 @@ export async function handlePlatformSettings(req, res) {
 
   if (req.method === "GET") {
     try {
-      const r = await pool.query("SELECT key, value FROM platform_settings");
+      const r = await pool.query("SELECT `key`, value FROM platform_settings");
       return res.status(200).json({ success: true, platforms: normalizeRows(r.rows) });
     } catch {
       return res.status(200).json({ success: true, platforms: {} });
@@ -41,11 +41,11 @@ export async function handlePlatformSettings(req, res) {
     for (const [key, value] of Object.entries(platforms)) {
       const boolVal = value === true || value === "true";
       await pool.query(
-        "INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()",
+        "INSERT INTO platform_settings (`key`, value, updated_at) VALUES ($1, $2, NOW()) ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = NOW()",
         [key, JSON.stringify(boolVal)]
       );
     }
-    const r = await pool.query("SELECT key, value FROM platform_settings");
+    const r = await pool.query("SELECT `key`, value FROM platform_settings");
     return res.status(200).json({ success: true, platforms: normalizeRows(r.rows) });
   }
 

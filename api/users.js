@@ -30,11 +30,12 @@ export default async function handler(req, res) {
         const token = crypto.randomBytes(32).toString("hex");
         // MELHORIA 7: armazena hash em vez de senha em texto puro
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-        const r = await pool.query("INSERT INTO users (name, email, password, role, token) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, active, token, created_at", [name, email, hashedPassword, role, token]);
+        const ins = await pool.query("INSERT INTO users (name, email, password, role, token) VALUES ($1, $2, $3, $4, $5)", [name, email, hashedPassword, role, token]);
+        const newUser = await pool.query("SELECT id, name, email, role, active, token, created_at FROM users WHERE id = $1", [ins.insertId]);
         const webhookToken = crypto.randomBytes(32).toString("hex");
-        await pool.query("INSERT INTO user_integrations (user_id, webhook_token) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING", [r.rows[0].id, webhookToken]);
-        await pool.query(`DELETE FROM users WHERE role='user' AND id NOT IN (SELECT id FROM users WHERE role='user' ORDER BY created_at DESC LIMIT 100)`).catch(() => {});
-        return res.status(201).json({ success: true, message: "Usuário criado", user: r.rows[0] });
+        await pool.query("INSERT IGNORE INTO user_integrations (user_id, webhook_token) VALUES ($1, $2)", [ins.insertId, webhookToken]);
+        await pool.query(`DELETE FROM users WHERE role='user' AND id NOT IN (SELECT id FROM (SELECT id FROM users WHERE role='user' ORDER BY created_at DESC LIMIT 100) AS keep)`).catch(() => {});
+        return res.status(201).json({ success: true, message: "Usuário criado", user: newUser.rows[0] });
       }
       case "PUT": {
         const caller = await requireAuth(req, res); if (!caller) return;
@@ -51,8 +52,9 @@ export default async function handler(req, res) {
         }
         if (!fields.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
         fields.push("updated_at = NOW()"); values.push(id);
-        const r = await pool.query(`UPDATE users SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, name, email, role, active, updated_at`, values);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Usuário não encontrado" });
+        const upd = await pool.query(`UPDATE users SET ${fields.join(", ")} WHERE id = $${idx}`, values);
+        if (!upd.rowCount) return res.status(404).json({ success: false, message: "Usuário não encontrado" });
+        const r = await pool.query("SELECT id, name, email, role, active, updated_at FROM users WHERE id = $1", [id]);
         return res.status(200).json({ success: true, message: "Usuário atualizado", user: r.rows[0] });
       }
       case "PATCH": {
@@ -64,8 +66,9 @@ export default async function handler(req, res) {
         if (role)                 { fields.push(`role = $${idx++}`);   values.push(role); }
         if (!fields.length) return res.status(400).json({ success: false, message: "Informe active e/ou role" });
         fields.push("updated_at = NOW()"); values.push(id);
-        const r = await pool.query(`UPDATE users SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, name, email, role, active, updated_at`, values);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Usuário não encontrado" });
+        const upd = await pool.query(`UPDATE users SET ${fields.join(", ")} WHERE id = $${idx}`, values);
+        if (!upd.rowCount) return res.status(404).json({ success: false, message: "Usuário não encontrado" });
+        const r = await pool.query("SELECT id, name, email, role, active, updated_at FROM users WHERE id = $1", [id]);
         if (active === false) {
           try {
             const u = r.rows[0];
@@ -78,14 +81,15 @@ export default async function handler(req, res) {
       case "DELETE": {
         const caller = await requireAdmin(req, res); if (!caller) return;
         const { id } = req.query; if (!id) return res.status(400).json({ success: false, message: "id obrigatório" });
-        const r = await pool.query("DELETE FROM users WHERE id = $1 RETURNING id, name, email", [id]);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Usuário não encontrado" });
-        return res.status(200).json({ success: true, message: "Usuário excluído", user: r.rows[0] });
+        const existing = await pool.query("SELECT id, name, email FROM users WHERE id = $1", [id]);
+        if (!existing.rows[0]) return res.status(404).json({ success: false, message: "Usuário não encontrado" });
+        await pool.query("DELETE FROM users WHERE id = $1", [id]);
+        return res.status(200).json({ success: true, message: "Usuário excluído", user: existing.rows[0] });
       }
       default: res.setHeader("Allow", ["GET","POST","PUT","PATCH","DELETE"]); return res.status(405).end();
     }
   } catch (err) {
-    if (err.code === "23505") return res.status(409).json({ success: false, message: "E-mail já cadastrado" });
+    if (err.code === "ER_DUP_ENTRY") return res.status(409).json({ success: false, message: "E-mail já cadastrado" });
     return res.status(500).json({ success: false, message: err.message });
   }
 }

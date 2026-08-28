@@ -6,7 +6,7 @@ async function ensureChatbotRow(userId) {
   const ex = await pool.query("SELECT webhook_token, chatbot_token FROM user_integrations WHERE user_id = $1", [userId]);
   if (!ex.rows[0]) {
     const wt = crypto.randomBytes(32).toString("hex"), ct = crypto.randomBytes(32).toString("hex");
-    await pool.query("INSERT INTO user_integrations (user_id, webhook_token, chatbot_token) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING", [userId, wt, ct]);
+    await pool.query("INSERT IGNORE INTO user_integrations (user_id, webhook_token, chatbot_token) VALUES ($1, $2, $3)", [userId, wt, ct]);
   } else if (!ex.rows[0].chatbot_token) {
     const ct = crypto.randomBytes(32).toString("hex");
     await pool.query("UPDATE user_integrations SET chatbot_token = $1 WHERE user_id = $2 AND chatbot_token IS NULL", [ct, userId]);
@@ -42,7 +42,8 @@ export async function handleChatbot(req, res) {
         if (chatbot_config   !== undefined) { fields.push(`chatbot_config = $${idx++}`);   values.push(JSON.stringify(chatbot_config)); }
         if (!fields.length) return res.status(400).json({ success: false, message: "Nenhum campo informado" });
         fields.push("updated_at = NOW()"); values.push(targetId);
-        const r = await pool.query(`UPDATE user_integrations SET ${fields.join(", ")} WHERE user_id = $${idx} RETURNING chatbot_platform, chatbot_config, chatbot_active, chatbot_token, updated_at`, values);
+        await pool.query(`UPDATE user_integrations SET ${fields.join(", ")} WHERE user_id = $${idx}`, values);
+        const r = await pool.query("SELECT chatbot_platform, chatbot_config, chatbot_active, chatbot_token, updated_at FROM user_integrations WHERE user_id = $1", [targetId]);
         return res.status(200).json({ success: true, message: "Configuração de chatbot salva", chatbot: r.rows[0] });
       }
       case "PATCH": {
@@ -50,8 +51,9 @@ export async function handleChatbot(req, res) {
         const targetId = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
         const { chatbot_active } = req.body || {};
         if (chatbot_active === undefined) return res.status(400).json({ success: false, message: "Informe chatbot_active" });
-        const r = await pool.query("UPDATE user_integrations SET chatbot_active = $1, updated_at = NOW() WHERE user_id = $2 RETURNING chatbot_platform, chatbot_active, chatbot_token, updated_at", [chatbot_active, targetId]);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
+        const upd = await pool.query("UPDATE user_integrations SET chatbot_active = $1, updated_at = NOW() WHERE user_id = $2", [chatbot_active, targetId]);
+        if (!upd.rowCount) return res.status(404).json({ success: false, message: "Integração não encontrada" });
+        const r = await pool.query("SELECT chatbot_platform, chatbot_active, chatbot_token, updated_at FROM user_integrations WHERE user_id = $1", [targetId]);
         return res.status(200).json({ success: true, chatbot: r.rows[0] });
       }
       case "POST": {
@@ -59,9 +61,9 @@ export async function handleChatbot(req, res) {
         const targetId = (caller.role === "admin" && req.query.user_id) ? req.query.user_id : caller.id;
         if (req.query.action !== "regenerate-token") return res.status(400).json({ success: false, message: "Ação inválida" });
         const newToken = crypto.randomBytes(32).toString("hex");
-        const r = await pool.query("UPDATE user_integrations SET chatbot_token = $1, updated_at = NOW() WHERE user_id = $2 RETURNING chatbot_token, updated_at", [newToken, targetId]);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Integração não encontrada" });
-        return res.status(200).json({ success: true, message: "Token do chatbot regenerado", chatbot_token: r.rows[0].chatbot_token });
+        const upd = await pool.query("UPDATE user_integrations SET chatbot_token = $1, updated_at = NOW() WHERE user_id = $2", [newToken, targetId]);
+        if (!upd.rowCount) return res.status(404).json({ success: false, message: "Integração não encontrada" });
+        return res.status(200).json({ success: true, message: "Token do chatbot regenerado", chatbot_token: newToken });
       }
       case "DELETE": {
         const caller = await requireAuth(req, res); if (!caller) return;

@@ -29,25 +29,22 @@ export async function handleWebhooks(req, res) {
         const { status, error_message } = req.body || {};
         if (!["received","processed","error"].includes(status)) return res.status(400).json({ success: false, message: "status inválido" });
         const ownerFilter = caller.role === "admin" ? "" : ` AND user_id = ${caller.id}`;
-        const r = await pool.query(`UPDATE user_webhooks SET status=$1, error_message=$2 WHERE id=$3${ownerFilter} RETURNING id, status, error_message`, [status, error_message || null, id]);
-        if (!r.rows[0]) return res.status(404).json({ success: false, message: "Evento não encontrado" });
-        try { await pool.query("NOTIFY webhooks_changed, $1", [JSON.stringify({ id: r.rows[0].id, status: r.rows[0].status })]); } catch {}
-        return res.status(200).json({ success: true, message: "Status atualizado", webhook: r.rows[0] });
+        const upd = await pool.query(`UPDATE user_webhooks SET status=$1, error_message=$2 WHERE id=$3${ownerFilter}`, [status, error_message || null, id]);
+        if (!upd.rowCount) return res.status(404).json({ success: false, message: "Evento não encontrado" });
+        return res.status(200).json({ success: true, message: "Status atualizado", webhook: { id, status, error_message: error_message || null } });
       }
       case "DELETE": {
         const caller = await requireAuth(req, res); if (!caller) return;
         const { id } = req.query;
         if (id) {
           const ownerFilter = caller.role === "admin" ? "" : ` AND user_id = ${caller.id}`;
-          const r = await pool.query(`DELETE FROM user_webhooks WHERE id=$1${ownerFilter} RETURNING id`, [id]);
-          if (!r.rows[0]) return res.status(404).json({ success: false, message: "Evento não encontrado" });
-          try { await pool.query("NOTIFY webhooks_changed, $1", [JSON.stringify({ id: r.rows[0].id, action: "deleted" })]); } catch {}
+          const r = await pool.query(`DELETE FROM user_webhooks WHERE id=$1${ownerFilter}`, [id]);
+          if (!r.rowCount) return res.status(404).json({ success: false, message: "Evento não encontrado" });
           return res.status(200).json({ success: true, message: "Evento apagado" });
         }
         if (caller.role === "admin" && req.query.user_id) { await pool.query("DELETE FROM user_webhooks WHERE user_id=$1", [req.query.user_id]); }
         else if (caller.role === "admin") { await pool.query("DELETE FROM user_webhooks"); }
         else { await pool.query("DELETE FROM user_webhooks WHERE user_id=$1", [caller.id]); }
-        try { await pool.query("NOTIFY webhooks_changed, $1", [JSON.stringify({ action: "deleted_bulk" })]); } catch {}
         return res.status(200).json({ success: true, message: "Eventos apagados" });
       }
       default: res.setHeader("Allow", ["GET","PATCH","DELETE"]); return res.status(405).end();

@@ -45,11 +45,12 @@ export async function handleAuth(req, res) {
       const token = (req.headers.authorization || "").replace("Bearer ", "").trim();
       const newToken = crypto.randomBytes(32).toString("hex");
       const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      const r = await pool.query(
-        "UPDATE users SET token = $1, token_expires_at = $2, updated_at = NOW() WHERE token = $3 AND active = true AND (token_expires_at IS NULL OR token_expires_at > NOW()) RETURNING id, name, email, role",
+      const upd = await pool.query(
+        "UPDATE users SET token = $1, token_expires_at = $2, updated_at = NOW() WHERE token = $3 AND active = true AND (token_expires_at IS NULL OR token_expires_at > NOW())",
         [newToken, expires, token]
       );
-      if (!r.rows[0]) return res.status(401).json({ success: false, message: "Token inválido ou expirado" });
+      if (!upd.rowCount) return res.status(401).json({ success: false, message: "Token inválido ou expirado" });
+      const r = await pool.query("SELECT id, name, email, role FROM users WHERE token = $1", [newToken]);
       return res.status(200).json({ success: true, token: newToken, user: r.rows[0] });
     }
     return res.status(400).json({ success: false, message: "action inválido. Use: login | logout | refresh" });

@@ -240,7 +240,6 @@ async function logChatbotProductSync(userId, product, outcome, eventType = "prod
       "INSERT INTO user_webhooks (user_id, event_type, payload, status, error_message, source) VALUES ($1, $2, $3, $4, $5, 'chatbot')",
       [userId, eventType, JSON.stringify(payload), outcome.status, outcome.errorMessage || null]
     );
-    await pool.query("SELECT pg_notify('webhooks_changed', 'new')").catch(() => {});
   } catch { /* log é best-effort — não pode quebrar a sincronização */ }
 }
 
@@ -720,9 +719,9 @@ export async function handleWebhook(req, res) {
   let webhookId;
   try {
     const webhookSource = isViaWebhookToken ? "ecommerce" : "chatbot";
-    const ins = await pool.query("INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, 'received', $4) RETURNING id", [user_id, logEventType, JSON.stringify(rawPayload), webhookSource]);
-    webhookId = ins.rows[0].id;
-    await pool.query(`DELETE FROM user_webhooks WHERE user_id=$1 AND received_at < NOW() - INTERVAL '60 days'`,[user_id]).catch(()=>{});
+    const ins = await pool.query("INSERT INTO user_webhooks (user_id, event_type, payload, status, source) VALUES ($1, $2, $3, 'received', $4)", [user_id, logEventType, JSON.stringify(rawPayload), webhookSource]);
+    webhookId = ins.insertId;
+    await pool.query(`DELETE FROM user_webhooks WHERE user_id=$1 AND received_at < NOW() - INTERVAL 60 DAY`,[user_id]).catch(()=>{});
   } catch (err) { return res.status(500).json({ success: false, message: "Erro ao salvar: " + err.message }); }
 
   if (!suri_active || !suri_endpoint || !suri_token) return res.status(200).json({ success:true, message:"Evento registrado. Suri não configurada ou inativa.", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId });
@@ -749,15 +748,12 @@ export async function handleWebhook(req, res) {
     }
     const resultInfo = result ? JSON.stringify(result).slice(0, 400) : null;
     await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [resultInfo, webhookId]);
-    await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"processed",event_type:eventType})]);
     return res.status(200).json({ success:true, message:"Evento processado com sucesso", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId, suri_result:result });
   } catch (err) {
     await pool.query("UPDATE user_webhooks SET status='error', error_message=$1 WHERE id=$2", [err.message, webhookId]);
-    await pool.query("SELECT pg_notify('webhooks_changed', $1)", [JSON.stringify({id:webhookId,status:"error",event_type:eventType})]);
     try {
       const errorTime = new Date().toLocaleString("pt-BR", { timeZone:"America/Sao_Paulo", day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" });
       await pool.query("INSERT INTO notifications (type, title, message, target_role, target_user_id) VALUES ('error', $1, $2, 'user', $3)", [`Erro na integração ${platformLabel}`, `Evento "${eventType || "desconhecido"}" falhou em ${errorTime}.\n\nDetalhe: ${err.message}`, user_id]);
-      await pool.query("SELECT pg_notify('notifications_changed', 'new')").catch(() => {});
       await notifyAdminIntegrationError(`Erro de integração — ${platformLabel}`, `Perfil: ${userName}\nPlataforma: ${platformLabel}\nEvento: ${eventType || "desconhecido"}\nHorário: ${errorTime}\n\nDetalhe: ${err.message}`);
     } catch {}
     return res.status(200).json({ success:false, message:"Evento registrado mas falhou ao processar na Suri", event_type:eventType, platform:ecommerce_platform, webhook_id:webhookId, error:err.message });
