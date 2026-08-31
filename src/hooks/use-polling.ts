@@ -31,7 +31,10 @@ export function useLongPoll<T extends { id: number }>(
   const onDataRef = useRef(onData);
   const paramsRef = useRef(params);
 
-  useEffect(() => { lastIdRef.current = lastId; },  [lastId]);
+  // Só sincroniza quando o chamador já sabe um id real — evita que um
+  // re-render com lastId ainda null apague o baseline 0 estabelecido
+  // internamente em loop() (ver comentário lá).
+  useEffect(() => { if (lastId !== null) lastIdRef.current = lastId; }, [lastId]);
   useEffect(() => { onDataRef.current = onData; },  [onData]);
   useEffect(() => { paramsRef.current = params; },  [params]);
 
@@ -58,7 +61,17 @@ export function useLongPoll<T extends { id: number }>(
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const items: T[] = data.webhooks ?? data.notifications ?? [];
-      if (items.length > 0) onDataRef.current(items);
+      if (items.length > 0) {
+        lastIdRef.current = Math.max(...items.map((i) => i.id));
+        onDataRef.current(items);
+      } else if (lastIdRef.current === null) {
+        // Sem after_id, o backend responde na hora (rota de carga inicial),
+        // sem segurar a conexão. Sem isso, enquanto não existir nenhum item
+        // (ex: conta sem notificações), o loop nunca ganha um after_id e
+        // dispara de novo instantaneamente pra sempre. Estabelece baseline
+        // 0 aqui pra que a próxima chamada já entre no long poll de verdade.
+        lastIdRef.current = 0;
+      }
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
       await new Promise(r => setTimeout(r, 3000));
