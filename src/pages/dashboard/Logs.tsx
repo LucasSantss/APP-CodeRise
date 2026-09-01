@@ -8,7 +8,7 @@ import type { BadgeVariant } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare, Inbox, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, ShoppingCart, MessageSquare, Truck, Inbox, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { getWebhooks } from '@/services/api';
 import type { WebhookEvent } from '@/types';
 import { WebhookErrorDetail } from '@/components/webhook-error-detail';
@@ -45,6 +45,13 @@ const SourceBadge = ({ source }: { source?: string }) => {
     return (
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
         <MessageSquare className="h-3 w-3" /> Chatbot
+      </span>
+    );
+  }
+  if (source === 'logistics') {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <Truck className="h-3 w-3" /> Logística
       </span>
     );
   }
@@ -182,6 +189,7 @@ const UserLogs = () => {
                   <SelectItem value="all">Todas as origens</SelectItem>
                   <SelectItem value="ecommerce">E-commerce</SelectItem>
                   <SelectItem value="chatbot">Chatbot</SelectItem>
+                  <SelectItem value="logistics">Logística</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -197,6 +205,7 @@ const UserLogs = () => {
                   <SelectItem value="order.shipped">Pedido Enviado</SelectItem>
                   <SelectItem value="order.cancelled">Pedido Cancelado</SelectItem>
                   <SelectItem value="order.partially_shipped">Pedido Parcial</SelectItem>
+                  <SelectItem value="logistics.quote">Cotação de Frete (Logística)</SelectItem>
                   <SelectSeparator />
                   <SelectGroup>
                     <SelectLabel>Olist</SelectLabel>
