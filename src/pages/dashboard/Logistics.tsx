@@ -64,9 +64,10 @@ const Logistics = () => {
 
   const meta = platform ? LOGISTICS_FIELDS[platform] : null;
   const fields = meta ? meta.fields : [];
-  const logisticsUrl = logisticsToken
-    ? `${window.location.origin}/logistics-quote?token=${logisticsToken}`
-    : '';
+  // Mesmo formato da tela "Integração via API" da Suri: uma API URL fixa +
+  // um Header customizado (em vez de token embutido na query string).
+  const logisticsUrl = `${window.location.origin}/logistics-quote`;
+  const logisticsHeaderValue = logisticsToken ? `Bearer ${logisticsToken}` : '';
   const isSuriSelected = chatbotPlatform === 'suri';
 
   const handleSave = async () => {
@@ -330,11 +331,32 @@ const Logistics = () => {
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                O token de autenticação já vai embutido na URL — não é necessário configurar nenhum Header
-                adicional na tela da Suri.
-              </p>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Header Key</Label>
+                <div className="flex gap-2">
+                  <Input value="Authorization" readOnly className="font-mono text-xs" />
+                  <Button variant="outline" size="icon" onClick={() => copyText('Authorization')}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Header Value</Label>
+                <div className="flex gap-2">
+                  <Input value={logisticsHeaderValue} readOnly className="font-mono text-xs" />
+                  <Button variant="outline" size="icon" onClick={() => copyText(logisticsHeaderValue)}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Na tela &quot;Integração via API&quot; da Suri, cole a API URL acima e adicione um Header com a
+              chave e o valor exatamente como mostrado.
+            </p>
 
             <Alert>
               <Truck className="h-4 w-4" />

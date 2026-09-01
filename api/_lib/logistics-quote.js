@@ -1,22 +1,33 @@
 /**
  * api/_lib/logistics-quote.js
  *
- * Endpoint PÚBLICO (autenticado via ?token=, igual ao /webhook) que a
- * integração "Integração via API" de Logística da Suri chama:
+ * Endpoint PÚBLICO que a tela "Integração via API" de Logística da Suri
+ * chama — no mesmo formato que ela usa para qualquer endpoint (uma API URL
+ * fixa + um Header customizado), em vez de token na query string:
  *
- *   GET  /logistics-quote?token=xxx  → valida o endpoint (200 OK)
- *   POST /logistics-quote?token=xxx  → recebe { Items, Address } e devolve
- *        um array de opções de entrega (ShopLogistic[]), calculado com a
- *        transportadora configurada pelo cliente (hoje: Correios).
+ *   GET  /logistics-quote   Authorization: Bearer <TOKEN>  → valida (200 OK)
+ *   POST /logistics-quote   Authorization: Bearer <TOKEN>  → recebe
+ *        { Items, Address } e devolve um array de opções de entrega
+ *        (ShopLogistic[]), calculado com a transportadora configurada pelo
+ *        cliente (hoje: Correios).
+ *
+ * Aceita também ?token= na query string (fallback, útil pra testar via
+ * navegador/curl sem montar header).
  *
  * Ver documentacao_api_logistica.pdf para o contrato completo.
  */
 import pool from "./db.js";
 import { getShippingOptions } from "./carriers/correios.js";
 
+function extractToken(req) {
+  const authHeader = req.headers?.authorization || "";
+  if (authHeader.startsWith("Bearer ")) return authHeader.slice(7).trim();
+  return req.query?.token || null;
+}
+
 export async function handleLogisticsQuote(req, res) {
-  const token = req.query?.token;
-  if (!token) return res.status(401).json({ error: "MissingToken", message: "Token de logística ausente." });
+  const token = extractToken(req);
+  if (!token) return res.status(401).json({ error: "MissingToken", message: "Token de logística ausente. Envie 'Authorization: Bearer <TOKEN>'." });
 
   const r = await pool.query(
     "SELECT logistics_platform, logistics_config, logistics_active FROM user_integrations WHERE logistics_token = $1",
