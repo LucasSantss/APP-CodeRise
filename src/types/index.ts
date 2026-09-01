@@ -27,6 +27,11 @@ export interface UserIntegration {
   suri_endpoint: string | null;
   suri_token: string | null;
   suri_active: boolean;
+  // Logística (opcional — transportadora usada pela integração de Logística do chatbot)
+  logistics_platform?: LogisticsPlatform | null;
+  logistics_config?: Record<string, string> | null;
+  logistics_active?: boolean;
+  logistics_token?: string | null;
   // Agendamento de sincronização automática de catálogo
   sync_schedule: SyncSchedule | null;
   created_at: string;
@@ -75,6 +80,7 @@ export interface ChatbotIntegration {
 
 export type EcommercePlatform = 'shopify' | 'woocommerce' | 'tray' | 'nuvemshop' | 'vtex' | 'olist' | 'custom';
 export type ChatbotPlatform = 'suri' | 'evolution_api' | 'kommo' | 'take_blip' | 'manychat' | 'weni';
+export type LogisticsPlatform = 'correios' | 'smart_envios';
 
 export interface SyncRule {
   id: number;
@@ -220,6 +226,35 @@ export const ECOMMERCE_FIELDS: Record<EcommercePlatform, { label: string; fields
       { key: 'auth_header_name',   label: 'Nome do Header de Auth' },
       { key: 'auth_header_value',  label: 'Valor do Header de Auth', type: 'password' },
     ],
+  },
+};
+
+// ─── Logistics platforms ─────────────────────────────────────────────────────
+// Transportadora usada pela integração de Logística (ex.: "Integração via
+// API" do chatbot Suri). Hoje só Correios está implementado; Smart Envios
+// fica pré-cadastrado para o próximo passo.
+
+export const LOGISTICS_FIELDS: Record<LogisticsPlatform, {
+  label: string;
+  available: boolean;
+  fields: { key: string; label: string; type?: string; placeholder?: string }[];
+}> = {
+  correios: {
+    label: 'Correios',
+    available: true,
+    fields: [
+      { key: 'usuario',            label: 'Usuário (Meu Correios)',        placeholder: 'Login ou CNPJ do Meu Correios' },
+      { key: 'senha',              label: 'Senha do Componente',           type: 'password' },
+      { key: 'cartaoPostagem',     label: 'Cartão de Postagem' },
+      { key: 'cepOrigem',          label: 'CEP de Origem',                 placeholder: '00000000' },
+      { key: 'codigoServicoSedex', label: 'Código do Serviço SEDEX',       placeholder: 'ex: 04162' },
+      { key: 'codigoServicoPac',   label: 'Código do Serviço PAC',         placeholder: 'ex: 04669' },
+    ],
+  },
+  smart_envios: {
+    label: 'Smart Envios',
+    available: false,
+    fields: [],
   },
 };
 

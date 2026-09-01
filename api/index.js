@@ -35,6 +35,9 @@ import { handlePlatformSettings } from "./_lib/platform-settings.js";
 import { handleErrorWebhookSettings } from "./_lib/error-webhook.js";
 import { handleSetup }            from "./_lib/setup.js";
 import { handleTestSuri }         from "./_lib/test-suri.js";
+import { handleLogistics }        from "./_lib/logistics.js";
+import { handleLogisticsQuote }   from "./_lib/logistics-quote.js";
+import handleTestLogistics        from "./_lib/test-logistics.js";
 
 // Handlers existentes no projeto (não alterados)
 import handleUsers         from "./users.js";
@@ -73,6 +76,9 @@ export default async function handler(req, res) {
   if (path === "/setup"             || path.startsWith("/setup?"))         return handleSetup(req, res);
   if (path === "/test-suri"         || path.startsWith("/test-suri?"))     return handleTestSuri(req, res);
   if (path === "/test-ecommerce"    || path.startsWith("/test-ecommerce?")) return handleTestEcommerce(req, res);
+  if (path === "/logistics"         || path.startsWith("/logistics?"))      return handleLogistics(req, res);
+  if (path === "/logistics-quote"   || path.startsWith("/logistics-quote?")) return handleLogisticsQuote(req, res);
+  if (path === "/test-logistics"    || path.startsWith("/test-logistics?")) return handleTestLogistics(req, res);
 
   // ── Handlers originais do projeto ────────────────────────────────────────
   if (path.startsWith("/users"))         return handleUsers(req, res);

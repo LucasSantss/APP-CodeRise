@@ -101,6 +101,21 @@ export const patchChatbot = (chatbot_active: boolean, userId?: number) =>
 export const regenerateChatbotToken = (userId?: number) =>
   request<ApiResponse>(`/chatbot?action=regenerate-token${userId ? `&user_id=${userId}` : ''}`, { method: 'POST' });
 
+// ── Logística (transportadora usada pela integração de Logística do chatbot) ─
+export const getLogistics = (userId?: number) =>
+  request<ApiResponse>(`/logistics${userId ? `?user_id=${userId}` : ''}`);
+
+export const updateLogistics = (data: { logistics_platform?: string; logistics_config?: Record<string, string> }, userId?: number) =>
+  request<ApiResponse>(`/logistics${userId ? `?user_id=${userId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const patchLogistics = (logistics_active: boolean, userId?: number) =>
+  request<ApiResponse>(`/logistics${userId ? `?user_id=${userId}` : ''}`, { method: 'PATCH', body: JSON.stringify({ logistics_active }) });
+
+export const regenerateLogisticsToken = (userId?: number) =>
+  request<ApiResponse>(`/logistics?action=regenerate-token${userId ? `&user_id=${userId}` : ''}`, { method: 'POST' });
+
+export const testLogisticsConnection = (platform: string, config: Record<string, string>) =>
+  request<ApiResponse & { expiraEm?: string }>('/test-logistics', { method: 'POST', body: JSON.stringify({ platform, config }) });
 
 // Suri connection test (proxied through backend to avoid CORS)
 export type StoreItem = { id: string; name: string };

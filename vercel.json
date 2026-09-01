@@ -122,6 +122,30 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/logistics",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/logistics(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/logistics-quote",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/logistics-quote(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/test-logistics",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/test-logistics(.*)",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/cron-sync-stores",
       "destination": "/api/cron-sync-stores.js"
     },

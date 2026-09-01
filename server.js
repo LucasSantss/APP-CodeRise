@@ -27,6 +27,9 @@ import { handleErrorWebhookSettings } from "./api/_lib/error-webhook.js";
 import { handleSetup } from "./api/_lib/setup.js";
 import { handleTestSuri } from "./api/_lib/test-suri.js";
 import handleTestEcommerce from "./api/_lib/test-ecommerce.js";
+import { handleLogistics } from "./api/_lib/logistics.js";
+import { handleLogisticsQuote } from "./api/_lib/logistics-quote.js";
+import handleTestLogistics from "./api/_lib/test-logistics.js";
 
 // Mesmos 4 + cron-sync-stores que hoje são arquivos de topo em api/ — ver
 // tabela de "fontes da verdade" no plano de migração (users/integrations/
@@ -57,6 +60,9 @@ app.all("/error-webhook-settings", handleErrorWebhookSettings);
 app.all("/setup", handleSetup);
 app.all("/test-suri", handleTestSuri);
 app.all("/test-ecommerce", handleTestEcommerce);
+app.all("/logistics", handleLogistics);
+app.all("/logistics-quote", handleLogisticsQuote);
+app.all("/test-logistics", handleTestLogistics);
 app.all("/users*", handleUsers);
 app.all("/integrations*", handleIntegrations);
 app.all("/notifications*", handleNotifications);
