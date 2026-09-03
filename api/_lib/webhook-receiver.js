@@ -331,7 +331,7 @@ export async function processOlistStockOrPriceChanged(suriEndpoint, suriToken, n
   // única vez por produto e atualizar todos os SKUs afetados numa só chamada.
   const byReference = new Map();
   for (const item of (normalized.items || [])) {
-    if (!item.reference || !item.sku) continue;
+    if (!item.sku || !item.reference) continue;
     if (!byReference.has(item.reference)) byReference.set(item.reference, []);
     byReference.get(item.reference).push(item);
   }
@@ -340,7 +340,7 @@ export async function processOlistStockOrPriceChanged(suriEndpoint, suriToken, n
   const results = [];
   for (const [reference, refItems] of byReference) {
     try {
-      const found = await findProductByReference(store_url, access_token, reference);
+      const found = await findProductByReference(store_url, access_token, reference, refItems[0]?.sku);
       if (!found) { results.push({ reference, status: "not_found_in_olist" }); continue; }
       const productId = String(found.id);
 

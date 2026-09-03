@@ -270,18 +270,26 @@ export function normalizeWebhookProduct(payload) {
 
 /**
  * Localiza o produto na Olist pela referência (reference — SKU do produto
- * pai). Os webhooks de estoque/preço (stocks-changed/prices-changed) só
- * trazem { sku, reference } por item, não o ID do produto — precisamos
- * desse lookup pra chegar no produto completo antes de sincronizar.
+ * pai) e/ou pelo SKU da variante. Os webhooks de estoque/preço
+ * (stocks-changed/prices-changed) só trazem { sku, reference } por item, não
+ * o ID do produto — precisamos desse lookup pra chegar no produto completo
+ * antes de sincronizar. Só inclui na query os parâmetros que de fato vieram
+ * preenchidos, pra não mandar filtros como "sku=undefined" pra API.
  *
- * Confirma a referência do resultado antes de retornar: se o filtro da API
+ * Confirma reference/sku do resultado antes de retornar: se o filtro da API
  * não for suportado e a Olist ignorar o parâmetro, listProducts devolveria
  * a primeira página do catálogo inteiro — sem essa checagem, arriscaríamos
  * sincronizar o produto errado na Suri.
  */
 export async function findProductByReference(storeUrl, accessToken, reference, sku) {
-  if (!reference) return null;
-  const batch = await client.listProducts(storeUrl, accessToken, { sku, per_page: 5 }).catch(() => null);
+  if (!reference && !sku) return null;
+  const params = { per_page: 5 };
+  if (reference) params.reference = reference;
+  if (sku) params.sku = sku;
+  const batch = await client.listProducts(storeUrl, accessToken, params).catch(() => null);
   const list = Array.isArray(batch) ? batch : [];
-  return list.find(p => String(p.reference || p.sku || "") === String(reference)) || String(sku) || null;
+  return list.find(p =>
+    (reference && String(p.reference || "") === String(reference)) ||
+    (sku && String(p.sku || "") === String(sku))
+  ) || null;
 }
