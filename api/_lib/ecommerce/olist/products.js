@@ -279,9 +279,9 @@ export function normalizeWebhookProduct(payload) {
  * a primeira página do catálogo inteiro — sem essa checagem, arriscaríamos
  * sincronizar o produto errado na Suri.
  */
-export async function findProductByReference(storeUrl, accessToken, reference) {
+export async function findProductByReference(storeUrl, accessToken, reference, sku) {
   if (!reference) return null;
   const batch = await client.listProducts(storeUrl, accessToken, { sku, per_page: 5 }).catch(() => null);
   const list = Array.isArray(batch) ? batch : [];
-  return list.find(p => String(p.sku || "") === String(reference)) || null;
+  return list.find(p => String(p.reference || p.sku || "") === String(reference)) || String(sku) || null;
 }
