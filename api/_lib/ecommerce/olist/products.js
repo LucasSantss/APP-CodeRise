@@ -281,7 +281,7 @@ export function normalizeWebhookProduct(payload) {
  */
 export async function findProductByReference(storeUrl, accessToken, reference) {
   if (!reference) return null;
-  const batch = await client.listProducts(storeUrl, accessToken, { reference, per_page: 5 }).catch(() => null);
+  const batch = await client.listProducts(storeUrl, accessToken, { sku, per_page: 5 }).catch(() => null);
   const list = Array.isArray(batch) ? batch : [];
-  return list.find(p => String(p.reference || "") === String(reference)) || null;
+  return list.find(p => String(p.sku || "") === String(reference)) || null;
 }
